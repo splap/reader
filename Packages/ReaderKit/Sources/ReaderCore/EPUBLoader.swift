@@ -1,8 +1,11 @@
 import Foundation
+import OSLog
 import UIKit
 import ZIPFoundation
 
 public final class EPUBLoader {
+    private static let logger = Logger(subsystem: "com.example.reader", category: "epub")
+
     public enum LoaderError: Error, CustomStringConvertible {
         case invalidArchive
         case missingContainer
@@ -28,7 +31,7 @@ public final class EPUBLoader {
 
     public init() {}
 
-    public func loadChapter(from url: URL, maxSections: Int = 8) throws -> Chapter {
+    public func loadChapter(from url: URL, maxSections: Int = .max) throws -> Chapter {
         let archive = try Archive(url: url, accessMode: .read)
 
         guard let containerData = try data(for: "META-INF/container.xml", in: archive) else {
@@ -65,7 +68,7 @@ public final class EPUBLoader {
             let resolvedPath = package.resolve(item.href)
             guard let htmlData = try data(for: resolvedPath, in: archive) else { continue }
             let section = attributedString(fromHTML: htmlData)
-            if section.length == 0 { continue }
+            if !containsReadableText(section) { continue }
 
             if combined.length > 0 {
                 combined.append(NSAttributedString(string: "\n\n"))
@@ -79,6 +82,12 @@ public final class EPUBLoader {
         }
 
         applyDefaultFontIfNeeded(to: combined)
+        applyDefaultColorIfNeeded(to: combined)
+#if DEBUG
+        Self.logger.debug(
+            "Loaded EPUB \(url.lastPathComponent, privacy: .public) sections=\(sectionCount, privacy: .public) length=\(combined.length, privacy: .public)"
+        )
+#endif
         return Chapter(id: chapterId, attributedText: combined, title: title)
     }
 
@@ -114,6 +123,24 @@ public final class EPUBLoader {
                 attributed.addAttribute(.font, value: baseFont, range: range)
             }
         }
+    }
+
+    private func applyDefaultColorIfNeeded(to attributed: NSMutableAttributedString) {
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        let baseColor = UIColor.label
+
+        attributed.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                attributed.addAttribute(.foregroundColor, value: baseColor, range: range)
+            }
+        }
+    }
+
+    private func containsReadableText(_ attributed: NSAttributedString) -> Bool {
+        let filtered = attributed.string
+            .replacingOccurrences(of: "\u{FFFC}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !filtered.isEmpty
     }
 }
 

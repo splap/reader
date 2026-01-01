@@ -1,8 +1,10 @@
 import Foundation
+import OSLog
 import ReaderCore
 import SwiftUI
 
 public struct ReaderView: View {
+    private static let logger = Logger(subsystem: "com.example.reader", category: "reader")
     @StateObject private var model: ReaderViewModel
     private let contentInsets = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
 
@@ -10,9 +12,21 @@ public struct ReaderView: View {
         _model = StateObject(wrappedValue: ReaderViewModel(chapter: chapter))
     }
 
-    public init(epubURL: URL, maxSections: Int = 8) {
-        let chapter = (try? EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)) ?? SampleChapter.make()
-        _model = StateObject(wrappedValue: ReaderViewModel(chapter: chapter))
+    public init(epubURL: URL, maxSections: Int = .max) {
+        do {
+            let chapter = try EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)
+#if DEBUG
+            Self.logger.debug(
+                "Loaded EPUB \(epubURL.lastPathComponent, privacy: .public) length=\(chapter.attributedText.length, privacy: .public)"
+            )
+#endif
+            _model = StateObject(wrappedValue: ReaderViewModel(chapter: chapter))
+        } catch {
+#if DEBUG
+            Self.logger.error("Failed to load EPUB: \(error.localizedDescription, privacy: .public)")
+#endif
+            _model = StateObject(wrappedValue: ReaderViewModel(chapter: SampleChapter.make()))
+        }
     }
 
     public var body: some View {
@@ -59,6 +73,13 @@ public struct ReaderView: View {
                 } else {
                     ProgressView("Preparing pages...")
                 }
+#if DEBUG
+                DebugOverlay(
+                    pages: model.pages,
+                    textStorage: model.textStorage,
+                    currentPage: model.currentPageIndex
+                )
+#endif
             }
             .onAppear {
                 model.updateLayout(pageSize: proxy.size, insets: contentInsets)
@@ -87,3 +108,57 @@ public struct ReaderView: View {
         }
     }
 }
+
+#if DEBUG
+private struct DebugOverlay: View {
+    let pages: [Page]
+    let textStorage: NSTextStorage?
+    let currentPage: Int
+
+    var body: some View {
+        let textLength = textStorage?.length ?? 0
+        let wordsOnPage = wordCountForCurrentPage()
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text("pages: \(pages.count)")
+            Text("text length (chars): \(textLength)")
+            Text("current page: \(currentPage)")
+            Text("words on page: \(wordsOnPage)")
+        }
+        .font(.caption)
+        .foregroundStyle(.white)
+        .padding(8)
+        .background(Color.black.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(12)
+    }
+
+    private func wordCountForCurrentPage() -> Int {
+        guard let textStorage,
+              currentPage >= 0,
+              currentPage < pages.count else {
+            return 0
+        }
+        let range = pages[currentPage].range
+        let text = (textStorage.string as NSString).substring(with: range)
+        return countWords(in: text)
+    }
+
+    private func countWords(in text: String) -> Int {
+        var count = 0
+        var inWord = false
+        for scalar in text.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                if !inWord {
+                    count += 1
+                    inWord = true
+                }
+            } else {
+                inWord = false
+            }
+        }
+        return count
+    }
+}
+#endif

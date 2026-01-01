@@ -1,8 +1,10 @@
 import Foundation
 import ReaderCore
 import UIKit
+import OSLog
 
 final class ReaderViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: "com.example.reader", category: "paging")
     @Published var pages: [Page] = []
     @Published var layoutManager: NSLayoutManager?
     @Published var textStorage: NSTextStorage?
@@ -41,6 +43,11 @@ final class ReaderViewModel: ObservableObject {
         textStorage = result.textStorage
 
         currentPageIndex = engine.pageIndex(for: positionOffset, in: pages)
+#if DEBUG
+        Self.logger.debug(
+            "paginate size=\(pageSize.width, privacy: .public)x\(pageSize.height, privacy: .public) pages=\(self.pages.count, privacy: .public) textLength=\(self.textStorage?.length ?? 0, privacy: .public)"
+        )
+#endif
     }
 
     func updateCurrentPage(_ index: Int) {

@@ -6,7 +6,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 
 ## Scope decisions (MVP)
 
-* Content format: **single chapter as `NSAttributedString`** (stub loader). No EPUB/HTML/CSS yet.
+* Content format: **EPUB → `NSAttributedString`** (basic loader, full spine; later pages blank).
 * Paging: **horizontal page-by-page swipe** (DONE).
 * Selection: **system selection handles**; custom action via the system edit menu (DONE).
 * Persistence: restore **reading position within the current chapter** (page index + character offset) (DONE).
@@ -61,7 +61,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
   * `./scripts/build` uses `xcodebuild` with a hardcoded scheme, configuration, and simulator destination (DONE)
   * `./scripts/test` runs unit tests with the same hardcoded destination (DONE)
   * `./scripts/lint` runs pinned SwiftLint/SwiftFormat versions (DONE)
-* Commit `Package.resolved` (pending; not generated yet).
+* Commit `Package.resolved` (DONE).
 
 ### 1) Skeleton app
 
@@ -152,7 +152,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 
 ## Definition of done (MVP)
 
-* Swipe pages smoothly on iPad (DONE).
+* Swipe pages smoothly on iPad (BLOCKED: only first page renders; later pages blank).
 * Text reflows when font size changes (DONE).
 * User can select text reliably (DONE).
 * “Send to LLM” appears reliably in the system edit menu when selection exists (DONE).
@@ -184,5 +184,5 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 * Modal Q&A works; dismiss returns to exact spot.
 * Search
 * Highlight persistence (if desired)
-* EPUB ingestion (HTML/CSS strategy)
+* Robust EPUB ingestion (HTML/CSS strategy)
 * Custom renderer (replace `UITextView` pages for performance/control)
