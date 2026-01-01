@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+PROJECT="Reader.xcodeproj"
+SCHEME="ReaderApp"
+CONFIGURATION="Debug"
+DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=18.5,arch=arm64"
+DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
+
+if [ ! -d "$PROJECT" ]; then
+  echo "$PROJECT not found. Run ./scripts/bootstrap first." >&2
+  exit 1
+fi
+
+xcodebuild \
+  -project "$PROJECT" \
+  -scheme "$SCHEME" \
+  -configuration "$CONFIGURATION" \
+  -destination "$DESTINATION" \
+  -derivedDataPath "$DERIVED_DATA" \
+  build

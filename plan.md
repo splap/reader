@@ -57,19 +57,19 @@ A reflowable, paged reader on iPadOS using TextKit 2 with solid text selection a
 
 * Ensure scripts exist and are the only entry points:
 
-  * `./scripts/bootstrap` generates the Xcode project from pure SPM (no Tuist/XcodeGen) and installs/pins tools
-  * `./scripts/build` uses `xcodebuild` with a hardcoded scheme, configuration, and simulator destination (e.g., iPhone 15, iOS latest)
-  * `./scripts/test` runs unit tests with the same hardcoded destination
-  * `./scripts/lint` runs pinned SwiftLint/SwiftFormat versions
-* Commit `Package.resolved`.
+  * `./scripts/bootstrap` generates the Xcode project via XcodeGen and installs/pins tools (DONE)
+  * `./scripts/build` uses `xcodebuild` with a hardcoded scheme, configuration, and simulator destination (DONE)
+  * `./scripts/test` runs unit tests with the same hardcoded destination (DONE)
+  * `./scripts/lint` runs pinned SwiftLint/SwiftFormat versions (DONE)
+* Commit `Package.resolved` (pending; not generated yet).
 
 ### 1) Skeleton app
 
-* Create SPM packages:
+* Create SPM packages (DONE):
 
-  * `ReaderCore`
-  * `ReaderUI`
-* SwiftUI app with `ReaderView(chapter:)` as root; keep the Xcode app target thin.
+  * `ReaderCore` (DONE)
+  * `ReaderUI` (DONE)
+* SwiftUI app with `ReaderView(chapter:)` as root; keep the Xcode app target thin (DONE).
 * Hardcode a sample chapter (lorem + headings + italics).
 
 ### 2) Text engine + pagination (TextKit 2)

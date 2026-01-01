@@ -1,0 +1,4 @@
+excluded:
+  - .build
+  - Reader.xcodeproj
+  - Reader.xcworkspace

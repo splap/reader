@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+DEVICE_NAME="iPad Pro 11-inch (M4)"
+RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+APP_BUNDLE_ID="com.example.reader"
+APP_PATH="$ROOT_DIR/.build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app"
+
+DEVICE_UDID=$(python3 - <<'PY'
+import json
+import subprocess
+import sys
+
+runtime_id = "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+name = "iPad Pro 11-inch (M4)"
+
+raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+obj = json.loads(raw)
+for device in obj.get("devices", {}).get(runtime_id, []):
+    if device.get("name") == name:
+        print(device.get("udid", ""))
+        sys.exit(0)
+
+sys.exit(1)
+PY
+)
+
+if [ -z "$DEVICE_UDID" ]; then
+  echo "Simulator device not found for $DEVICE_NAME ($RUNTIME_ID)." >&2
+  exit 1
+fi
+
+xcrun simctl boot "$DEVICE_UDID" || true
+xcrun simctl bootstatus "$DEVICE_UDID" -b
+
+"$ROOT_DIR/scripts/build"
+
+if [ ! -d "$APP_PATH" ]; then
+  echo "App not found at $APP_PATH. Build failed?" >&2
+  exit 1
+fi
+
+xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
+xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"
