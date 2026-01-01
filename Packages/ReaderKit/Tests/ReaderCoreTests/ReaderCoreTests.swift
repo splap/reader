@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import ZIPFoundation
 @testable import ReaderCore
 
 final class ReaderCoreTests: XCTestCase {
@@ -79,6 +80,15 @@ final class ReaderCoreTests: XCTestCase {
         XCTAssertEqual(store.load(chapterId: "sample"), position)
     }
 
+    func testEPUBLoaderReadsSingleChapter() throws {
+        let epubURL = try makeMinimalEPUB()
+        let loader = EPUBLoader()
+        let chapter = try loader.loadChapter(from: epubURL, maxSections: 1)
+
+        XCTAssertTrue(chapter.attributedText.string.contains("Hello from EPUB"))
+        XCTAssertEqual(chapter.title, "Sample EPUB")
+    }
+
     private func makeChapter() -> Chapter {
         let text = String(repeating: "Lorem ipsum dolor sit amet. ", count: 400)
         let attributes: [NSAttributedString.Key: Any] = [
@@ -86,5 +96,70 @@ final class ReaderCoreTests: XCTestCase {
         ]
         let attributedText = NSAttributedString(string: text, attributes: attributes)
         return Chapter(id: "sample", attributedText: attributedText, title: "Sample")
+    }
+
+    private func makeMinimalEPUB() throws -> URL {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("epub")
+
+        let archive = try Archive(url: tempURL, accessMode: .create)
+        try addFile(
+            to: archive,
+            path: "META-INF/container.xml",
+            contents: """
+<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+"""
+        )
+        try addFile(
+            to: archive,
+            path: "OEBPS/content.opf",
+            contents: """
+<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Sample EPUB</dc:title>
+  </metadata>
+  <manifest>
+    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter1"/>
+  </spine>
+</package>
+"""
+        )
+        try addFile(
+            to: archive,
+            path: "OEBPS/chapter1.xhtml",
+            contents: """
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><title>Sample EPUB</title></head>
+  <body><p>Hello from EPUB</p></body>
+</html>
+"""
+        )
+
+        return tempURL
+    }
+
+    private func addFile(to archive: Archive, path: String, contents: String) throws {
+        let data = Data(contents.utf8)
+        try archive.addEntry(
+            with: path,
+            type: .file,
+            uncompressedSize: UInt32(data.count),
+            compressionMethod: .none
+        ) { position, size in
+            let start = Int(position)
+            let end = min(start + Int(size), data.count)
+            return data[start..<end]
+        }
     }
 }

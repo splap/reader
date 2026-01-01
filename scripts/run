@@ -8,6 +8,7 @@ DEVICE_NAME="iPad Pro 11-inch (M4)"
 RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
 APP_BUNDLE_ID="com.example.reader"
 APP_PATH="$ROOT_DIR/.build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app"
+EPUB_DEST_NAME="Imported.epub"
 
 DEVICE_UDID=$(python3 - <<'PY'
 import json
@@ -44,4 +45,21 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 
 xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
+
+if [ -n "${EPUB_PATH:-}" ]; then
+  if [ ! -f "$EPUB_PATH" ]; then
+    echo "EPUB_PATH not found: $EPUB_PATH" >&2
+    exit 1
+  fi
+
+  CONTAINER_PATH=$(xcrun simctl get_app_container "$DEVICE_UDID" "$APP_BUNDLE_ID" data)
+  if [ -z "$CONTAINER_PATH" ]; then
+    echo "Unable to find app container for $APP_BUNDLE_ID." >&2
+    exit 1
+  fi
+
+  mkdir -p "$CONTAINER_PATH/Documents"
+  cp "$EPUB_PATH" "$CONTAINER_PATH/Documents/$EPUB_DEST_NAME"
+fi
+
 xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"

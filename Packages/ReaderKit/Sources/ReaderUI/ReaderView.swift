@@ -1,3 +1,4 @@
+import Foundation
 import ReaderCore
 import SwiftUI
 
@@ -6,6 +7,11 @@ public struct ReaderView: View {
     private let contentInsets = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
 
     public init(chapter: Chapter = SampleChapter.make()) {
+        _model = StateObject(wrappedValue: ReaderViewModel(chapter: chapter))
+    }
+
+    public init(epubURL: URL, maxSections: Int = 8) {
+        let chapter = (try? EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)) ?? SampleChapter.make()
         _model = StateObject(wrappedValue: ReaderViewModel(chapter: chapter))
     }
 
