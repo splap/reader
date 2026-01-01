@@ -9,16 +9,32 @@ SCHEME="ReaderApp"
 CONFIGURATION="Debug"
 DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=18.5,arch=arm64"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
+EXTRA_BUILD_SETTINGS=""
+
+if [ "${UPDATE_SNAPSHOTS:-}" = "1" ]; then
+  EXTRA_BUILD_SETTINGS="SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG SNAPSHOT_RECORD"
+fi
 
 if [ ! -d "$PROJECT" ]; then
   echo "$PROJECT not found. Run ./scripts/bootstrap first." >&2
   exit 1
 fi
 
-xcodebuild \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIGURATION" \
-  -destination "$DESTINATION" \
-  -derivedDataPath "$DERIVED_DATA" \
-  test
+if [ -n "$EXTRA_BUILD_SETTINGS" ]; then
+  xcodebuild \
+    -project "$PROJECT" \
+    -scheme "$SCHEME" \
+    -configuration "$CONFIGURATION" \
+    -destination "$DESTINATION" \
+    -derivedDataPath "$DERIVED_DATA" \
+    "$EXTRA_BUILD_SETTINGS" \
+    test
+else
+  xcodebuild \
+    -project "$PROJECT" \
+    -scheme "$SCHEME" \
+    -configuration "$CONFIGURATION" \
+    -destination "$DESTINATION" \
+    -derivedDataPath "$DERIVED_DATA" \
+    test
+fi

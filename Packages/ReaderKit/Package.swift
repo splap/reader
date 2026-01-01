@@ -19,6 +19,10 @@ let package = Package(
         .testTarget(
             name: "ReaderCoreTests",
             dependencies: ["ReaderCore"]
+        ),
+        .testTarget(
+            name: "ReaderUITests",
+            dependencies: ["ReaderUI", "ReaderCore"]
         )
     ]
 )

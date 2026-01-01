@@ -103,7 +103,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 * Only render a small window of pages around the current page (e.g., current ±2) and release views outside that window deterministically (DONE).
 * Tests:
 
-  * Snapshot tests for `PageTextView` (typography + insets + selection affordances) (deferred)
+  * Snapshot tests for `PageTextView` (typography + insets + selection affordances) (DONE)
 
 ### 4) Pager UI (DONE)
 
