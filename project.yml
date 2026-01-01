@@ -39,6 +39,17 @@ targets:
     dependencies:
       - target: ReaderApp
 
+  ReaderCoreUnitTests:
+    type: bundle.unit-test
+    platform: iOS
+    info:
+      path: App/Tests/Info.plist
+    sources:
+      - path: Packages/ReaderKit/Tests/ReaderCoreTests
+    dependencies:
+      - package: ReaderKit
+        product: ReaderCore
+
 schemes:
   ReaderApp:
     build:
@@ -47,3 +58,4 @@ schemes:
     test:
       targets:
         - ReaderAppTests
+        - ReaderCoreUnitTests
