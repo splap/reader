@@ -18,8 +18,8 @@ struct ReaderSettingsView: View {
                             .font(.caption)
                         Slider(
                             value: $sliderValue,
-                            in: 1.5...3.0,
-                            step: 0.1,
+                            in: 1.25...2.0,
+                            step: 0.05,
                             onEditingChanged: { editing in
                                 if !editing {
                                     // Only update when user stops dragging
