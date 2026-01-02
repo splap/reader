@@ -2,6 +2,12 @@ import SwiftUI
 
 struct ReaderSettingsView: View {
     @Binding var fontScale: CGFloat
+    @State private var sliderValue: CGFloat
+
+    init(fontScale: Binding<CGFloat>) {
+        self._fontScale = fontScale
+        self._sliderValue = State(initialValue: fontScale.wrappedValue)
+    }
 
     var body: some View {
         NavigationStack {
@@ -10,14 +16,21 @@ struct ReaderSettingsView: View {
                     HStack {
                         Text("A")
                             .font(.caption)
-                        Slider(value: Binding(
-                            get: { Double(fontScale) },
-                            set: { fontScale = CGFloat($0) }
-                        ), in: 0.8...1.6, step: 0.05)
+                        Slider(
+                            value: $sliderValue,
+                            in: 1.5...3.0,
+                            step: 0.1,
+                            onEditingChanged: { editing in
+                                if !editing {
+                                    // Only update when user stops dragging
+                                    fontScale = sliderValue
+                                }
+                            }
+                        )
                         Text("A")
                             .font(.title3)
                     }
-                    Text(String(format: "%.2fx", fontScale))
+                    Text(String(format: "%.1fx", sliderValue))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

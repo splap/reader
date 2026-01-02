@@ -7,7 +7,7 @@ final class ReaderViewModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.example.reader", category: "paging")
     @Published var pages: [Page] = []
     @Published var currentPageIndex: Int = 0
-    @Published var fontScale: CGFloat = 1.4
+    @Published var fontScale: CGFloat = 2.6
     @Published var settingsPresented: Bool = false
     @Published var llmPayload: LLMPayload?
 
