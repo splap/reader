@@ -8,7 +8,7 @@ final class ReaderViewModel: ObservableObject {
     @Published var pages: [Page] = []
     @Published var currentPageIndex: Int = 0
     @Published var totalPages: Int = 0  // For WebView mode
-    @Published var fontScale: CGFloat = 2.0
+    @Published var fontScale: CGFloat = 1.4
     @Published var settingsPresented: Bool = false
     @Published var llmPayload: LLMPayload?
 

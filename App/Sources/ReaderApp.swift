@@ -1,45 +1,32 @@
 import Foundation
 import ReaderUI
+import ReaderCore
 import SwiftUI
 import UIKit
 
 @main
 struct ReaderApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var lastOpenedBookId: UUID?
+
+    init() {
+        // Load last opened book ID from UserDefaults
+        if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
+           let uuid = UUID(uuidString: idString) {
+            _lastOpenedBookId = State(initialValue: uuid)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
-            ReaderRootView()
+            // Smart navigation: auto-open last book if available, otherwise show library
+            if let bookId = lastOpenedBookId,
+               let book = BookLibraryService.shared.getBook(id: bookId) {
+                ReaderContainerView(book: book)
+            } else {
+                LibraryView()
+            }
         }
-    }
-}
-
-private struct ReaderRootView: UIViewControllerRepresentable {
-    private let epubURL = ReaderAppEnvironment.epubURL()
-
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let readerVC: ReaderViewController
-        if let epubURL {
-            readerVC = ReaderViewController(epubURL: epubURL)
-        } else {
-            readerVC = ReaderViewController()
-        }
-        let navController = UINavigationController(rootViewController: readerVC)
-        return navController
-    }
-
-    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
-        // No updates needed
-    }
-}
-
-private enum ReaderAppEnvironment {
-    static func epubURL() -> URL? {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let epubURL = documentsURL.appendingPathComponent("Imported.epub")
-        return FileManager.default.fileExists(atPath: epubURL.path) ? epubURL : nil
     }
 }
 
@@ -49,5 +36,32 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         return true
+    }
+
+    // Handle file opens from outside the app (AirDrop, Files, Share)
+    func application(
+        _ app: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        guard url.pathExtension.lowercased() == "epub" else {
+            return false
+        }
+
+        // Import the file
+        do {
+            _ = try BookLibraryService.shared.importBook(from: url, startAccessing: false)
+
+            // Notify library view to refresh
+            NotificationCenter.default.post(
+                name: .bookLibraryDidChange,
+                object: nil
+            )
+
+            return true
+        } catch {
+            print("Failed to import EPUB from external source: \(error)")
+            return false
+        }
     }
 }
