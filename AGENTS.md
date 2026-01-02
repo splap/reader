@@ -3,12 +3,56 @@ Core principle
 Make the project boring and deterministic.
 If a human can build/test it with one command, agents will succeed. Otherwise, they will fail unpredictably.
 
-when you've made a change, run the simulator yourself so i see the result.
+when you've made a change, run the app yourself so i see the result.
 
-watch the simulator logs so you can see results of your changes using this command:
-    xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.example.reader" AND (category == "paging" OR category == "page-view")'
+## Debugging and Reading Logs
 
-write debug logs to troubleshoot issues.
+### For Physical iPad (Primary)
+Unified logging (os_log/Logger) doesn't reliably stream to Mac from iOS 26+ devices.
+
+**Best approach:** Write debug logs to a file in the app, then pull it:
+
+1. Add file logging in your code:
+```swift
+private let debugLogURL = FileManager.default
+    .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    .appendingPathComponent("import-debug.log")
+
+private func writeDebugLog(_ message: String) {
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let logEntry = "[\(timestamp)] \(message)\n"
+    if let data = logEntry.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: debugLogURL.path) {
+            if let fileHandle = try? FileHandle(forWritingTo: debugLogURL) {
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+                try? fileHandle.close()
+            }
+        } else {
+            try? data.write(to: debugLogURL)
+        }
+    }
+}
+```
+
+2. Pull the log from device:
+```bash
+xcrun devicectl device copy from \
+  --device <DEVICE_UDID> \
+  --domain-type appDataContainer \
+  --domain-identifier com.splap.reader \
+  --source "Library/Application Support/import-debug.log" \
+  --destination /tmp/debug.log
+
+cat /tmp/debug.log
+```
+
+### For Simulator (Fallback)
+```bash
+xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.splap.reader"'
+```
+
+**Note:** NSLog() and print() may not appear in device logs on newer iOS. Use file logging instead.
 
 1. Project structure (most important)
     Prefer Swift Package Manager (SPM) for feature code.

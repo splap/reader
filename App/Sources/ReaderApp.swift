@@ -10,10 +10,16 @@ struct ReaderApp: App {
     @State private var lastOpenedBookId: UUID?
 
     init() {
+        NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
+        NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+
         // Load last opened book ID from UserDefaults
         if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
            let uuid = UUID(uuidString: idString) {
             _lastOpenedBookId = State(initialValue: uuid)
+            NSLog("🚀 Last opened book ID: \(uuid)")
+        } else {
+            NSLog("🚀 No previously opened book")
         }
     }
 

@@ -4,13 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-DEVICE_NAME="iPad Pro 11-inch (M4)"
-RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
-APP_BUNDLE_ID="com.example.reader"
-APP_PATH="$ROOT_DIR/.build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app"
-EPUB_DEST_NAME="Imported.epub"
+# Use physical iPad by default, set USE_SIMULATOR=1 to use simulator
+USE_SIMULATOR="${USE_SIMULATOR:-0}"
 
-DEVICE_UDID=$(python3 - <<'PY'
+if [ "$USE_SIMULATOR" = "1" ]; then
+  echo "Running on simulator..."
+  DEVICE_NAME="iPad Pro 11-inch (M4)"
+  RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+  APP_BUNDLE_ID="com.example.reader"
+  SDK="iphonesimulator"
+
+  DEVICE_UDID=$(python3 - <<'PY'
 import json
 import subprocess
 import sys
@@ -29,37 +33,46 @@ sys.exit(1)
 PY
 )
 
-if [ -z "$DEVICE_UDID" ]; then
-  echo "Simulator device not found for $DEVICE_NAME ($RUNTIME_ID)." >&2
-  exit 1
+  if [ -z "$DEVICE_UDID" ]; then
+    echo "Simulator device not found for $DEVICE_NAME ($RUNTIME_ID)." >&2
+    exit 1
+  fi
+
+  xcrun simctl boot "$DEVICE_UDID" || true
+  xcrun simctl bootstatus "$DEVICE_UDID" -b
+else
+  echo "Running on physical iPad..."
+  DEVICE_UDID="00008027-0009043A2687002E"
+  APP_BUNDLE_ID="com.splap.reader"
+  SDK="iphoneos"
 fi
 
-xcrun simctl boot "$DEVICE_UDID" || true
-xcrun simctl bootstatus "$DEVICE_UDID" -b
+# Build the app
+echo "Building for $SDK..."
+xcodebuild \
+  -scheme ReaderApp \
+  -destination "platform=iOS,id=$DEVICE_UDID" \
+  -allowProvisioningUpdates \
+  -quiet \
+  build
 
-"$ROOT_DIR/scripts/build"
+APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/Reader-bbwykgehugzyzdamvzcflakzkgju/Build/Products/Debug-$SDK/ReaderApp.app"
 
 if [ ! -d "$APP_PATH" ]; then
   echo "App not found at $APP_PATH. Build failed?" >&2
   exit 1
 fi
 
-xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
-
-if [ -n "${EPUB_PATH:-}" ]; then
-  if [ ! -f "$EPUB_PATH" ]; then
-    echo "EPUB_PATH not found: $EPUB_PATH" >&2
-    exit 1
-  fi
-
-  CONTAINER_PATH=$(xcrun simctl get_app_container "$DEVICE_UDID" "$APP_BUNDLE_ID" data)
-  if [ -z "$CONTAINER_PATH" ]; then
-    echo "Unable to find app container for $APP_BUNDLE_ID." >&2
-    exit 1
-  fi
-
-  mkdir -p "$CONTAINER_PATH/Documents"
-  cp "$EPUB_PATH" "$CONTAINER_PATH/Documents/$EPUB_DEST_NAME"
+echo "Installing app..."
+if [ "$USE_SIMULATOR" = "1" ]; then
+  xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
+else
+  xcrun devicectl device install app --device "$DEVICE_UDID" "$APP_PATH" 2>&1 | grep -v "acquired" || true
 fi
 
-xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"
+echo "Launching app..."
+if [ "$USE_SIMULATOR" = "1" ]; then
+  xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"
+else
+  xcrun devicectl device process launch --device "$DEVICE_UDID" "$APP_BUNDLE_ID" --console
+fi
