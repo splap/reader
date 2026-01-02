@@ -13,6 +13,7 @@ final class WebPageViewController: UIViewController {
     private var webView: WKWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
+    private var contentSizeObserver: NSKeyValueObservation?
 
     var fontScale: CGFloat = 2.0 {
         didSet {
@@ -43,6 +44,8 @@ final class WebPageViewController: UIViewController {
 
         view.backgroundColor = .clear
 
+        Self.logger.debug("WebPageViewController viewDidLoad")
+
         // Create WKWebView configuration
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
@@ -70,6 +73,18 @@ final class WebPageViewController: UIViewController {
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+
+        // Observe contentSize to re-enable scrolling when content loads
+        contentSizeObserver = webView.scrollView.observe(\.contentSize, options: [.new]) { [weak self] scrollView, change in
+            guard let self = self else { return }
+            Self.logger.debug("contentSize changed to \(scrollView.contentSize.width)x\(scrollView.contentSize.height), isScrollEnabled=\(scrollView.isScrollEnabled)")
+            // WKWebView may disable scrolling when content loads - re-enable it
+            if scrollView.contentSize.width > scrollView.bounds.width {
+                scrollView.isScrollEnabled = true
+                scrollView.isPagingEnabled = true
+                Self.logger.info("Re-enabled scrolling via KVO")
+            }
+        }
 
         loadContent()
     }
@@ -285,6 +300,8 @@ extension WebPageViewController: UIScrollViewDelegate {
 // MARK: - WKNavigationDelegate
 extension WebPageViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Self.logger.debug("didFinish navigation")
+
         // Inject JavaScript to ensure content is scrollable
         let js = """
         document.documentElement.style.overflow = 'visible';
@@ -292,17 +309,15 @@ extension WebPageViewController: WKNavigationDelegate {
         """
         webView.evaluateJavaScript(js, completionHandler: nil)
 
-        // WKWebView sometimes disables scrolling - re-enable with retries
-        for delay in [0.0, 0.1, 0.2, 0.5, 1.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self = self else { return }
-                self.webView.scrollView.isScrollEnabled = true
-                self.webView.scrollView.isPagingEnabled = true
-
-                if delay == 1.0 {
-                    self.updateCurrentPage()
-                }
-            }
+        // Ensure scrolling is enabled after content loads
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let sv = self.webView.scrollView
+            Self.logger.info("After load: contentSize=\(sv.contentSize.width)x\(sv.contentSize.height) isScrollEnabled=\(sv.isScrollEnabled)")
+            sv.isScrollEnabled = true
+            sv.isPagingEnabled = true
+            Self.logger.info("Set isScrollEnabled=true, actual value=\(sv.isScrollEnabled)")
+            self.updateCurrentPage()
         }
     }
 }

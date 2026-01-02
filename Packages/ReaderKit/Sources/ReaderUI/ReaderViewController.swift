@@ -7,13 +7,9 @@ import OSLog
 public final class ReaderViewController: UIViewController {
     private static let logger = Logger(subsystem: "com.example.reader", category: "reader-vc")
     private let viewModel: ReaderViewModel
-    fileprivate let chapter: Chapter
-    private var pageViewController: UIPageViewController!
-    private var webPageViewController: WebPageViewController?
+    private let chapter: Chapter
+    private var webPageViewController: WebPageViewController!
     private var cancellables = Set<AnyCancellable>()
-    fileprivate var useWebView: Bool {
-        return !chapter.htmlSections.isEmpty
-    }
 
     #if DEBUG
     private var debugOverlay: DebugOverlayView?
@@ -47,15 +43,7 @@ public final class ReaderViewController: UIViewController {
 
         view.backgroundColor = .systemBackground
 
-        #if DEBUG
-        print("📱 ReaderViewController: useWebView=\(useWebView), htmlSections=\(chapter.htmlSections.count)")
-        #endif
-
-        if useWebView {
-            setupWebPageViewController()
-        } else {
-            setupPageViewController()
-        }
+        setupWebPageViewController()
         setupNavigationBar()
         setupKeyCommands()
         setupDebugOverlay()
@@ -67,30 +55,13 @@ public final class ReaderViewController: UIViewController {
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        if useWebView {
-            // WebView mode: update web view frame
-            webPageViewController?.view.frame = view.bounds
+        webPageViewController.view.frame = view.bounds
 
-            if !hasInitialLayout {
-                hasInitialLayout = true
-                #if DEBUG
-                debugOverlay?.update()
-                #endif
-            }
-        } else {
-            // TextKit mode: use TextEngine pagination
-            pageViewController.view.frame = view.bounds
-
-            let contentInsets = UIEdgeInsets(top: 48, left: 48, bottom: 48, right: 48)
-            viewModel.updateLayout(pageSize: view.bounds.size, insets: contentInsets)
-
-            if !hasInitialLayout && !viewModel.pages.isEmpty {
-                hasInitialLayout = true
-                showPage(at: viewModel.currentPageIndex, animated: false)
-                #if DEBUG
-                debugOverlay?.update()
-                #endif
-            }
+        if !hasInitialLayout {
+            hasInitialLayout = true
+            #if DEBUG
+            debugOverlay?.update()
+            #endif
         }
 
         #if DEBUG
@@ -131,21 +102,6 @@ public final class ReaderViewController: UIViewController {
         webPageVC.didMove(toParent: self)
     }
 
-    private func setupPageViewController() {
-        pageViewController = UIPageViewController(
-            transitionStyle: .scroll,
-            navigationOrientation: .horizontal,
-            options: nil
-        )
-        pageViewController.dataSource = self
-        pageViewController.delegate = self
-
-        addChild(pageViewController)
-        view.addSubview(pageViewController.view)
-        pageViewController.view.frame = view.bounds
-        pageViewController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        pageViewController.didMove(toParent: self)
-    }
 
     private func setupNavigationBar() {
         let settingsButton = UIBarButtonItem(
@@ -182,45 +138,12 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func bindViewModel() {
-        // Observe pages changes (TextKit mode)
-        viewModel.$pages
-            .sink { [weak self] pages in
-                guard let self, !pages.isEmpty, !self.useWebView else { return }
-                let currentIndex = self.viewModel.currentPageIndex
-                if currentIndex < pages.count {
-                    self.showPage(at: currentIndex, animated: false)
-                }
-                #if DEBUG
-                self.debugOverlay?.update()
-                #endif
-            }
-            .store(in: &cancellables)
-
         // Observe font scale changes
         viewModel.$fontScale
-            .dropFirst() // Skip initial value
+            .dropFirst()
             .sink { [weak self] newScale in
                 guard let self else { return }
-                if self.useWebView {
-                    // Update WebView font scale
-                    self.webPageViewController?.fontScale = newScale
-                } else {
-                    // Update TextKit layout
-                    let contentInsets = UIEdgeInsets(top: 48, left: 48, bottom: 48, right: 48)
-                    self.viewModel.updateLayout(pageSize: self.view.bounds.size, insets: contentInsets)
-                }
-                #if DEBUG
-                self.debugOverlay?.update()
-                #endif
-            }
-            .store(in: &cancellables)
-
-        // Observe current page changes
-        viewModel.$currentPageIndex
-            .removeDuplicates()
-            .sink { [weak self] newIndex in
-                guard let self else { return }
-                self.showPage(at: newIndex, animated: true)
+                self.webPageViewController.fontScale = newScale
                 #if DEBUG
                 self.debugOverlay?.update()
                 #endif
@@ -245,40 +168,6 @@ public final class ReaderViewController: UIViewController {
             .store(in: &cancellables)
     }
 
-    private func showPage(at index: Int, animated: Bool) {
-        // Only used for TextKit mode now
-        guard !useWebView, pageViewController != nil else { return }
-
-        // TextKit mode: use TextEngine pagination
-        guard index >= 0, index < viewModel.pages.count else { return }
-
-        // Check if already showing
-        if let currentVC = pageViewController.viewControllers?.first as? PageViewController,
-           currentVC.pageIndex == index {
-            #if DEBUG
-            debugOverlay?.update()
-            #endif
-            return
-        }
-
-        let page = viewModel.pages[index]
-        let pageVC = PageViewController(
-            page: page,
-            pageIndex: index,
-            onSendToLLM: { [weak self] selection in
-                self?.viewModel.llmPayload = LLMPayload(selection: selection)
-            }
-        )
-
-        let direction: UIPageViewController.NavigationDirection = {
-            if let current = pageViewController.viewControllers?.first as? PageViewController {
-                return index > current.pageIndex ? .forward : .reverse
-            }
-            return .forward
-        }()
-
-        pageViewController.setViewControllers([pageVC], direction: direction, animated: animated, completion: nil)
-    }
 
     @objc private func showSettings() {
         let settingsView = ReaderSettingsView(fontScale: Binding(
@@ -290,19 +179,11 @@ public final class ReaderViewController: UIViewController {
     }
 
     @objc private func navigateToPreviousPage() {
-        if useWebView {
-            webPageViewController?.navigateToPreviousPage()
-        } else {
-            viewModel.navigateToPreviousPage()
-        }
+        webPageViewController.navigateToPreviousPage()
     }
 
     @objc private func navigateToNextPage() {
-        if useWebView {
-            webPageViewController?.navigateToNextPage()
-        } else {
-            viewModel.navigateToNextPage()
-        }
+        webPageViewController.navigateToNextPage()
     }
 
     private func presentLLMModal(with payload: LLMPayload) {
@@ -311,69 +192,6 @@ public final class ReaderViewController: UIViewController {
         present(hostingController, animated: true) {
             self.viewModel.llmPayload = nil
         }
-    }
-}
-
-// MARK: - UIPageViewControllerDataSource
-extension ReaderViewController: UIPageViewControllerDataSource {
-    public func pageViewController(
-        _ pageViewController: UIPageViewController,
-        viewControllerBefore viewController: UIViewController
-    ) -> UIViewController? {
-        // Only used for TextKit mode
-        guard !useWebView else { return nil }
-
-        guard let pageVC = viewController as? PageViewController else { return nil }
-        let previousIndex = pageVC.pageIndex - 1
-        guard previousIndex >= 0 else { return nil }
-
-        let page = viewModel.pages[previousIndex]
-        return PageViewController(
-            page: page,
-            pageIndex: previousIndex,
-            onSendToLLM: { [weak self] selection in
-                self?.viewModel.llmPayload = LLMPayload(selection: selection)
-            }
-        )
-    }
-
-    public func pageViewController(
-        _ pageViewController: UIPageViewController,
-        viewControllerAfter viewController: UIViewController
-    ) -> UIViewController? {
-        // Only used for TextKit mode
-        guard !useWebView else { return nil }
-
-        guard let pageVC = viewController as? PageViewController else { return nil }
-        let nextIndex = pageVC.pageIndex + 1
-        guard nextIndex < viewModel.pages.count else { return nil }
-
-        let page = viewModel.pages[nextIndex]
-        return PageViewController(
-            page: page,
-            pageIndex: nextIndex,
-            onSendToLLM: { [weak self] selection in
-                self?.viewModel.llmPayload = LLMPayload(selection: selection)
-            }
-        )
-    }
-}
-
-// MARK: - UIPageViewControllerDelegate
-extension ReaderViewController: UIPageViewControllerDelegate {
-    public func pageViewController(
-        _ pageViewController: UIPageViewController,
-        didFinishAnimating finished: Bool,
-        previousViewControllers: [UIViewController],
-        transitionCompleted completed: Bool
-    ) {
-        guard completed else { return }
-
-        // Only used for TextKit mode
-        guard !useWebView else { return }
-
-        guard let pageVC = pageViewController.viewControllers?.first as? PageViewController else { return }
-        viewModel.updateCurrentPage(pageVC.pageIndex)
     }
 }
 
@@ -425,34 +243,9 @@ private final class DebugOverlayView: UIView {
         guard let viewModel else { return }
 
         stackView.addArrangedSubview(makeLabel("build: \(BuildInfo.timestamp)"))
-
-        // Show different info for WebView vs TextKit mode
-        if let readerVC = sequence(first: self as UIView, next: { $0.superview }).compactMap({ $0 as? ReaderViewController }).first,
-           readerVC.useWebView {
-            // WebView mode
-            stackView.addArrangedSubview(makeLabel("mode: WebView"))
-            stackView.addArrangedSubview(makeLabel("sections: \(readerVC.chapter.htmlSections.count)"))
-            stackView.addArrangedSubview(makeLabel("total pages: \(viewModel.totalPages)"))
-            stackView.addArrangedSubview(makeLabel("current page: \(viewModel.currentPageIndex)"))
-            stackView.addArrangedSubview(makeLabel("font scale: \(String(format: "%.1f", viewModel.fontScale))x"))
-        } else {
-            // TextKit mode
-            let currentPage = viewModel.currentPageIndex
-            let textLength = (currentPage >= 0 && currentPage < viewModel.pages.count) ?
-                viewModel.pages[currentPage].textStorage.length : 0
-
-            let wordsOnPage: Int = {
-                guard currentPage >= 0 && currentPage < viewModel.pages.count else { return 0 }
-                let text = viewModel.pages[currentPage].textStorage.string
-                return countWords(in: text)
-            }()
-
-            stackView.addArrangedSubview(makeLabel("mode: TextKit"))
-            stackView.addArrangedSubview(makeLabel("pages: \(viewModel.pages.count)"))
-            stackView.addArrangedSubview(makeLabel("text length (chars): \(textLength)"))
-            stackView.addArrangedSubview(makeLabel("current page: \(currentPage)"))
-            stackView.addArrangedSubview(makeLabel("words on page: \(wordsOnPage)"))
-        }
+        stackView.addArrangedSubview(makeLabel("total pages: \(viewModel.totalPages)"))
+        stackView.addArrangedSubview(makeLabel("current page: \(viewModel.currentPageIndex)"))
+        stackView.addArrangedSubview(makeLabel("font scale: \(String(format: "%.1f", viewModel.fontScale))x"))
 
         sizeToFit()
     }
