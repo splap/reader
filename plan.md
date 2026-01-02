@@ -31,23 +31,24 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
   * Pagination cache
   * Selection extraction utilities
   * Position model (chapterId, pageIndex, characterOffset)
-* `ReaderUI` (SwiftUI + UIKit bridges):
+* `ReaderUI` (UIKit):
 
-  * Pager UI
-  * Page view hosting
+  * ReaderViewController (UIPageViewController for paging)
+  * PageViewController (wraps UITextView per page)
   * Selection + action UI integration
 
 ### Key objects
 
-* TextKit 1:
+* TextKit 1 (isolated text systems):
 
-  * `NSTextStorage`
-  * `NSLayoutManager`
-  * `NSTextContainer` (one per page)
+  * Each page has its own `NSTextStorage` (substring of page range)
+  * Each page has its own `NSLayoutManager`
+  * Each page has its own `NSTextContainer`
 * UI:
 
-  * `TabView` with `.page` style (MVP)
-  * Page view implemented as **`UITextView` per page** using a **shared `NSTextStorage` + `NSLayoutManager`** and a **distinct `NSTextContainer` per page**
+  * `UIPageViewController` for horizontal paging
+  * `PageViewController` per page wrapping `UITextView`
+  * Each `UITextView` uses its page's isolated text system
 
 ---
 
@@ -152,7 +153,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 
 ## Definition of done (MVP)
 
-* Swipe pages smoothly on iPad (BLOCKED: page 1/2 containers map to empty ranges; logs show planned 580+2209, 2789+6325).
+* Swipe pages smoothly on iPad (DONE).
 * Text reflows when font size changes (DONE).
 * User can select text reliably (DONE).
 * “Send to LLM” appears reliably in the system edit menu when selection exists (DONE).
@@ -162,8 +163,9 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 
 ## Risks / likely potholes
 
-* `UITextView` + shared TextKit 1 objects across many pages: container order/attachment may drift when views are recycled.
-* Next guess: rebuild `layoutManager.textContainers` from `pages` on visibility changes; verify actual range after layout.
+* ~~Shared TextKit 1 objects caused blank pages: container 0 consumed all text, pages 1+ were blank.~~ (FIXED)
+* **Solution**: Isolated text systems architecture - each page gets its own NSTextStorage (substring), NSLayoutManager, and NSTextContainer. No sharing = no interference.
+* **Architecture choice**: UIKit (UIPageViewController) over SwiftUI (TabView) for precise layout control and proper margins.
 
 ---
 

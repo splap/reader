@@ -1,19 +1,18 @@
 import Foundation
 import UIKit
+import OSLog
 
 public struct PaginationResult {
     public let pages: [Page]
-    public let layoutManager: NSLayoutManager
-    public let textStorage: NSTextStorage
 
-    public init(pages: [Page], layoutManager: NSLayoutManager, textStorage: NSTextStorage) {
+    public init(pages: [Page]) {
         self.pages = pages
-        self.layoutManager = layoutManager
-        self.textStorage = textStorage
     }
 }
 
 public final class TextEngine {
+    private static let logger = Logger(subsystem: "com.example.reader", category: "text-engine")
+
     private struct InsetsKey: Hashable {
         let top: CGFloat
         let left: CGFloat
@@ -59,47 +58,78 @@ public final class TextEngine {
             height: max(1, pageSize.height - insets.top - insets.bottom)
         )
         if availableSize.width <= 1 || availableSize.height <= 1 {
-            let result = PaginationResult(pages: [], layoutManager: NSLayoutManager(), textStorage: NSTextStorage())
+            let result = PaginationResult(pages: [])
             cache[key] = result
             return result
         }
 
-        let textStorage = NSTextStorage(attributedString: scaledAttributedString(for: fontScale))
-        let layoutManager = NSLayoutManager()
-        layoutManager.allowsNonContiguousLayout = false
-        textStorage.addLayoutManager(layoutManager)
+        let fullText = scaledAttributedString(for: fontScale)
 
-        var pages: [Page] = []
+        // Step 1: Use temporary text system to calculate page ranges
+        let tempStorage = NSTextStorage(attributedString: fullText)
+        let tempLayoutManager = NSLayoutManager()
+        tempLayoutManager.allowsNonContiguousLayout = false
+        tempStorage.addLayoutManager(tempLayoutManager)
+
+        Self.logger.info("📐 Calculating page ranges for \(tempStorage.length, privacy: .public) characters")
+
+        var pageRanges: [NSRange] = []
         var lastRange = NSRange(location: 0, length: 0)
 
-        while NSMaxRange(lastRange) < textStorage.length {
-            let textContainer = NSTextContainer(size: availableSize)
-            textContainer.lineFragmentPadding = 0
-            layoutManager.addTextContainer(textContainer)
+        while NSMaxRange(lastRange) < tempStorage.length {
+            let tempContainer = NSTextContainer(size: availableSize)
+            tempContainer.lineFragmentPadding = 0
+            tempLayoutManager.addTextContainer(tempContainer)
+            tempLayoutManager.ensureLayout(for: tempContainer)
 
-            let glyphRange = layoutManager.glyphRange(for: textContainer)
-            let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            let rangeEnd = NSMaxRange(characterRange)
-            let previousEnd = NSMaxRange(lastRange)
+            let glyphRange = tempLayoutManager.glyphRange(for: tempContainer)
+            let characterRange = tempLayoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
 
-            if characterRange.length == 0 || rangeEnd <= previousEnd {
+            if characterRange.length == 0 || NSMaxRange(characterRange) <= NSMaxRange(lastRange) {
                 break
             }
 
-            let pageIndex = pages.count
-            pages.append(
-                Page(
-                    id: pageIndex,
-                    containerIndex: pageIndex,
-                    range: characterRange,
-                    textContainer: textContainer
-                )
-            )
+            pageRanges.append(characterRange)
+            Self.logger.info("📐 Page \(pageRanges.count - 1, privacy: .public) range: \(characterRange.location, privacy: .public)+\(characterRange.length, privacy: .public)")
 
             lastRange = characterRange
         }
 
-        let result = PaginationResult(pages: pages, layoutManager: layoutManager, textStorage: textStorage)
+        // Step 2: Create isolated text system for each page
+        var pages: [Page] = []
+        for (index, range) in pageRanges.enumerated() {
+            // Extract just this page's text
+            let pageText = fullText.attributedSubstring(from: range)
+            let pageStorage = NSTextStorage(attributedString: pageText)
+
+            // Create dedicated layout manager
+            let pageLayoutManager = NSLayoutManager()
+            pageLayoutManager.allowsNonContiguousLayout = false
+            pageStorage.addLayoutManager(pageLayoutManager)
+
+            // Create container
+            let pageContainer = NSTextContainer(size: availableSize)
+            pageContainer.lineFragmentPadding = 0
+            pageContainer.widthTracksTextView = false
+            pageContainer.heightTracksTextView = false
+            pageLayoutManager.addTextContainer(pageContainer)
+
+            // Force layout
+            pageLayoutManager.ensureLayout(for: pageContainer)
+
+            let page = Page(
+                id: index,
+                range: range,
+                textStorage: pageStorage,
+                layoutManager: pageLayoutManager,
+                textContainer: pageContainer
+            )
+            pages.append(page)
+        }
+
+        let result = PaginationResult(pages: pages)
+        Self.logger.info("✅ Created \(pages.count, privacy: .public) pages with ISOLATED text systems")
+
         cache[key] = result
         return result
     }

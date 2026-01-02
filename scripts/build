@@ -15,6 +15,9 @@ if [ ! -d "$PROJECT" ]; then
   exit 1
 fi
 
+# Generate build timestamp
+"$ROOT_DIR/scripts/generate-build-info.sh"
+
 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \

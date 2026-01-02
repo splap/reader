@@ -6,7 +6,7 @@ import SwiftUI
 public struct ReaderView: View {
     private static let logger = Logger(subsystem: "com.example.reader", category: "reader")
     @StateObject private var model: ReaderViewModel
-    private let contentInsets = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
+    private let contentInsets = UIEdgeInsets(top: 48, left: 48, bottom: 48, right: 48)
 
     public init(chapter: Chapter = SampleChapter.make()) {
         _model = StateObject(wrappedValue: ReaderViewModel(chapter: chapter))
@@ -36,9 +36,7 @@ public struct ReaderView: View {
                 height: max(1, proxy.size.height - contentInsets.top - contentInsets.bottom)
             )
             ZStack {
-                if let textStorage = model.textStorage,
-                   let layoutManager = model.layoutManager,
-                   !model.pages.isEmpty {
+                if !model.pages.isEmpty {
                     TabView(selection: $model.currentPageIndex) {
                         ForEach(model.pages.indices, id: \.self) { index in
                             Group {
@@ -46,32 +44,19 @@ public struct ReaderView: View {
                                     ZStack(alignment: .topTrailing) {
                                         PageTextView(
                                             page: model.pages[index],
-                                            textStorage: textStorage,
-                                            layoutManager: layoutManager,
                                             onSendToLLM: { selection in
                                                 model.llmPayload = LLMPayload(selection: selection)
                                             }
                                         )
+                                        .offset(x: contentInsets.left, y: contentInsets.top)
 #if DEBUG
                                         PageRangeOverlay(
                                             pageIndex: index,
-                                            page: model.pages[index],
-                                            layoutManager: model.layoutManager
+                                            page: model.pages[index]
                                         )
                                         .padding(8)
 #endif
                                     }
-                                    .frame(
-                                        width: availableSize.width,
-                                        height: availableSize.height,
-                                        alignment: .topLeading
-                                    )
-                                    .padding(EdgeInsets(
-                                        top: contentInsets.top,
-                                        leading: contentInsets.left,
-                                        bottom: contentInsets.bottom,
-                                        trailing: contentInsets.right
-                                    ))
                                 } else {
                                     Color.clear
                                 }
@@ -89,7 +74,6 @@ public struct ReaderView: View {
 #if DEBUG
                 DebugOverlay(
                     pages: model.pages,
-                    textStorage: model.textStorage,
                     currentPage: model.currentPageIndex
                 )
 #endif
@@ -119,6 +103,14 @@ public struct ReaderView: View {
                 set: { model.updateFontScale($0) }
             ))
         }
+        .onKeyPress(.leftArrow) {
+            model.navigateToPreviousPage()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            model.navigateToNextPage()
+            return .handled
+        }
     }
 }
 
@@ -126,7 +118,6 @@ public struct ReaderView: View {
 private struct PageRangeOverlay: View {
     let pageIndex: Int
     let page: Page
-    let layoutManager: NSLayoutManager?
 
     @State private var actualRange: NSRange = NSRange(location: 0, length: 0)
 
@@ -152,46 +143,46 @@ private struct PageRangeOverlay: View {
     }
 
     private func updateActualRange() {
-        guard let layoutManager else {
-            actualRange = NSRange(location: 0, length: 0)
-            return
-        }
-        actualRange = page.actualCharacterRange(using: layoutManager)
+        actualRange = page.actualCharacterRange()
     }
 }
 
 private struct DebugOverlay: View {
     let pages: [Page]
-    let textStorage: NSTextStorage?
     let currentPage: Int
 
     var body: some View {
-        let textLength = textStorage?.length ?? 0
+        let textLength = currentPageTextStorage?.length ?? 0
         let wordsOnPage = wordCountForCurrentPage()
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("build: \(BuildInfo.timestamp)")
             Text("pages: \(pages.count)")
             Text("text length (chars): \(textLength)")
             Text("current page: \(currentPage)")
             Text("words on page: \(wordsOnPage)")
         }
-        .font(.caption)
+        .font(.body)
         .foregroundStyle(.white)
-        .padding(8)
+        .padding(16)
         .background(Color.black.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(24)
+    }
+
+    private var currentPageTextStorage: NSTextStorage? {
+        guard currentPage >= 0, currentPage < pages.count else {
+            return nil
+        }
+        return pages[currentPage].textStorage
     }
 
     private func wordCountForCurrentPage() -> Int {
-        guard let textStorage,
-              currentPage >= 0,
-              currentPage < pages.count else {
+        guard let textStorage = currentPageTextStorage else {
             return 0
         }
-        let range = pages[currentPage].range
-        let text = (textStorage.string as NSString).substring(with: range)
+        let text = textStorage.string
         return countWords(in: text)
     }
 

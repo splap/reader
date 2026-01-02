@@ -1,9 +1,12 @@
 import Foundation
 import ReaderUI
 import SwiftUI
+import UIKit
 
 @main
 struct ReaderApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ReaderRootView()
@@ -11,15 +14,22 @@ struct ReaderApp: App {
     }
 }
 
-private struct ReaderRootView: View {
+private struct ReaderRootView: UIViewControllerRepresentable {
     private let epubURL = ReaderAppEnvironment.epubURL()
 
-    var body: some View {
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let readerVC: ReaderViewController
         if let epubURL {
-            ReaderView(epubURL: epubURL)
+            readerVC = ReaderViewController(epubURL: epubURL)
         } else {
-            ReaderView()
+            readerVC = ReaderViewController()
         }
+        let navController = UINavigationController(rootViewController: readerVC)
+        return navController
+    }
+
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
+        // No updates needed
     }
 }
 
@@ -30,5 +40,14 @@ private enum ReaderAppEnvironment {
         }
         let epubURL = documentsURL.appendingPathComponent("Imported.epub")
         return FileManager.default.fileExists(atPath: epubURL.path) ? epubURL : nil
+    }
+}
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        return true
     }
 }
