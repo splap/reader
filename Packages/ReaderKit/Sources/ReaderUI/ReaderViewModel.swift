@@ -7,7 +7,8 @@ final class ReaderViewModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.example.reader", category: "paging")
     @Published var pages: [Page] = []
     @Published var currentPageIndex: Int = 0
-    @Published var fontScale: CGFloat = 2.6
+    @Published var totalPages: Int = 0  // For WebView mode
+    @Published var fontScale: CGFloat = 2.0
     @Published var settingsPresented: Bool = false
     @Published var llmPayload: LLMPayload?
 
@@ -51,15 +52,21 @@ final class ReaderViewModel: ObservableObject {
 #endif
     }
 
-    func updateCurrentPage(_ index: Int) {
-        guard index >= 0 && index < pages.count else { return }
+    func updateCurrentPage(_ index: Int, totalPages: Int = 0) {
         currentPageIndex = index
-        positionOffset = pages[index].range.location
-        positionStore.save(ReaderPosition(
-            chapterId: chapterId,
-            pageIndex: index,
-            characterOffset: positionOffset
-        ))
+        if totalPages > 0 {
+            self.totalPages = totalPages
+        }
+
+        // Only update position store if we have TextKit pages
+        if !pages.isEmpty && index < pages.count {
+            positionOffset = pages[index].range.location
+            positionStore.save(ReaderPosition(
+                chapterId: chapterId,
+                pageIndex: index,
+                characterOffset: positionOffset
+            ))
+        }
     }
 
     func updateFontScale(_ scale: CGFloat) {

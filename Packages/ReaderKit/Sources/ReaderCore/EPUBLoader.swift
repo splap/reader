@@ -29,6 +29,8 @@ public final class EPUBLoader {
         }
     }
 
+    private var imageCache: [String: Data] = [:]
+
     public init() {}
 
     public func loadChapter(from url: URL, maxSections: Int = .max) throws -> Chapter {
@@ -56,10 +58,14 @@ public final class EPUBLoader {
             throw LoaderError.missingSpine
         }
 
+        // Extract and cache images FIRST
+        extractImages(from: archive, package: package)
+
         let title = package.title ?? url.deletingPathExtension().lastPathComponent
         let chapterId = url.lastPathComponent
 
         let combined = NSMutableAttributedString()
+        var htmlSections: [HTMLSection] = []
         var sectionCount = 0
 
         for item in spineItems {
@@ -67,6 +73,13 @@ public final class EPUBLoader {
             if sectionCount >= maxSections { break }
             let resolvedPath = package.resolve(item.href)
             guard let htmlData = try data(for: resolvedPath, in: archive) else { continue }
+
+            // Keep raw HTML for WKWebView rendering
+            if let htmlString = String(data: htmlData, encoding: .utf8) {
+                let basePath = (resolvedPath as NSString).deletingLastPathComponent
+                htmlSections.append(HTMLSection(html: htmlString, basePath: basePath, imageCache: imageCache))
+            }
+
             let section = attributedString(fromHTML: htmlData)
             if !containsReadableText(section) { continue }
 
@@ -85,10 +98,10 @@ public final class EPUBLoader {
         applyDefaultColorIfNeeded(to: combined)
 #if DEBUG
         Self.logger.debug(
-            "Loaded EPUB \(url.lastPathComponent, privacy: .public) sections=\(sectionCount, privacy: .public) length=\(combined.length, privacy: .public)"
+            "Loaded EPUB \(url.lastPathComponent, privacy: .public) sections=\(sectionCount, privacy: .public) length=\(combined.length, privacy: .public) htmlSections=\(htmlSections.count, privacy: .public)"
         )
 #endif
-        return Chapter(id: chapterId, attributedText: combined, title: title)
+        return Chapter(id: chapterId, attributedText: combined, htmlSections: htmlSections, title: title)
     }
 
     private func data(for path: String, in archive: Archive) throws -> Data? {
@@ -141,6 +154,20 @@ public final class EPUBLoader {
             .replacingOccurrences(of: "\u{FFFC}", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return !filtered.isEmpty
+    }
+
+    private func extractImages(from archive: Archive, package: EPUBPackageParser) {
+        for (_, item) in package.manifest {
+            guard item.mediaType.hasPrefix("image/") else { continue }
+            let imagePath = package.resolve(item.href)
+            if let imageData = try? data(for: imagePath, in: archive) {
+                imageCache[imagePath] = imageData
+                // Also cache without leading path components for relative references
+                let filename = (imagePath as NSString).lastPathComponent
+                imageCache[filename] = imageData
+            }
+        }
+        Self.logger.debug("Cached \(self.imageCache.count) images from EPUB")
     }
 }
 
