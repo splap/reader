@@ -67,7 +67,7 @@ final class ReaderCoreTests: XCTestCase {
         XCTAssertGreaterThan(result.pages.count, 1)
 
         for (index, page) in result.pages.enumerated() {
-            let actualRange = page.actualCharacterRange(using: result.layoutManager)
+            let actualRange = page.actualCharacterRange()
             XCTAssertGreaterThan(
                 actualRange.length,
                 0,

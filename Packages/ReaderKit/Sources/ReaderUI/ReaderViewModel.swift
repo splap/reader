@@ -53,6 +53,7 @@ final class ReaderViewModel: ObservableObject {
 
     func updateCurrentPage(_ index: Int) {
         guard index >= 0 && index < pages.count else { return }
+        currentPageIndex = index
         positionOffset = pages[index].range.location
         positionStore.save(ReaderPosition(
             chapterId: chapterId,

@@ -1,12 +1,13 @@
 import UIKit
 import ReaderCore
+import OSLog
 
 final class PageViewController: UIViewController {
     private let page: Page
     let pageIndex: Int  // Accessible for UIPageViewController navigation
     private let onSendToLLM: (SelectionPayload) -> Void
     private var textView: UITextView!
-    private var coordinator: PageTextView.Coordinator!
+    private var coordinator: EditMenuCoordinator!
 
     #if DEBUG
     private var debugOverlay: PageRangeOverlayView?
@@ -41,7 +42,7 @@ final class PageViewController: UIViewController {
         textView.adjustsFontForContentSizeCategory = false
 
         // Setup edit menu for "Send to LLM"
-        coordinator = PageTextView.Coordinator(onSendToLLM: onSendToLLM)
+        coordinator = EditMenuCoordinator(onSendToLLM: onSendToLLM)
         coordinator.textView = textView
         coordinator.textStorage = page.textStorage
 
@@ -76,6 +77,57 @@ final class PageViewController: UIViewController {
         #endif
     }
 }
+
+// MARK: - Edit Menu Coordinator
+
+final class EditMenuCoordinator: NSObject, UIEditMenuInteractionDelegate {
+    weak var textView: UITextView?
+    var textStorage: NSTextStorage?
+    let onSendToLLM: (SelectionPayload) -> Void
+
+    init(onSendToLLM: @escaping (SelectionPayload) -> Void) {
+        self.onSendToLLM = onSendToLLM
+    }
+
+    func editMenuInteraction(
+        _ interaction: UIEditMenuInteraction,
+        menuFor configuration: UIEditMenuConfiguration,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        guard let textView, let textStorage else { return nil }
+        let selectedRange = textView.selectedRange
+        guard selectedRange.location != NSNotFound, selectedRange.length > 0 else { return nil }
+
+        let sendAction = UIAction(title: "Send to LLM") { [weak self] _ in
+            guard let self, let textView = self.textView, let textStorage = self.textStorage else { return }
+            let range = textView.selectedRange
+            guard range.location != NSNotFound, range.length > 0 else { return }
+            let payload = SelectionExtractor.payload(in: textStorage, range: range)
+            self.onSendToLLM(payload)
+        }
+
+        return UIMenu(children: suggestedActions + [sendAction])
+    }
+}
+
+// MARK: - Paging Text View
+
+final class PagingTextView: UITextView {
+    private static let logger = Logger(subsystem: "com.example.reader", category: "page-view")
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+#if DEBUG
+        let boundsSize = self.bounds.size
+        let containerSize = self.textContainer.size
+        Self.logger.debug("PagingTextView layoutSubviews bounds=\(boundsSize.width, privacy: .public)x\(boundsSize.height, privacy: .public) containerSize=\(containerSize.width, privacy: .public)x\(containerSize.height, privacy: .public)")
+#endif
+        // CRITICAL: Do NOT call ensureLayout or modify textContainer.size here!
+        // The layout was completed during pagination. Re-layout causes container 0 to consume all text.
+    }
+}
+
+// MARK: - Debug Overlay
 
 #if DEBUG
 private final class PageRangeOverlayView: UIView {

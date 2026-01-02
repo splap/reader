@@ -20,8 +20,6 @@ final class ReaderUISnapshotTests: XCTestCase {
 
         let view = PageSnapshotView(
             page: page,
-            textStorage: result.textStorage,
-            layoutManager: result.layoutManager,
             insets: insets,
             pageSize: pageSize
         )
@@ -60,8 +58,6 @@ final class ReaderUISnapshotTests: XCTestCase {
 
 private struct PageSnapshotView: View {
     let page: Page
-    let textStorage: NSTextStorage
-    let layoutManager: NSLayoutManager
     let insets: UIEdgeInsets
     let pageSize: CGSize
 
@@ -73,12 +69,7 @@ private struct PageSnapshotView: View {
 
         ZStack(alignment: .topLeading) {
             Color.white
-            PageTextView(
-                page: page,
-                textStorage: textStorage,
-                layoutManager: layoutManager,
-                onSendToLLM: { _ in }
-            )
+            PageSnapshotTextView(page: page)
                 .frame(width: availableSize.width, height: availableSize.height, alignment: .topLeading)
                 .padding(EdgeInsets(
                     top: insets.top,
@@ -87,5 +78,27 @@ private struct PageSnapshotView: View {
                     trailing: insets.right
                 ))
         }
+    }
+}
+
+private struct PageSnapshotTextView: UIViewRepresentable {
+    let page: Page
+
+    func makeUIView(context: Context) -> UITextView {
+        let containerSize = page.textContainer.size
+        let frame = CGRect(origin: .zero, size: containerSize)
+        let textView = UITextView(frame: frame, textContainer: page.textContainer)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.adjustsFontForContentSizeCategory = false
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        // No updates needed for snapshot
     }
 }

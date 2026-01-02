@@ -69,6 +69,7 @@ public final class ReaderViewController: UIViewController {
             let x = (view.bounds.width - overlay.bounds.width) / 2
             let y = (view.bounds.height - overlay.bounds.height) / 2
             overlay.frame.origin = CGPoint(x: x, y: y)
+            view.bringSubviewToFront(overlay)
         }
         #endif
     }
@@ -132,6 +133,9 @@ public final class ReaderViewController: UIViewController {
                 if currentIndex < pages.count {
                     self.showPage(at: currentIndex, animated: false)
                 }
+                #if DEBUG
+                self.debugOverlay?.update()
+                #endif
             }
             .store(in: &cancellables)
 
@@ -169,6 +173,15 @@ public final class ReaderViewController: UIViewController {
         guard index >= 0,
               index < viewModel.pages.count,
               pageViewController != nil else { return }
+
+        // Check if we're already showing this page (avoid redundant updates from swipe gestures)
+        if let currentVC = pageViewController.viewControllers?.first as? PageViewController,
+           currentVC.pageIndex == index {
+            #if DEBUG
+            debugOverlay?.update()
+            #endif
+            return
+        }
 
         let page = viewModel.pages[index]
         let pageVC = PageViewController(
@@ -295,10 +308,11 @@ private final class DebugOverlayView: UIView {
         backgroundColor = UIColor.black.withAlphaComponent(0.7)
         layer.cornerRadius = 8
         isUserInteractionEnabled = false
+        clipsToBounds = true
 
         stackView.axis = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 4
+        stackView.spacing = 6
 
         addSubview(stackView)
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -308,6 +322,12 @@ private final class DebugOverlayView: UIView {
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
         ])
+    }
+
+    override func sizeToFit() {
+        super.sizeToFit()
+        let size = stackView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        frame.size = CGSize(width: size.width + 32, height: size.height + 32)
     }
 
     func update() {
