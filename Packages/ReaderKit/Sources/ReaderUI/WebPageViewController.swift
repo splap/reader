@@ -126,6 +126,7 @@ final class WebPageViewController: UIViewController {
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: \(Int(16 * fontScale))px;
                     line-height: 1.6;
+                    text-align: justify;
 
                     /* CSS columns for pagination - let UIScrollView handle scrolling */
                     column-width: calc(100vw - 96px);
@@ -141,6 +142,7 @@ final class WebPageViewController: UIViewController {
                 }
                 p {
                     margin-bottom: 1em;
+                    text-align: justify;
                 }
                 h1, h2, h3, h4, h5, h6 {
                     margin-top: 1em;
