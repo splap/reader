@@ -152,7 +152,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 
 ## Definition of done (MVP)
 
-* Swipe pages smoothly on iPad (BLOCKED: only first page renders; later pages blank).
+* Swipe pages smoothly on iPad (BLOCKED: page 1/2 containers map to empty ranges; logs show planned 580+2209, 2789+6325).
 * Text reflows when font size changes (DONE).
 * User can select text reliably (DONE).
 * “Send to LLM” appears reliably in the system edit menu when selection exists (DONE).
@@ -162,8 +162,8 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
 
 ## Risks / likely potholes
 
-* `UITextView` + shared TextKit 1 objects across many pages: manage memory by limiting instantiated pages.
-* Repagination jank: cache + lazy paginate.
+* `UITextView` + shared TextKit 1 objects across many pages: container order/attachment may drift when views are recycled.
+* Next guess: rebuild `layoutManager.textContainers` from `pages` on visibility changes; verify actual range after layout.
 
 ---
 
@@ -174,7 +174,7 @@ A reflowable, paged reader on iPadOS using TextKit 1 with solid text selection a
   * last page range reaches end of text
 * Unit tests for position mapping (DONE):
   * given a `CharacterOffset`, mapping returns the expected page index
-  * mapping remains stable across font size changes (best-effort) (deferred)
+  * text container actual ranges are non-empty (DONE)
 
 ---
 

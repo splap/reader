@@ -1,10 +1,13 @@
+import OSLog
 import ReaderCore
 import SwiftUI
 import UIKit
 
 struct PageTextView: UIViewRepresentable {
+    private static let logger = Logger(subsystem: "com.example.reader", category: "page-view")
     let page: Page
     let textStorage: NSTextStorage
+    let layoutManager: NSLayoutManager
     let onSendToLLM: (SelectionPayload) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -12,7 +15,7 @@ struct PageTextView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView(frame: .zero, textContainer: page.textContainer)
+        let textView = PagingTextView(frame: .zero, textContainer: page.textContainer)
         textView.isEditable = false
         textView.isSelectable = true
         textView.isScrollEnabled = false
@@ -27,11 +30,37 @@ struct PageTextView: UIViewRepresentable {
         let editMenu = UIEditMenuInteraction(delegate: context.coordinator)
         textView.addInteraction(editMenu)
 
+        attachTextSystemIfNeeded(textView)
         return textView
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.textStorage = textStorage
+        attachTextSystemIfNeeded(uiView)
+    }
+
+    private func attachTextSystemIfNeeded(_ textView: UITextView) {
+        if layoutManager.textStorage !== textStorage {
+            textStorage.addLayoutManager(layoutManager)
+        }
+        if page.textContainer.layoutManager !== layoutManager {
+            let targetIndex = min(page.containerIndex, layoutManager.textContainers.count)
+            layoutManager.insertTextContainer(page.textContainer, at: targetIndex)
+        }
+        layoutManager.ensureLayout(for: page.textContainer)
+#if DEBUG
+        if textView.layoutManager !== layoutManager {
+            Self.logger.error("page \(page.id, privacy: .public) textView layoutManager mismatch")
+        }
+        if textView.textStorage !== textStorage {
+            Self.logger.error("page \(page.id, privacy: .public) textView textStorage identity mismatch")
+        }
+        if textView.textStorage.length != textStorage.length {
+            Self.logger.error(
+                "page \(page.id, privacy: .public) textStorage length mismatch view=\(textView.textStorage.length, privacy: .public) expected=\(textStorage.length, privacy: .public)"
+            )
+        }
+#endif
     }
 
     final class Coordinator: NSObject, UIEditMenuInteractionDelegate {
@@ -62,5 +91,15 @@ struct PageTextView: UIViewRepresentable {
 
             return UIMenu(children: suggestedActions + [sendAction])
         }
+    }
+}
+
+private final class PagingTextView: UITextView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if textContainer.size != bounds.size {
+            textContainer.size = bounds.size
+        }
+        layoutManager.ensureLayout(for: textContainer)
     }
 }

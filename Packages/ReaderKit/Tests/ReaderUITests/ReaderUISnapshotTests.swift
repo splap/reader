@@ -21,6 +21,7 @@ final class ReaderUISnapshotTests: XCTestCase {
         let view = PageSnapshotView(
             page: page,
             textStorage: result.textStorage,
+            layoutManager: result.layoutManager,
             insets: insets,
             pageSize: pageSize
         )
@@ -60,6 +61,7 @@ final class ReaderUISnapshotTests: XCTestCase {
 private struct PageSnapshotView: View {
     let page: Page
     let textStorage: NSTextStorage
+    let layoutManager: NSLayoutManager
     let insets: UIEdgeInsets
     let pageSize: CGSize
 
@@ -71,7 +73,12 @@ private struct PageSnapshotView: View {
 
         ZStack(alignment: .topLeading) {
             Color.white
-            PageTextView(page: page, textStorage: textStorage, onSendToLLM: { _ in })
+            PageTextView(
+                page: page,
+                textStorage: textStorage,
+                layoutManager: layoutManager,
+                onSendToLLM: { _ in }
+            )
                 .frame(width: availableSize.width, height: availableSize.height, alignment: .topLeading)
                 .padding(EdgeInsets(
                     top: insets.top,

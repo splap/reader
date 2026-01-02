@@ -66,6 +66,7 @@ public final class TextEngine {
 
         let textStorage = NSTextStorage(attributedString: scaledAttributedString(for: fontScale))
         let layoutManager = NSLayoutManager()
+        layoutManager.allowsNonContiguousLayout = false
         textStorage.addLayoutManager(layoutManager)
 
         var pages: [Page] = []

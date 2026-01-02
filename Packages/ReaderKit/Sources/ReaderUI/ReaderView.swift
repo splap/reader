@@ -36,18 +36,31 @@ public struct ReaderView: View {
                 height: max(1, proxy.size.height - contentInsets.top - contentInsets.bottom)
             )
             ZStack {
-                if let textStorage = model.textStorage, !model.pages.isEmpty {
+                if let textStorage = model.textStorage,
+                   let layoutManager = model.layoutManager,
+                   !model.pages.isEmpty {
                     TabView(selection: $model.currentPageIndex) {
                         ForEach(model.pages.indices, id: \.self) { index in
                             Group {
                                 if abs(index - model.currentPageIndex) <= 2 {
-                                    PageTextView(
-                                        page: model.pages[index],
-                                        textStorage: textStorage,
-                                        onSendToLLM: { selection in
-                                            model.llmPayload = LLMPayload(selection: selection)
-                                        }
-                                    )
+                                    ZStack(alignment: .topTrailing) {
+                                        PageTextView(
+                                            page: model.pages[index],
+                                            textStorage: textStorage,
+                                            layoutManager: layoutManager,
+                                            onSendToLLM: { selection in
+                                                model.llmPayload = LLMPayload(selection: selection)
+                                            }
+                                        )
+#if DEBUG
+                                        PageRangeOverlay(
+                                            pageIndex: index,
+                                            page: model.pages[index],
+                                            layoutManager: model.layoutManager
+                                        )
+                                        .padding(8)
+#endif
+                                    }
                                     .frame(
                                         width: availableSize.width,
                                         height: availableSize.height,
@@ -110,6 +123,43 @@ public struct ReaderView: View {
 }
 
 #if DEBUG
+private struct PageRangeOverlay: View {
+    let pageIndex: Int
+    let page: Page
+    let layoutManager: NSLayoutManager?
+
+    @State private var actualRange: NSRange = NSRange(location: 0, length: 0)
+
+    var body: some View {
+        let planned = page.range
+        let isEmpty = actualRange.length == 0
+
+        VStack(alignment: .trailing, spacing: 2) {
+            Text("page \(pageIndex)")
+            Text("planned \(planned.location) + \(planned.length)")
+            Text("actual \(actualRange.location) + \(actualRange.length)")
+                .foregroundStyle(isEmpty ? Color.red : Color.green)
+        }
+        .font(.caption2)
+        .foregroundStyle(.white)
+        .padding(6)
+        .background(Color.black.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .allowsHitTesting(false)
+        .onAppear(perform: updateActualRange)
+        .onChange(of: page.range.location) { _ in updateActualRange() }
+        .onChange(of: page.range.length) { _ in updateActualRange() }
+    }
+
+    private func updateActualRange() {
+        guard let layoutManager else {
+            actualRange = NSRange(location: 0, length: 0)
+            return
+        }
+        actualRange = page.actualCharacterRange(using: layoutManager)
+    }
+}
+
 private struct DebugOverlay: View {
     let pages: [Page]
     let textStorage: NSTextStorage?

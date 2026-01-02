@@ -54,6 +54,28 @@ final class ReaderCoreTests: XCTestCase {
         )
     }
 
+    func testTextContainerActualRangeIsNonEmpty() {
+        let chapter = makeChapter()
+        let engine = TextEngine(chapter: chapter)
+
+        let result = engine.paginate(
+            pageSize: CGSize(width: 320, height: 480),
+            insets: UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16),
+            fontScale: 1.0
+        )
+
+        XCTAssertGreaterThan(result.pages.count, 1)
+
+        for (index, page) in result.pages.enumerated() {
+            let actualRange = page.actualCharacterRange(using: result.layoutManager)
+            XCTAssertGreaterThan(
+                actualRange.length,
+                0,
+                "Page \(index) mapped to an empty character range"
+            )
+        }
+    }
+
     func testSelectionExtractorClampsRangeAndBuildsContext() {
         let text = "ABCDEFGHIJ"
         let attributed = NSAttributedString(string: text)

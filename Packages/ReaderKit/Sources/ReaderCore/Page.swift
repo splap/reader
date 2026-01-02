@@ -13,4 +13,10 @@ public struct Page: Identifiable {
         self.range = range
         self.textContainer = textContainer
     }
+
+    public func actualCharacterRange(using layoutManager: NSLayoutManager) -> NSRange {
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        return layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+    }
 }
