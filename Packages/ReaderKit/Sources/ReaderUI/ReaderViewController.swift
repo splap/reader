@@ -12,6 +12,8 @@ public final class ReaderViewController: UIViewController {
     private let bookAuthor: String?
     private var webPageViewController: WebPageViewController!
     private var cancellables = Set<AnyCancellable>()
+    private var backButton: FloatingButton!
+    private var settingsButton: FloatingButton!
 
     #if DEBUG
     private var debugOverlay: DebugOverlayView?
@@ -50,10 +52,20 @@ public final class ReaderViewController: UIViewController {
         view.backgroundColor = .systemBackground
 
         setupWebPageViewController()
-        setupNavigationBar()
+        setupFloatingButtons()
         setupKeyCommands()
         setupDebugOverlay()
         bindViewModel()
+    }
+
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
     private var hasInitialLayout = false
@@ -62,6 +74,10 @@ public final class ReaderViewController: UIViewController {
         super.viewDidLayoutSubviews()
 
         webPageViewController.view.frame = view.bounds
+
+        // Ensure floating buttons are above WebView
+        view.bringSubviewToFront(backButton)
+        view.bringSubviewToFront(settingsButton)
 
         if !hasInitialLayout {
             hasInitialLayout = true
@@ -112,14 +128,32 @@ public final class ReaderViewController: UIViewController {
     }
 
 
-    private func setupNavigationBar() {
-        let settingsButton = UIBarButtonItem(
-            image: UIImage(systemName: "gearshape"),
-            style: .plain,
-            target: self,
-            action: #selector(showSettings)
-        )
-        navigationItem.rightBarButtonItem = settingsButton
+    private func setupFloatingButtons() {
+        // Create buttons
+        backButton = FloatingButton(systemImage: "chevron.left")
+        backButton.addTarget(self, action: #selector(navigateBack), for: .touchUpInside)
+        backButton.accessibilityLabel = "Back"
+
+        settingsButton = FloatingButton(systemImage: "gearshape")
+        settingsButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
+        settingsButton.accessibilityLabel = "Settings"
+
+        view.addSubview(backButton)
+        view.addSubview(settingsButton)
+
+        NSLayoutConstraint.activate([
+            // Back button - top left
+            backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            backButton.widthAnchor.constraint(equalToConstant: 44),
+            backButton.heightAnchor.constraint(equalToConstant: 44),
+
+            // Settings button - top right
+            settingsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            settingsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            settingsButton.widthAnchor.constraint(equalToConstant: 44),
+            settingsButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
     }
 
     private func setupKeyCommands() {
@@ -187,6 +221,10 @@ public final class ReaderViewController: UIViewController {
         )
         let navController = UINavigationController(rootViewController: settingsVC)
         present(navController, animated: true)
+    }
+
+    @objc private func navigateBack() {
+        navigationController?.popViewController(animated: true)
     }
 
     @objc private func navigateToPreviousPage() {
@@ -297,6 +335,49 @@ private final class DebugOverlayView: UIView {
             }
         }
         return count
+    }
+}
+
+private final class FloatingButton: UIButton {
+    init(systemImage: String) {
+        super.init(frame: .zero)
+
+        // Blur background
+        let blurEffect = UIBlurEffect(style: .systemMaterial)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.isUserInteractionEnabled = false
+        blurView.layer.cornerRadius = 22
+        blurView.clipsToBounds = true
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Button configuration
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: systemImage)
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        config.baseForegroundColor = .white
+        configuration = config
+
+        // Shadow
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.3
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+        layer.shadowRadius = 4
+
+        // Layout
+        translatesAutoresizingMaskIntoConstraints = false
+
+        // Add blur as background
+        insertSubview(blurView, at: 0)
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 #endif

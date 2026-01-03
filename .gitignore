@@ -4,3 +4,4 @@ DerivedData/
 Reader.xcodeproj/
 *.xcworkspace
 .DS_Store
+*.epub
