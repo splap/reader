@@ -5,13 +5,64 @@ If a human can build/test it with one command, agents will succeed. Otherwise, t
 
 when you've made a change, run the app yourself so i see the result.
 
+## Simulator Management (CRITICAL)
+
+**ONE SIMULATOR PER SESSION** - Each Claude Code session should use exactly ONE simulator instance for all operations.
+
+### Session Start - Boot and Track Simulator
+
+At the start of a coding session, boot the simulator ONCE and save its UDID:
+
+```bash
+# Boot the simulator (if not already booted)
+xcrun simctl boot "iPad Pro 11-inch (M4)" 2>/dev/null || true
+
+# Get and save the UDID to a session file
+SIMULATOR_UDID=$(xcrun simctl list devices available | \
+  grep "iPad Pro 11-inch (M4)" | \
+  grep -v "unavailable" | \
+  head -1 | \
+  grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}")
+
+echo "$SIMULATOR_UDID" > /tmp/reader-simulator-session.txt
+echo "Using simulator: $SIMULATOR_UDID"
+```
+
+### Throughout Session - Always Use Tracked Simulator
+
+For ALL subsequent operations (loading books, running tests, installing app):
+
+```bash
+# Read the session simulator UDID
+SIMULATOR_UDID=$(cat /tmp/reader-simulator-session.txt 2>/dev/null)
+
+# Use it for operations
+xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data
+```
+
+### Why This Matters
+
+- Running tests creates new app containers, so UDID stays same but container path changes
+- Each test run may clear app state, so books need to be in the RIGHT container
+- Multiple simulators = confusion about which one has books, which is running tests
+- **NEVER** query for simulator UDID more than once per session unless explicitly needed
+
 ## Test Books Location
 
 Test epub files are located at: `/Volumes/jimini/media/books`
 
-To load test books into simulator for UI testing:
+To load test books into the SESSION simulator:
 ```bash
-./scripts/load-test-books /Volumes/jimini/media/books
+# Get session simulator
+SIMULATOR_UDID=$(cat /tmp/reader-simulator-session.txt)
+
+# Get current app container (may change between test runs)
+APP_CONTAINER=$(xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data)
+
+# Load books
+BOOKS_DIR="$APP_CONTAINER/Documents/TestBooks"
+mkdir -p "$BOOKS_DIR"
+cp /Volumes/jimini/media/books/*.epub "$BOOKS_DIR/"
 ```
 
 Available test books include:
