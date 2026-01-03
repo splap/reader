@@ -3,6 +3,11 @@ import ReaderCore
 import UIKit
 import OSLog
 
+struct LLMPayload: Identifiable {
+    let id = UUID()
+    let selection: SelectionPayload
+}
+
 final class ReaderViewModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.example.reader", category: "paging")
     @Published var pages: [Page] = []

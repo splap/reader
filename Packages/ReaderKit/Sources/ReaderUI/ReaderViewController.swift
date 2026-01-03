@@ -8,6 +8,8 @@ public final class ReaderViewController: UIViewController {
     private static let logger = Logger(subsystem: "com.example.reader", category: "reader-vc")
     private let viewModel: ReaderViewModel
     private let chapter: Chapter
+    private let bookTitle: String?
+    private let bookAuthor: String?
     private var webPageViewController: WebPageViewController!
     private var cancellables = Set<AnyCancellable>()
 
@@ -15,13 +17,17 @@ public final class ReaderViewController: UIViewController {
     private var debugOverlay: DebugOverlayView?
     #endif
 
-    public init(chapter: Chapter = SampleChapter.make()) {
+    public init(chapter: Chapter = SampleChapter.make(), bookTitle: String? = nil, bookAuthor: String? = nil) {
         self.viewModel = ReaderViewModel(chapter: chapter)
         self.chapter = chapter
+        self.bookTitle = bookTitle
+        self.bookAuthor = bookAuthor
         super.init(nibName: nil, bundle: nil)
     }
 
-    public init(epubURL: URL, maxSections: Int = .max) {
+    public init(epubURL: URL, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max) {
+        self.bookTitle = bookTitle
+        self.bookAuthor = bookAuthor
         do {
             let chapter = try EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)
             self.chapter = chapter
@@ -78,6 +84,9 @@ public final class ReaderViewController: UIViewController {
     private func setupWebPageViewController() {
         let webPageVC = WebPageViewController(
             htmlSections: chapter.htmlSections,
+            bookTitle: bookTitle,
+            bookAuthor: bookAuthor,
+            chapterTitle: chapter.title,
             fontScale: viewModel.fontScale,
             onSendToLLM: { [weak self] selection in
                 self?.viewModel.llmPayload = LLMPayload(selection: selection)
@@ -170,12 +179,14 @@ public final class ReaderViewController: UIViewController {
 
 
     @objc private func showSettings() {
-        let settingsView = ReaderSettingsView(fontScale: Binding(
-            get: { [weak self] in self?.viewModel.fontScale ?? 1.0 },
-            set: { [weak self] newValue in self?.viewModel.updateFontScale(newValue) }
-        ))
-        let hostingController = UIHostingController(rootView: settingsView)
-        present(hostingController, animated: true)
+        let settingsVC = ReaderSettingsViewController(
+            fontScale: viewModel.fontScale,
+            onFontScaleChanged: { [weak self] newScale in
+                self?.viewModel.updateFontScale(newScale)
+            }
+        )
+        let navController = UINavigationController(rootViewController: settingsVC)
+        present(navController, animated: true)
     }
 
     @objc private func navigateToPreviousPage() {
@@ -187,9 +198,23 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func presentLLMModal(with payload: LLMPayload) {
-        let modalView = LLMModalView(payload: payload)
-        let hostingController = UIHostingController(rootView: modalView)
-        present(hostingController, animated: true) {
+        let modalVC = LLMModalViewController(selection: payload.selection)
+        let navController = UINavigationController(rootViewController: modalVC)
+
+        // Configure sheet presentation - nearly full screen
+        if let sheet = navController.sheetPresentationController {
+            // Custom detent for 95% height
+            let customDetent = UISheetPresentationController.Detent.custom { context in
+                return context.maximumDetentValue * 0.95
+            }
+            sheet.detents = [customDetent]
+            sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            sheet.largestUndimmedDetentIdentifier = nil // Dim background
+            sheet.preferredCornerRadius = 16
+        }
+
+        present(navController, animated: true) {
             self.viewModel.llmPayload = nil
         }
     }

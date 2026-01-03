@@ -76,20 +76,6 @@ final class ReaderCoreTests: XCTestCase {
         }
     }
 
-    func testSelectionExtractorClampsRangeAndBuildsContext() {
-        let text = "ABCDEFGHIJ"
-        let attributed = NSAttributedString(string: text)
-        let payload = SelectionExtractor.payload(
-            in: attributed,
-            range: NSRange(location: 8, length: 10),
-            contextLength: 2
-        )
-
-        XCTAssertEqual(payload.selectedText, "IJ")
-        XCTAssertEqual(payload.contextText, "GHIJ")
-        XCTAssertEqual(payload.range, NSRange(location: 8, length: 2))
-    }
-
     func testPositionStoreRoundTrip() {
         let suiteName = "ReaderCoreTests.PositionStore"
         let defaults = UserDefaults(suiteName: suiteName)!

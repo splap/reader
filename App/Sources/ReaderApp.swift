@@ -1,46 +1,47 @@
 import Foundation
 import ReaderUI
 import ReaderCore
-import SwiftUI
 import UIKit
 
 @main
-struct ReaderApp: App {
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var lastOpenedBookId: UUID?
+final class AppDelegate: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
 
-    init() {
-        NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
-        NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
-
-        // Load last opened book ID from UserDefaults
-        if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
-           let uuid = UUID(uuidString: idString) {
-            _lastOpenedBookId = State(initialValue: uuid)
-            NSLog("🚀 Last opened book ID: \(uuid)")
-        } else {
-            NSLog("🚀 No previously opened book")
-        }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            // Smart navigation: auto-open last book if available, otherwise show library
-            if let bookId = lastOpenedBookId,
-               let book = BookLibraryService.shared.getBook(id: bookId) {
-                ReaderContainerView(book: book)
-            } else {
-                LibraryView()
-            }
-        }
-    }
-}
-
-final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
+        NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+
+        // Create window
+        let window = UIWindow(frame: UIScreen.main.bounds)
+
+        // Create library view controller
+        let libraryVC = LibraryViewController()
+        let navController = UINavigationController(rootViewController: libraryVC)
+
+        // Check if we should auto-open last book
+        if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
+           let uuid = UUID(uuidString: idString),
+           let book = BookLibraryService.shared.getBook(id: uuid) {
+            NSLog("🚀 Auto-opening last book: \(book.title)")
+
+            let fileURL = BookLibraryService.shared.getFileURL(for: book)
+            let readerVC = ReaderViewController(
+                epubURL: fileURL,
+                bookTitle: book.title,
+                bookAuthor: book.author
+            )
+            navController.pushViewController(readerVC, animated: false)
+        } else {
+            NSLog("🚀 Showing library")
+        }
+
+        window.rootViewController = navController
+        window.makeKeyAndVisible()
+        self.window = window
+
         return true
     }
 

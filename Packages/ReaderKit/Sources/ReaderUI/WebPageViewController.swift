@@ -4,13 +4,49 @@ import ReaderCore
 import Foundation
 import OSLog
 
+// Custom WKWebView that adds "Send to LLM" to text selection menu
+private class SelectableWebView: WKWebView {
+    var onSendToLLM: (() -> Void)?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        let actionName = NSStringFromSelector(action)
+
+        // Log all actions to see what we're dealing with
+        NSLog("WebView action: \(actionName)")
+
+        // Show our custom action
+        if action == #selector(sendToLLMAction) {
+            return true
+        }
+
+        // Hide specific actions to make room for our action in the primary menu
+        // Block translate, look up, search web, and share
+        if actionName.contains("translate") ||
+           actionName.contains("define") ||
+           actionName.contains("_lookup") ||
+           actionName.contains("searchWeb") ||
+           actionName.contains("_share") {
+            return false
+        }
+
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    @objc func sendToLLMAction() {
+        onSendToLLM?()
+    }
+}
+
 final class WebPageViewController: UIViewController {
 
     private static let logger = Logger(subsystem: "com.example.reader", category: "page-view")
     private let htmlSections: [HTMLSection]
+    private let bookTitle: String?
+    private let bookAuthor: String?
+    private let chapterTitle: String?
     private let onSendToLLM: (SelectionPayload) -> Void
     private let onPageChanged: (Int, Int) -> Void  // (currentPage, totalPages)
-    private var webView: WKWebView!
+    private var webView: SelectableWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
     private var contentSizeObserver: NSKeyValueObservation?
@@ -24,11 +60,17 @@ final class WebPageViewController: UIViewController {
 
     init(
         htmlSections: [HTMLSection],
+        bookTitle: String? = nil,
+        bookAuthor: String? = nil,
+        chapterTitle: String? = nil,
         fontScale: CGFloat = 2.0,
         onSendToLLM: @escaping (SelectionPayload) -> Void,
         onPageChanged: @escaping (Int, Int) -> Void  // (currentPage, totalPages)
     ) {
         self.htmlSections = htmlSections
+        self.bookTitle = bookTitle
+        self.bookAuthor = bookAuthor
+        self.chapterTitle = chapterTitle
         self.fontScale = fontScale
         self.onSendToLLM = onSendToLLM
         self.onPageChanged = onPageChanged
@@ -51,7 +93,10 @@ final class WebPageViewController: UIViewController {
         configuration.suppressesIncrementalRendering = false
         configuration.dataDetectorTypes = []
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = SelectableWebView(frame: .zero, configuration: configuration)
+        webView.onSendToLLM = { [weak self] in
+            self?.extractAndSendSelection()
+        }
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.isPagingEnabled = true
@@ -75,22 +120,98 @@ final class WebPageViewController: UIViewController {
         ])
 
         // Observe contentSize to re-enable scrolling when content loads
-        contentSizeObserver = webView.scrollView.observe(\.contentSize, options: [.new]) { [weak self] scrollView, change in
-            guard let self = self else { return }
-            Self.logger.debug("contentSize changed to \(scrollView.contentSize.width)x\(scrollView.contentSize.height), isScrollEnabled=\(scrollView.isScrollEnabled)")
+        contentSizeObserver = webView.scrollView.observe(\.contentSize, options: [.new]) { scrollView, change in
+            WebPageViewController.logger.debug("contentSize changed to \(scrollView.contentSize.width)x\(scrollView.contentSize.height), isScrollEnabled=\(scrollView.isScrollEnabled)")
             // WKWebView may disable scrolling when content loads - re-enable it
             if scrollView.contentSize.width > scrollView.bounds.width {
                 scrollView.isScrollEnabled = true
                 scrollView.isPagingEnabled = true
-                Self.logger.info("Re-enabled scrolling via KVO")
+                WebPageViewController.logger.info("Re-enabled scrolling via KVO")
             }
         }
+
+        // Register custom menu item for text selection
+        let menuItem = UIMenuItem(title: "Send to LLM", action: #selector(SelectableWebView.sendToLLMAction))
+        UIMenuController.shared.menuItems = [menuItem]
 
         loadContent()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+    }
+
+    private func extractAndSendSelection() {
+        // JavaScript to get selected text and surrounding context
+        let js = """
+        (function() {
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) {
+                return null;
+            }
+
+            const selectedText = selection.toString();
+            if (!selectedText) {
+                return null;
+            }
+
+            // Get the full body text
+            const fullText = document.body.innerText;
+
+            // Find the position of selected text in full text
+            const selectionStart = fullText.indexOf(selectedText);
+            if (selectionStart === -1) {
+                return {
+                    selectedText: selectedText,
+                    contextText: selectedText,
+                    location: 0,
+                    length: selectedText.length
+                };
+            }
+
+            // Extract context (500 chars before and after)
+            const contextLength = 500;
+            const contextStart = Math.max(0, selectionStart - contextLength);
+            const contextEnd = Math.min(fullText.length, selectionStart + selectedText.length + contextLength);
+            const contextText = fullText.substring(contextStart, contextEnd);
+
+            return {
+                selectedText: selectedText,
+                contextText: contextText,
+                location: selectionStart,
+                length: selectedText.length
+            };
+        })();
+        """
+
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                Self.logger.error("Failed to get selection: \(error.localizedDescription)")
+                return
+            }
+
+            guard let dict = result as? [String: Any],
+                  let selectedText = dict["selectedText"] as? String,
+                  let contextText = dict["contextText"] as? String,
+                  let location = dict["location"] as? Int,
+                  let length = dict["length"] as? Int else {
+                Self.logger.warning("No valid selection found")
+                return
+            }
+
+            let payload = SelectionPayload(
+                selectedText: selectedText,
+                contextText: contextText,
+                range: NSRange(location: location, length: length),
+                bookTitle: self.bookTitle,
+                bookAuthor: self.bookAuthor,
+                chapterTitle: self.chapterTitle
+            )
+
+            self.onSendToLLM(payload)
+        }
     }
 
     private func loadContent() {
@@ -323,3 +444,4 @@ extension WebPageViewController: WKNavigationDelegate {
         }
     }
 }
+
