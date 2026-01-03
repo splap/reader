@@ -249,10 +249,24 @@ final class WebPageViewController: UIViewController {
                     line-height: 1.6;
                     text-align: justify;
 
+                    /* Light mode colors */
+                    color: #000000;
+
                     /* CSS columns for pagination - let UIScrollView handle scrolling */
                     column-width: calc(100vw - 96px);
                     column-gap: 96px;
                     column-fill: auto;
+                }
+
+                /* Dark mode support */
+                @media (prefers-color-scheme: dark) {
+                    body {
+                        color: #FFFFFF;
+                    }
+
+                    a {
+                        color: #4A9EFF;
+                    }
                 }
                 img {
                     max-width: 100%;

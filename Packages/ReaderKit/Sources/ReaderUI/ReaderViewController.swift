@@ -275,7 +275,11 @@ private final class DebugOverlayView: UIView {
     }
 
     private func setupView() {
-        backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        backgroundColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark
+                ? UIColor.white.withAlphaComponent(0.7)
+                : UIColor.black.withAlphaComponent(0.7)
+        }
         layer.cornerRadius = 8
         isUserInteractionEnabled = false
         clipsToBounds = true
@@ -316,7 +320,9 @@ private final class DebugOverlayView: UIView {
     private func makeLabel(_ text: String) -> UILabel {
         let label = UILabel()
         label.text = text
-        label.textColor = .white
+        label.textColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? .black : .white
+        }
         label.font = .systemFont(ofSize: 14)
         return label
     }
@@ -354,7 +360,12 @@ private final class FloatingButton: UIButton {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: systemImage)
         config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        config.baseForegroundColor = .white
+
+        // Adaptive icon color: dark icons in light mode, light icons in dark mode
+        let iconColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? .white : .black
+        }
+        config.baseForegroundColor = iconColor
         configuration = config
 
         // Shadow
