@@ -243,7 +243,7 @@ final class WebPageViewController: UIViewController {
                 body {
                     /* Remove viewport units to avoid Safari mobile issues */
                     height: 100%;
-                    padding: 48px;
+                    padding: 48px 0;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: \(Int(16 * fontScale))px;
                     line-height: 1.6;
@@ -252,10 +252,16 @@ final class WebPageViewController: UIViewController {
                     /* Light mode colors */
                     color: #000000;
 
-                    /* CSS columns for pagination - let UIScrollView handle scrolling */
-                    column-width: calc(100vw - 96px);
-                    column-gap: 96px;
+                    /* CSS columns for pagination - each column = viewport width */
+                    column-width: 100vw;
+                    column-gap: 0;
                     column-fill: auto;
+                }
+
+                /* Apply horizontal padding to content elements */
+                p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, div {
+                    padding-left: 48px;
+                    padding-right: 48px;
                 }
 
                 /* Dark mode support */
@@ -439,22 +445,29 @@ extension WebPageViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Self.logger.debug("didFinish navigation")
 
-        // Inject JavaScript to ensure content is scrollable
+        // Inject JavaScript to ensure content is scrollable and wait for layout
         let js = """
         document.documentElement.style.overflow = 'visible';
         document.body.style.overflow = 'visible';
+        // Force layout calculation
+        document.body.offsetHeight;
         """
-        webView.evaluateJavaScript(js, completionHandler: nil)
-
-        // Ensure scrolling is enabled after content loads
-        DispatchQueue.main.async { [weak self] in
+        webView.evaluateJavaScript(js) { [weak self] _, error in
             guard let self = self else { return }
-            let sv = self.webView.scrollView
-            Self.logger.info("After load: contentSize=\(sv.contentSize.width)x\(sv.contentSize.height) isScrollEnabled=\(sv.isScrollEnabled)")
-            sv.isScrollEnabled = true
-            sv.isPagingEnabled = true
-            Self.logger.info("Set isScrollEnabled=true, actual value=\(sv.isScrollEnabled)")
-            self.updateCurrentPage()
+            if let error = error {
+                Self.logger.error("JavaScript error: \(error.localizedDescription)")
+            }
+
+            // Wait a bit more for CSS columns to finish laying out
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard let self = self else { return }
+                let sv = self.webView.scrollView
+                Self.logger.info("After load: contentSize=\(sv.contentSize.width)x\(sv.contentSize.height) isScrollEnabled=\(sv.isScrollEnabled)")
+                sv.isScrollEnabled = true
+                sv.isPagingEnabled = true
+                Self.logger.info("Set isScrollEnabled=true, actual value=\(sv.isScrollEnabled)")
+                self.updateCurrentPage()
+            }
         }
     }
 }
