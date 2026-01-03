@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+SIMULATOR_NAME="iPad Pro 11-inch (M4)"
+BUNDLE_ID="com.splap.reader"
+BOOKS_SOURCE_DIR="${1:-}"
+
+if [ -z "$BOOKS_SOURCE_DIR" ]; then
+  echo "Usage: $0 <path-to-books-directory>" >&2
+  echo "  Copies .epub files from the specified directory to the simulator" >&2
+  exit 1
+fi
+
+if [ ! -d "$BOOKS_SOURCE_DIR" ]; then
+  echo "Error: Directory not found: $BOOKS_SOURCE_DIR" >&2
+  exit 1
+fi
+
+echo "📱 Booting simulator: $SIMULATOR_NAME"
+SIMULATOR_UDID=$(xcrun simctl list devices available | grep "$SIMULATOR_NAME" | grep -v "unavailable" | head -1 | grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}" || true)
+
+if [ -z "$SIMULATOR_UDID" ]; then
+  echo "Error: Could not find simulator: $SIMULATOR_NAME" >&2
+  exit 1
+fi
+
+echo "📱 Found simulator UDID: $SIMULATOR_UDID"
+
+# Boot simulator if not already booted
+BOOT_STATUS=$(xcrun simctl list devices | grep "$SIMULATOR_UDID" | grep -o "Booted" || echo "Shutdown")
+if [ "$BOOT_STATUS" != "Booted" ]; then
+  echo "📱 Booting simulator..."
+  xcrun simctl boot "$SIMULATOR_UDID"
+  sleep 2
+else
+  echo "📱 Simulator already booted"
+fi
+
+# Build and install the app
+echo "🔨 Building app..."
+xcodebuild \
+  -project Reader.xcodeproj \
+  -scheme ReaderApp \
+  -configuration Debug \
+  -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+  -derivedDataPath "$ROOT_DIR/.build/DerivedData" \
+  build >/dev/null 2>&1
+
+echo "📦 Installing app on simulator..."
+APP_PATH="$ROOT_DIR/.build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app"
+xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+
+# Terminate app to avoid file handle issues
+echo "🛑 Stopping app..."
+xcrun simctl terminate "$SIMULATOR_UDID" "$BUNDLE_ID" 2>/dev/null || true
+
+# Get app data container
+echo "📂 Getting app container path..."
+APP_DATA_DIR=$(xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" data)
+
+if [ -z "$APP_DATA_DIR" ]; then
+  echo "Error: Could not get app container path" >&2
+  exit 1
+fi
+
+echo "📂 App data directory: $APP_DATA_DIR"
+
+# Create Documents/TestBooks directory
+BOOKS_DIR="$APP_DATA_DIR/Documents/TestBooks"
+echo "📚 Creating test books directory: $BOOKS_DIR"
+mkdir -p "$BOOKS_DIR"
+
+# Copy books
+echo "📚 Copying books from: $BOOKS_SOURCE_DIR"
+BOOK_COUNT=$(find "$BOOKS_SOURCE_DIR" -name "*.epub" -type f | wc -l | xargs)
+if [ "$BOOK_COUNT" -eq 0 ]; then
+  echo "⚠️  Warning: No .epub files found in $BOOKS_SOURCE_DIR"
+else
+  cp "$BOOKS_SOURCE_DIR"/*.epub "$BOOKS_DIR/" 2>/dev/null || true
+  echo "✅ Copied $BOOK_COUNT book(s) to simulator"
+  ls -1 "$BOOKS_DIR"/*.epub | xargs -n1 basename
+fi
+
+echo ""
+echo "✅ Ready to run tests with simulator UDID: $SIMULATOR_UDID"
+echo "   Run: ./scripts/test ui"
+echo "   Or:  xcodebuild test -destination \"platform=iOS Simulator,id=$SIMULATOR_UDID\" -scheme ReaderAppUITests"
