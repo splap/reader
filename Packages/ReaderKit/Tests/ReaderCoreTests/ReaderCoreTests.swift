@@ -97,6 +97,60 @@ final class ReaderCoreTests: XCTestCase {
         XCTAssertEqual(chapter.title, "Sample EPUB")
     }
 
+    func testCSSManagerGeneratesHouseCSS() {
+        let css = CSSManager.houseCSS(fontScale: 2.0)
+
+        // Verify house CSS contains critical properties
+        XCTAssertTrue(css.contains("font-size: 32px"), "House CSS should scale font size")
+        XCTAssertTrue(css.contains("line-height: 1.6"), "House CSS should set line height")
+        XCTAssertTrue(css.contains("padding: 48px 0"), "House CSS should control body padding")
+        XCTAssertTrue(css.contains("column-width: 100vw"), "House CSS should set column width for pagination")
+    }
+
+    func testCSSManagerCapsIndentation() {
+        let publisherCSS = """
+        p { text-indent: 200px; }
+        .quote { padding-left: 10em; }
+        """
+
+        let sanitized = CSSManager.sanitizePublisherCSS(publisherCSS)
+
+        // Verify large indents are capped
+        XCTAssertFalse(sanitized.contains("200px"), "Large pixel indents should be capped")
+        XCTAssertFalse(sanitized.contains("10em"), "Large em indents should be capped")
+        XCTAssertTrue(sanitized.contains("rem"), "Indents should be converted to rem")
+    }
+
+    func testCSSManagerRemovesRootMargins() {
+        let publisherCSS = """
+        body { margin: 50px; padding: 30px; }
+        html { margin: 20px; }
+        p { margin: 10px; }
+        """
+
+        let sanitized = CSSManager.sanitizePublisherCSS(publisherCSS)
+
+        // Root margins should be removed, but paragraph margins preserved
+        XCTAssertTrue(sanitized.contains("p { margin: 10px; }"), "Non-root margins should be preserved")
+    }
+
+    func testCSSManagerRemovesTextAlignCenter() {
+        let publisherCSS = """
+        h1 { text-align: center; }
+        p.centered { text-align: center; font-size: 14px; }
+        .right { text-align: right; }
+        .left { text-align: left; }
+        """
+
+        let sanitized = CSSManager.sanitizePublisherCSS(publisherCSS)
+
+        // Center and right alignment should be removed
+        XCTAssertFalse(sanitized.contains("text-align: center"), "Center alignment should be removed")
+        XCTAssertFalse(sanitized.contains("text-align: right"), "Right alignment should be removed")
+        // Left alignment should be preserved (it matches house style)
+        XCTAssertTrue(sanitized.contains("text-align: left"), "Left alignment should be preserved")
+    }
+
     private func makeChapter() -> Chapter {
         let text = String(repeating: "Lorem ipsum dolor sit amet. ", count: 400)
         let attributes: [NSAttributedString.Key: Any] = [

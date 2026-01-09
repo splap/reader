@@ -236,7 +236,10 @@ final class WebPageViewController: UIViewController {
             combinedHTML += processedHTML + "\n"
         }
 
-        // Wrap HTML with CSS columns for pagination
+        // Generate CSS using CSSManager (house CSS + sanitized publisher CSS)
+        let css = CSSManager.generateCompleteCSS(fontScale: fontScale, publisherCSS: nil)
+
+        // Wrap HTML with house CSS
         let wrappedHTML = """
         <!DOCTYPE html>
         <html>
@@ -244,66 +247,7 @@ final class WebPageViewController: UIViewController {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                * {
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }
-                html {
-                    width: 100%;
-                    height: 100%;
-                    overflow: hidden;
-                }
-                body {
-                    /* Remove viewport units to avoid Safari mobile issues */
-                    height: 100%;
-                    padding: 48px 0;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    font-size: \(Int(16 * fontScale))px;
-                    line-height: 1.6;
-                    text-align: justify;
-
-                    /* Light mode colors */
-                    color: #000000;
-
-                    /* CSS columns for pagination - each column = viewport width */
-                    column-width: 100vw;
-                    column-gap: 0;
-                    column-fill: auto;
-                }
-
-                /* Apply horizontal padding to content elements */
-                p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, div {
-                    padding-left: 48px;
-                    padding-right: 48px;
-                }
-
-                /* Dark mode support */
-                @media (prefers-color-scheme: dark) {
-                    body {
-                        color: #FFFFFF;
-                    }
-
-                    a {
-                        color: #4A9EFF;
-                    }
-                }
-                img {
-                    max-width: 100%;
-                    height: auto;
-                    display: block;
-                    margin: 1em auto;
-                    break-inside: avoid;
-                }
-                p {
-                    margin-bottom: 1em;
-                    text-align: justify;
-                }
-                h1, h2, h3, h4, h5, h6 {
-                    margin-top: 1em;
-                    margin-bottom: 0.5em;
-                    break-after: avoid;
-                }
+                \(css)
             </style>
         </head>
         <body>
