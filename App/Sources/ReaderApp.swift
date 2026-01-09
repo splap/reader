@@ -14,14 +14,19 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
         NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
 
-        // Clear state if running UI tests
-        if CommandLine.arguments.contains("--uitesting") {
+        // Clear state if running UI tests unless explicitly told to keep state.
+        let isUITesting = CommandLine.arguments.contains("--uitesting")
+        let keepUIState = CommandLine.arguments.contains("--uitesting-keep-state")
+        let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
+        if isUITesting && !keepUIState {
             NSLog("🧪 UI Testing mode detected - clearing app state")
             UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
             UserDefaults.standard.synchronize()
 
             // Import test books if they exist
-            importTestBooksIfNeeded()
+            if !isPositionTest {
+                importTestBooksIfNeeded()
+            }
         }
 
         // Create window
@@ -39,10 +44,28 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let libraryVC = LibraryViewController()
         let navController = UINavigationController(rootViewController: libraryVC)
 
-        // Check if we should auto-open last book
-        if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
-           let uuid = UUID(uuidString: idString),
-           let book = BookLibraryService.shared.getBook(id: uuid) {
+        let autoOpenFirstBook = CommandLine.arguments.contains("--uitesting-auto-open-first-book")
+        if isPositionTest {
+            let chapter = UITestChapter.makePositionTestChapter(pageCount: 120)
+            let readerVC = ReaderViewController(
+                chapter: chapter,
+                bookTitle: chapter.title,
+                bookAuthor: "UI Test"
+            )
+            navController.pushViewController(readerVC, animated: false)
+        } else if autoOpenFirstBook, let book = BookLibraryService.shared.getAllBooks().first {
+            NSLog("🚀 UI test auto-opening first book: \(book.title)")
+            BookLibraryService.shared.updateLastOpened(bookId: book.id)
+            let fileURL = BookLibraryService.shared.getFileURL(for: book)
+            let readerVC = ReaderViewController(
+                epubURL: fileURL,
+                bookTitle: book.title,
+                bookAuthor: book.author
+            )
+            navController.pushViewController(readerVC, animated: false)
+        } else if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
+                  let uuid = UUID(uuidString: idString),
+                  let book = BookLibraryService.shared.getBook(id: uuid) {
             NSLog("🚀 Auto-opening last book: \(book.title)")
 
             let fileURL = BookLibraryService.shared.getFileURL(for: book)

@@ -31,6 +31,7 @@ public final class EPUBLoader {
 
     private var imageCache: [String: Data] = [:]
     private var cssCache: [String: String] = [:]
+    private let blockParser = BlockParser()
 
     public init() {}
 
@@ -81,7 +82,25 @@ public final class EPUBLoader {
                 let basePath = (resolvedPath as NSString).deletingLastPathComponent
                 // Find and include CSS content referenced by this HTML
                 let cssContent = extractCSSForHTML(htmlString, basePath: basePath)
-                htmlSections.append(HTMLSection(html: htmlString, basePath: basePath, imageCache: imageCache, cssContent: cssContent))
+
+                // Use spine item ID for block identification
+                let spineItemId = item.id
+
+                // Parse HTML into blocks and generate annotated HTML with data-block-id attributes
+                let (blocks, annotatedHTML) = blockParser.parseWithAnnotatedHTML(
+                    html: htmlString,
+                    spineItemId: spineItemId
+                )
+
+                htmlSections.append(HTMLSection(
+                    html: htmlString,
+                    annotatedHTML: annotatedHTML,
+                    basePath: basePath,
+                    imageCache: imageCache,
+                    cssContent: cssContent,
+                    blocks: blocks,
+                    spineItemId: spineItemId
+                ))
             }
 
             let section = attributedString(fromHTML: htmlData)

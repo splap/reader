@@ -10,28 +10,82 @@ struct LLMPayload: Identifiable {
 
 final class ReaderViewModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.example.reader", category: "paging")
+
+    private static func debugLog(_ message: String) {
+        let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("reader-position-debug.log")
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let entry = "[\(timestamp)] \(message)\n"
+        if let data = entry.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logURL.path) {
+                if let handle = try? FileHandle(forWritingTo: logURL) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    try? handle.close()
+                }
+            } else {
+                try? data.write(to: logURL)
+            }
+        }
+    }
     @Published var pages: [Page] = []
     @Published var currentPageIndex: Int = 0
     @Published var totalPages: Int = 0  // For WebView mode
+    @Published var maxReadPageIndex: Int = 0  // Furthest page user has reached
     @Published var fontScale: CGFloat = 1.4
     @Published var settingsPresented: Bool = false
     @Published var llmPayload: LLMPayload?
 
+    // Block-based position tracking
+    @Published var currentBlockId: String?
+    @Published var currentSpineItemId: String?
+
     private let engine: TextEngine
     private let positionStore: ReaderPositionStoring
-    private let chapterId: String
+    private let blockPositionStore: BlockPositionStoring
+    let chapterId: String
+    let bookId: String  // For block position storage
     private var lastPageSize: CGSize = .zero
     private var lastInsets: UIEdgeInsets = .zero
     private var positionOffset: Int = 0
 
-    init(chapter: Chapter, positionStore: ReaderPositionStoring = UserDefaultsPositionStore()) {
+    // Initial page to navigate to after content loads (for position restoration)
+    private(set) var initialPageIndex: Int = 0
+
+    // Initial block ID to navigate to after content loads (preferred over page)
+    private(set) var initialBlockId: String?
+    private(set) var initialSpineItemId: String?
+
+    init(
+        chapter: Chapter,
+        bookId: String? = nil,
+        positionStore: ReaderPositionStoring = UserDefaultsPositionStore(),
+        blockPositionStore: BlockPositionStoring = UserDefaultsBlockPositionStore()
+    ) {
         self.engine = TextEngine(chapter: chapter)
         self.positionStore = positionStore
+        self.blockPositionStore = blockPositionStore
         self.chapterId = chapter.id
+        self.bookId = bookId ?? chapter.id  // Fall back to chapterId if no bookId provided
 
-        if let position = positionStore.load(chapterId: chapter.id) {
+        Self.debugLog("📍 ReaderViewModel init for chapter: \(chapter.id), bookId: \(self.bookId)")
+
+        // Try to load block-based position first (preferred)
+        if let blockPosition = blockPositionStore.load(bookId: self.bookId) {
+            Self.debugLog("📍 Loaded block position: spineItem=\(blockPosition.spineItemId), block=\(blockPosition.blockId)")
+            initialBlockId = blockPosition.blockId
+            initialSpineItemId = blockPosition.spineItemId
+            currentBlockId = blockPosition.blockId
+            currentSpineItemId = blockPosition.spineItemId
+        }
+        // Fall back to legacy page-based position
+        else if let position = positionStore.load(chapterId: chapter.id) {
+            Self.debugLog("📍 Loaded legacy position: page \(position.pageIndex), max \(position.maxReadPageIndex)")
             positionOffset = position.characterOffset
             currentPageIndex = position.pageIndex
+            maxReadPageIndex = position.maxReadPageIndex
+            initialPageIndex = position.pageIndex
+        } else {
+            Self.debugLog("📍 No saved position found for chapter: \(chapter.id)")
         }
     }
 
@@ -63,15 +117,37 @@ final class ReaderViewModel: ObservableObject {
             self.totalPages = totalPages
         }
 
-        // Only update position store if we have TextKit pages
+        // Update max read extent if this is further than before
+        if index > maxReadPageIndex {
+            maxReadPageIndex = index
+        }
+
+        // Save position for TextKit mode
         if !pages.isEmpty && index < pages.count {
             positionOffset = pages[index].range.location
             positionStore.save(ReaderPosition(
                 chapterId: chapterId,
                 pageIndex: index,
-                characterOffset: positionOffset
+                characterOffset: positionOffset,
+                maxReadPageIndex: maxReadPageIndex
+            ))
+        } else {
+            // WebView mode - save position without character offset
+            Self.debugLog("📍 Saving position: chapter=\(chapterId), page=\(index), maxRead=\(maxReadPageIndex)")
+            positionStore.save(ReaderPosition(
+                chapterId: chapterId,
+                pageIndex: index,
+                characterOffset: 0,
+                maxReadPageIndex: maxReadPageIndex
             ))
         }
+    }
+
+    // Navigate to a specific page (used by scrubber)
+    func navigateToPage(_ pageIndex: Int) {
+        guard pageIndex >= 0 && pageIndex < totalPages else { return }
+        // Don't update maxReadPageIndex here - that only advances when scrolling forward
+        currentPageIndex = pageIndex
     }
 
     func updateFontScale(_ scale: CGFloat) {
@@ -94,4 +170,38 @@ final class ReaderViewModel: ObservableObject {
         currentPageIndex -= 1
     }
 
+    // MARK: - Block Position Tracking
+
+    /// Update the current block position (called from WebView on scroll-end)
+    /// - Parameters:
+    ///   - blockId: The ID of the first visible block
+    ///   - spineItemId: The spine item containing the block (optional, uses current if nil)
+    func updateBlockPosition(blockId: String, spineItemId: String? = nil) {
+        let effectiveSpineItemId = spineItemId ?? currentSpineItemId ?? ""
+
+        // Only save if position actually changed
+        guard blockId != currentBlockId || effectiveSpineItemId != currentSpineItemId else {
+            return
+        }
+
+        currentBlockId = blockId
+        currentSpineItemId = effectiveSpineItemId
+
+        Self.debugLog("📍 Saving block position: bookId=\(bookId), spineItem=\(effectiveSpineItemId), block=\(blockId)")
+
+        let position = BlockPosition(
+            bookId: bookId,
+            spineItemId: effectiveSpineItemId,
+            blockId: blockId,
+            maxBlockId: nil,  // TODO: Track max progress
+            maxSpineItemId: nil
+        )
+
+        blockPositionStore.save(position)
+    }
+
+    /// Set the current spine item ID (called when loading a new section)
+    func setCurrentSpineItem(_ spineItemId: String) {
+        currentSpineItemId = spineItemId
+    }
 }

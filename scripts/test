@@ -68,16 +68,24 @@ case "$TEST_TYPE" in
     run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
     ;;
   alignment)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPageAlignmentOnPage10"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPageAlignmentOnPage2"
+    ;;
+  scrubber)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testScrubberAppearsOnTap"
+    ;;
+  position)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
     ;;
   *)
-    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment]" >&2
+    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position]" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2
     echo "  perf: Run text resize reflow performance test" >&2
     echo "  textsize: Run text size change page count test" >&2
     echo "  alignment: Run page alignment test" >&2
+    echo "  scrubber: Run scrubber overlay toggle test" >&2
+    echo "  position: Run position persistence test" >&2
     exit 1
     ;;
 esac

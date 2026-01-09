@@ -164,3 +164,58 @@ cat /tmp/debug.log
     Add small, high-signal unit tests for all new logic.
     Snapshot tests for SwiftUI where regressions matter.
     Commit Package.resolved and pin formatter/linter versions.
+
+## CRITICAL: UI Feature Verification
+
+**A UI feature is NOT complete until a UI test verifies it works.**
+
+### The Rule
+- "It compiles" is NOT verification
+- "It builds" is NOT verification
+- "I wrote a test" is NOT verification
+- **"The test ran and passed"** IS verification
+
+### Required Workflow for UI Features
+1. Write the feature code
+2. Write a UI test that exercises the feature (e.g., simulate tap, verify element appears)
+3. **Run the UI test using the script**:
+   - All UI tests: `./scripts/test ui`
+   - Specific test: `./scripts/test scrubber` (add test filters to scripts/test as needed)
+4. If test fails → fix code → run test again
+5. Only mark complete when test passes
+
+**NEVER use raw xcodebuild commands. Always use ./scripts/test.**
+
+### Available Test Commands
+```bash
+./scripts/test           # Unit tests (default)
+./scripts/test ui        # All UI tests
+./scripts/test scrubber  # Scrubber overlay toggle test
+./scripts/test position  # Position persistence test
+./scripts/test alignment # Page alignment test
+./scripts/test all       # All tests (unit + UI)
+```
+
+### UI Test Patterns
+UI tests can simulate all user interactions:
+```swift
+// Tap to reveal overlay
+webView.tap()
+sleep(1)
+
+// Verify element appeared
+XCTAssertTrue(scrubber.isHittable, "Scrubber should appear after tap")
+
+// Interact with controls
+scrubber.adjust(toNormalizedSliderPosition: 0.5)
+
+// Swipe for pagination
+webView.swipeLeft()
+```
+
+### If Tests Cannot Run
+If UI tests fail to build or run, you must:
+1. Fix the build/run issue first
+2. OR explicitly state: "Feature is UNVERIFIED - UI tests could not be run because [reason]"
+
+**Never claim a feature works without test evidence.**

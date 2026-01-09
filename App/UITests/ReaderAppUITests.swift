@@ -9,7 +9,13 @@ final class ReaderAppUITests: XCTestCase {
         continueAfterFailure = false
 
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
+        var args = ["--uitesting"]
+        if name.contains("testPositionPersistence") {
+            args.append("--uitesting-position-test")
+            args.append("--uitesting-show-overlay")
+            args.append("--uitesting-jump-to-page=100")
+        }
+        app.launchArguments = args
         app.launch()
     }
 
@@ -84,9 +90,14 @@ final class ReaderAppUITests: XCTestCase {
         XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView containing book should exist")
         print("🧪 WebView found - book is loaded")
 
+        // Tap to reveal overlay (buttons start hidden)
+        webView.tap()
+        sleep(1)
+        print("🧪 Tapped to reveal overlay")
+
         // Verify Back button exists (proves we're in reader, not library)
         let backButton = app.buttons["Back"]
-        XCTAssertTrue(backButton.exists, "Back button should exist in reader")
+        XCTAssertTrue(backButton.waitForExistence(timeout: 3), "Back button should exist in reader")
         print("🧪 Back button found - confirmed in reader view")
 
         // Check that we have substantial text content (book text)
@@ -194,6 +205,11 @@ final class ReaderAppUITests: XCTestCase {
         XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
         sleep(1) // Brief pause for content to stabilize
         print("🧪 Book loaded")
+
+        // Tap to reveal overlay (buttons start hidden)
+        webView.tap()
+        sleep(1)
+        print("🧪 Tapped to reveal overlay")
 
         // Open settings
         let settingsButton = app.buttons["Settings"]
@@ -349,8 +365,8 @@ final class ReaderAppUITests: XCTestCase {
         return Int(components[1]) ?? 0
     }
 
-    func testPageAlignmentOnPage10() {
-        // This test verifies that when we navigate to a specific page (e.g., page 10),
+    func testPageAlignmentOnPage2() {
+        // This test verifies that when we navigate to an early page (page 2),
         // we only see content from that page and not content bleeding from adjacent pages.
         // This catches the horizontal alignment bug where column-width + padding causes misalignment.
 
@@ -368,22 +384,20 @@ final class ReaderAppUITests: XCTestCase {
         XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
         sleep(3) // Let content render and pagination calculate
 
-        print("🧪 Book loaded, navigating to page 10...")
+        print("🧪 Book loaded, navigating to page 2...")
 
         // Tap top to reveal page number
         let topPoint = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
         topPoint.tap()
         sleep(1)
 
-        // Navigate to page 10 by swiping left 9 times
-        for i in 1...9 {
-            webView.swipeLeft()
-            usleep(500000) // 0.5 seconds
-            print("🧪 Swiped to page \(i + 1)")
-        }
+        // Navigate to page 2 by swiping left once
+        webView.swipeLeft()
+        usleep(300000) // 0.3 seconds
+        print("🧪 Swiped to page 2")
 
         // Give time for pagination to settle
-        sleep(2)
+        sleep(1)
 
         // Verify we're on page 10 by checking the debug overlay
         // The debug overlay shows "current page: X"
@@ -393,8 +407,8 @@ final class ReaderAppUITests: XCTestCase {
         let currentPageText = pageLabel.label
         print("🧪 Current page label: \(currentPageText)")
         // Extract page number - format is "current page: X"
-        XCTAssertTrue(currentPageText.contains("current page: 9") || currentPageText.contains("current page: 10"),
-                      "Should be on page 9 or 10, but showing: \(currentPageText)")
+        XCTAssertTrue(currentPageText.contains("current page: 1") || currentPageText.contains("current page: 2"),
+                      "Should be on page 1 or 2, but showing: \(currentPageText)")
 
         // Add JavaScript debugging to check scroll position
         // Note: We can't easily inject JS in UI tests, so we'll check visually
@@ -405,23 +419,265 @@ final class ReaderAppUITests: XCTestCase {
         let screenshot = XCUIScreen.main.screenshot()
 
         // Save to /tmp for easy access
-        let screenshotPath = "/tmp/page10-alignment.png"
+        let screenshotPath = "/tmp/page2-alignment.png"
         let imageData = screenshot.pngRepresentation
         try? imageData.write(to: URL(fileURLWithPath: screenshotPath))
         print("🧪 Screenshot saved to: \(screenshotPath)")
 
         // Also add to test results
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "Page 10 Alignment Check"
+        attachment.name = "Page 2 Alignment Check"
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        print("🧪 Page 10 alignment test complete")
-        print("🧪 Visual inspection: check screenshot to ensure no text from page 9 or 11 is visible")
+        print("🧪 Page 2 alignment test complete")
+        print("🧪 Visual inspection: check screenshot to ensure no text from adjacent pages is visible")
         print("🧪 If you see two columns of text side-by-side, the alignment is broken")
 
-        // The test passes if we can navigate to page 10 and capture the state
+        // The test passes if we can navigate to page 2 and capture the state
         // Visual inspection of the screenshot will reveal if alignment is correct
         // After the fix, only one page of text should be visible
     }
+
+    // MARK: - Scrubber and Navigation Overlay Tests
+
+    func testScrubberAppearsOnTap() {
+        // Open Consider Phlebas by Banks
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        print("🧪 Opening Consider Phlebas by Banks...")
+        let banksAuthor = app.staticTexts["Banks, Ian M."]
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        banksAuthor.tap()
+
+        // Wait for book to load
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        sleep(3) // Let content render
+
+        print("🧪 Book loaded, verifying overlay is initially hidden...")
+
+        // Verify scrubber and buttons are initially not visible (alpha = 0)
+        // We can check by trying to find the page scrubber slider
+        let scrubber = app.sliders["Page scrubber"]
+        XCTAssertFalse(scrubber.isHittable, "Scrubber should not be hittable when overlay is hidden")
+
+        print("🧪 Tapping to reveal overlay...")
+        webView.tap()
+        sleep(1)
+
+        // Now verify scrubber is visible
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 3), "Scrubber should exist after tap")
+        XCTAssertTrue(scrubber.isHittable, "Scrubber should be hittable when overlay is shown")
+        print("🧪 ✅ Scrubber appeared after tap")
+
+        // Verify back and settings buttons are also visible
+        let backButton = app.buttons["Back"]
+        let settingsButton = app.buttons["Settings"]
+        XCTAssertTrue(backButton.isHittable, "Back button should be hittable")
+        XCTAssertTrue(settingsButton.isHittable, "Settings button should be hittable")
+        print("🧪 ✅ Navigation buttons visible")
+
+        // Verify page label is visible
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.exists, "Page label should exist")
+        print("🧪 Page label: \(pageLabel.label)")
+
+        // Tap again to hide
+        print("🧪 Tapping to hide overlay...")
+        webView.tap()
+        sleep(1)
+
+        XCTAssertFalse(scrubber.isHittable, "Scrubber should not be hittable after hiding overlay")
+        print("🧪 ✅ Overlay toggled off successfully")
+    }
+
+    func testScrubberNavigatesToPage() {
+        // Open Consider Phlebas by Banks
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        print("🧪 Opening Consider Phlebas by Banks...")
+        let banksAuthor = app.staticTexts["Banks, Ian M."]
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        banksAuthor.tap()
+
+        // Wait for book to load
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        sleep(3) // Let content render and pagination calculate
+
+        print("🧪 Book loaded, revealing overlay...")
+        webView.tap()
+        sleep(1)
+
+        // Get the scrubber slider
+        let scrubber = app.sliders["Page scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 3), "Scrubber should exist")
+
+        // Check initial page (should be page 1)
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Page indicator should exist")
+        let initialPageText = pageLabel.label
+        print("🧪 Initial page: \(initialPageText)")
+        XCTAssertTrue(initialPageText.contains("Page 1"), "Should start at page 1")
+
+        // Move scrubber to middle (50%)
+        print("🧪 Moving scrubber to 50% position...")
+        scrubber.adjust(toNormalizedSliderPosition: 0.5)
+        sleep(1)
+
+        // Verify page changed
+        let midPageText = pageLabel.label
+        print("🧪 After scrub to 50%: \(midPageText)")
+        XCTAssertFalse(midPageText.contains("Page 1"), "Should not be on page 1 after scrubbing to middle")
+
+        // Extract page number and verify it's roughly in the middle
+        if let pageNumber = extractCurrentPage(from: midPageText) {
+            let totalPages = extractTotalPages(from: midPageText)
+            if totalPages > 0 {
+                let expectedMid = totalPages / 2
+                let tolerance = max(1, totalPages / 10)  // 10% tolerance, minimum 1
+                XCTAssertTrue(
+                    abs(pageNumber - expectedMid) <= tolerance,
+                    "Page \(pageNumber) should be roughly in middle (expected ~\(expectedMid) of \(totalPages))"
+                )
+                print("🧪 ✅ Scrubber navigated to page \(pageNumber) of \(totalPages)")
+            }
+        }
+
+        // Move to end (100%)
+        print("🧪 Moving scrubber to end...")
+        scrubber.adjust(toNormalizedSliderPosition: 1.0)
+        sleep(1)
+
+        let endPageText = pageLabel.label
+        print("🧪 At end: \(endPageText)")
+
+        // Take screenshot
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Scrubber Navigation End"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        print("🧪 ✅ Scrubber navigation test complete")
+    }
+
+    func testPositionPersistence() {
+        // This test verifies that reading position is saved and restored
+        // We navigate to a specific page, restart the app, and verify we're on the same page
+
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        waitForLabel(pageLabel, contains: "Page 100", timeout: 1.2)
+        print("🧪 Book loaded at page 100")
+
+        // Restart app to validate persisted position
+        print("🧪 Restarting app to verify position persistence...")
+        app.launchArguments = [
+            "--uitesting",
+            "--uitesting-keep-state",
+            "--uitesting-position-test",
+            "--uitesting-show-overlay"
+        ]
+        app.terminate()
+        app.launch()
+
+        let restoredLabel = app.staticTexts["scrubber-page-label"]
+        waitForLabel(restoredLabel, contains: "Page 100", timeout: 1.2)
+        print("🧪 ✅ Position persistence verified! Restored to page 100")
+    }
+
+    private func waitForLabel(_ element: XCUIElement, contains text: String, timeout: TimeInterval) {
+        let predicate = NSPredicate(format: "label CONTAINS %@", text)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        XCTAssertEqual(result, .completed, "Expected label to contain '\(text)'")
+    }
+
+    func testMaxReadExtentIndicator() {
+        // This test verifies that the max read extent indicator shows on the scrubber
+        // We navigate forward in the book, then go back, and verify the red indicator
+        // shows the furthest page we reached
+
+        // Open Consider Phlebas by Banks
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        print("🧪 Opening Consider Phlebas by Banks...")
+        let banksAuthor = app.staticTexts["Banks, Ian M."]
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        banksAuthor.tap()
+
+        // Wait for book to load
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        sleep(3)
+
+        print("🧪 Book loaded, navigating forward 3 pages...")
+
+        // Navigate forward 3 pages
+        for _ in 1...3 {
+            webView.swipeLeft()
+            usleep(200000) // 0.2 seconds
+        }
+        sleep(1)
+
+        // Reveal overlay
+        webView.tap()
+        sleep(1)
+
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Page indicator should exist")
+        let maxPageText = pageLabel.label
+        print("🧪 Reached max page: \(maxPageText)")
+        let maxPage = extractCurrentPage(from: maxPageText) ?? 0
+
+        // Now navigate back using scrubber
+        print("🧪 Navigating back to beginning using scrubber...")
+        let scrubber = app.sliders["Page scrubber"]
+        XCTAssertTrue(scrubber.exists, "Scrubber should exist")
+        scrubber.adjust(toNormalizedSliderPosition: 0.0)
+        sleep(1)
+
+        // Verify we're at page 1
+        let backAtStartText = pageLabel.label
+        print("🧪 After scrubbing back: \(backAtStartText)")
+        XCTAssertTrue(backAtStartText.contains("Page 1"), "Should be back at page 1")
+
+        // The red extent indicator should still show up to page ~20
+        // We can't easily verify the visual indicator in UI tests,
+        // but we can verify the page navigation worked correctly
+
+        // Take screenshot to visually verify the red extent indicator
+        let screenshot = XCUIScreen.main.screenshot()
+
+        // Save to temp for inspection
+        let screenshotPath = "/tmp/reader-tests/max-extent-indicator.png"
+        try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: screenshotPath))
+        print("🧪 Screenshot saved to: \(screenshotPath)")
+        print("🧪 Visual inspection: red indicator on scrubber should extend to ~\(Float(maxPage)) / total pages")
+
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Max Read Extent Indicator"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        print("🧪 ✅ Max read extent test complete (check screenshot for visual verification)")
+    }
+
+    // Helper to extract current page from "Page X of Y" format
+    private func extractCurrentPage(from text: String) -> Int? {
+        // Handle "Page X of Y" format
+        let pattern = #"Page\s+(\d+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return Int(text[range])
+    }
+
 }

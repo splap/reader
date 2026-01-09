@@ -46,11 +46,16 @@ final class WebPageViewController: UIViewController {
     private let chapterTitle: String?
     private let onSendToLLM: (SelectionPayload) -> Void
     private let onPageChanged: (Int, Int) -> Void  // (currentPage, totalPages)
+    private let onBlockPositionChanged: ((String) -> Void)?  // Block ID of first visible block
     private var webView: SelectableWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
     private var contentSizeObserver: NSKeyValueObservation?
     private var cssColumnWidth: CGFloat = 0  // Exact column width from CSS - source of truth for alignment
+    private var initialPageIndex: Int = 0  // Page to navigate to after content loads (legacy)
+    private var initialBlockId: String?  // Block ID to navigate to after content loads (preferred)
+    private var hasRestoredPosition = false  // Track if we've restored position
+    private var currentBlockId: String?  // Currently visible block ID
 
     var fontScale: CGFloat = 2.0 {
         didSet {
@@ -65,16 +70,22 @@ final class WebPageViewController: UIViewController {
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
         fontScale: CGFloat = 2.0,
+        initialPageIndex: Int = 0,
+        initialBlockId: String? = nil,
         onSendToLLM: @escaping (SelectionPayload) -> Void,
-        onPageChanged: @escaping (Int, Int) -> Void  // (currentPage, totalPages)
+        onPageChanged: @escaping (Int, Int) -> Void,
+        onBlockPositionChanged: ((String) -> Void)? = nil
     ) {
         self.htmlSections = htmlSections
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
         self.chapterTitle = chapterTitle
         self.fontScale = fontScale
+        self.initialPageIndex = initialPageIndex
+        self.initialBlockId = initialBlockId
         self.onSendToLLM = onSendToLLM
         self.onPageChanged = onPageChanged
+        self.onBlockPositionChanged = onBlockPositionChanged
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -217,10 +228,11 @@ final class WebPageViewController: UIViewController {
     }
 
     private func loadContent() {
-        // Combine all HTML sections
+        // Combine all HTML sections, using annotatedHTML which includes data-block-id attributes
         var combinedHTML = ""
         for section in htmlSections {
-            let processedHTML = processHTMLWithImages(section.html, basePath: section.basePath, imageCache: section.imageCache)
+            // Use annotatedHTML for block-based position tracking
+            let processedHTML = processHTMLWithImages(section.annotatedHTML, basePath: section.basePath, imageCache: section.imageCache)
             combinedHTML += processedHTML + "\n"
         }
 
@@ -429,6 +441,19 @@ final class WebPageViewController: UIViewController {
         scrollView.setContentOffset(CGPoint(x: prevOffset, y: 0), animated: true)
     }
 
+    // Navigate to a specific page (0-indexed)
+    func navigateToPage(_ pageIndex: Int, animated: Bool = true) {
+        let scrollView = webView.scrollView
+        let pageWidth = currentPageWidth()
+        guard pageWidth > 0 else { return }
+
+        let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let targetX = CGFloat(max(0, pageIndex)) * pageWidth
+        let clampedX = min(targetX, maxX)
+
+        scrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: animated)
+    }
+
     private func snapToNearestPage() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
@@ -464,6 +489,100 @@ final class WebPageViewController: UIViewController {
             completion()
         }
     }
+
+    // MARK: - Block Position Tracking
+
+    /// Query the first visible block ID from the WebView
+    /// The block must have a data-block-id attribute to be detected
+    func queryFirstVisibleBlockId(completion: @escaping (String?) -> Void) {
+        let js = """
+        (function() {
+            // Get all elements with data-block-id attribute
+            const blocks = document.querySelectorAll('[data-block-id]');
+            if (blocks.length === 0) return null;
+
+            const viewportLeft = window.scrollX || document.documentElement.scrollLeft;
+            const viewportRight = viewportLeft + window.innerWidth;
+
+            // Find the first block that is at least partially visible
+            for (const block of blocks) {
+                const rect = block.getBoundingClientRect();
+                const absoluteLeft = rect.left + viewportLeft;
+                const absoluteRight = rect.right + viewportLeft;
+
+                // Check if block overlaps with visible viewport
+                if (absoluteRight > viewportLeft && absoluteLeft < viewportRight) {
+                    return block.getAttribute('data-block-id');
+                }
+            }
+
+            return null;
+        })();
+        """
+
+        webView.evaluateJavaScript(js) { result, error in
+            if let error = error {
+                Self.logger.error("Failed to query block position: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+            completion(result as? String)
+        }
+    }
+
+    /// Navigate to a specific block by its ID
+    /// - Parameters:
+    ///   - blockId: The data-block-id value to scroll to
+    ///   - animated: Whether to animate the scroll
+    func navigateToBlock(_ blockId: String, animated: Bool = false) {
+        let js = """
+        (function() {
+            const block = document.querySelector('[data-block-id="\(blockId)"]');
+            if (!block) return null;
+
+            const rect = block.getBoundingClientRect();
+            const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+
+            // Calculate the page that contains this block
+            const viewportWidth = window.innerWidth;
+            const blockLeft = rect.left + scrollLeft;
+            const targetPage = Math.floor(blockLeft / viewportWidth);
+
+            return targetPage * viewportWidth;
+        })();
+        """
+
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                Self.logger.error("Failed to navigate to block: \(error.localizedDescription)")
+                return
+            }
+
+            if let targetX = result as? Double {
+                Self.logger.info("Navigating to block \(blockId) at x=\(targetX)")
+                self.webView.scrollView.setContentOffset(
+                    CGPoint(x: CGFloat(targetX), y: 0),
+                    animated: animated
+                )
+            }
+        }
+    }
+
+    /// Update block position and notify callback if changed
+    private func updateBlockPosition() {
+        guard onBlockPositionChanged != nil else { return }
+
+        queryFirstVisibleBlockId { [weak self] blockId in
+            guard let self = self, let blockId = blockId else { return }
+
+            if blockId != self.currentBlockId {
+                self.currentBlockId = blockId
+                self.onBlockPositionChanged?(blockId)
+            }
+        }
+    }
 }
 
 // MARK: - UIScrollViewDelegate
@@ -495,16 +614,19 @@ extension WebPageViewController: UIScrollViewDelegate {
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         snapToNearestPage()
         updateCurrentPage()
+        updateBlockPosition()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         updateCurrentPage()
+        updateBlockPosition()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
             snapToNearestPage()
             updateCurrentPage()
+            updateBlockPosition()
         }
     }
 }
@@ -538,10 +660,38 @@ extension WebPageViewController: WKNavigationDelegate {
 
                 // Query exact CSS column width for precise alignment
                 self.queryCSSColumnWidth {
-                    self.updateCurrentPage()
+                    // Restore position BEFORE reporting current page/block
+                    // This prevents overwriting saved position with initial values
+                    if !self.hasRestoredPosition {
+                        self.hasRestoredPosition = true
+
+                        // Prefer block-based restoration over page-based
+                        if let blockId = self.initialBlockId {
+                            Self.logger.info("Restoring position to block \(blockId)")
+                            self.navigateToBlock(blockId, animated: false)
+                            // Wait for scroll to complete before updating position
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                                self?.updateCurrentPage()
+                                self?.updateBlockPosition()
+                            }
+                        } else if self.initialPageIndex > 0 {
+                            // Fallback to legacy page-based restoration
+                            Self.logger.info("Restoring position to page \(self.initialPageIndex)")
+                            self.navigateToPage(self.initialPageIndex, animated: false)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                                self?.updateCurrentPage()
+                                self?.updateBlockPosition()
+                            }
+                        } else {
+                            self.updateCurrentPage()
+                            self.updateBlockPosition()
+                        }
+                    } else {
+                        self.updateCurrentPage()
+                        self.updateBlockPosition()
+                    }
                 }
             }
         }
     }
 }
-

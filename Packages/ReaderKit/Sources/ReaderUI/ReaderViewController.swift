@@ -14,6 +14,13 @@ public final class ReaderViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
     private var backButton: FloatingButton!
     private var settingsButton: FloatingButton!
+    private var scrubberContainer: UIView!
+    private var scrubberSlider: UISlider!
+    private var scrubberReadExtentView: UIView!
+    private var pageLabel: UILabel!
+    private var overlayVisible = false
+    private let uiTestTargetPage: Int? = ReaderViewController.parseUITestTargetPage()
+    private var hasPerformedUITestJump = false
 
     #if DEBUG
     private var debugOverlay: DebugOverlayView?
@@ -53,9 +60,15 @@ public final class ReaderViewController: UIViewController {
 
         setupWebPageViewController()
         setupFloatingButtons()
+        setupScrubber()
+        setupTapGesture()
         setupKeyCommands()
         setupDebugOverlay()
         bindViewModel()
+
+        let showOverlay = CommandLine.arguments.contains("--uitesting-show-overlay")
+        // Start with overlay hidden unless UI tests request it visible.
+        setOverlayVisible(showOverlay, animated: false)
     }
 
     public override func viewWillAppear(_ animated: Bool) {
@@ -75,9 +88,10 @@ public final class ReaderViewController: UIViewController {
 
         webPageViewController.view.frame = view.bounds
 
-        // Ensure floating buttons are above WebView
+        // Ensure floating buttons and scrubber are above WebView
         view.bringSubviewToFront(backButton)
         view.bringSubviewToFront(settingsButton)
+        view.bringSubviewToFront(scrubberContainer)
 
         if !hasInitialLayout {
             hasInitialLayout = true
@@ -98,23 +112,35 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func setupWebPageViewController() {
+        // Set current spine item ID if we have sections
+        if let firstSection = chapter.htmlSections.first {
+            viewModel.setCurrentSpineItem(firstSection.spineItemId)
+        }
+
         let webPageVC = WebPageViewController(
             htmlSections: chapter.htmlSections,
             bookTitle: bookTitle,
             bookAuthor: bookAuthor,
             chapterTitle: chapter.title,
             fontScale: viewModel.fontScale,
+            initialPageIndex: viewModel.initialPageIndex,
+            initialBlockId: viewModel.initialBlockId,
             onSendToLLM: { [weak self] selection in
                 self?.viewModel.llmPayload = LLMPayload(selection: selection)
             },
             onPageChanged: { [weak self] newPage, totalPages in
                 self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
+                self?.updateScrubber()
+                self?.maybePerformUITestJump(totalPages: totalPages)
                 #if DEBUG
                 self?.debugOverlay?.update()
                 if let overlay = self?.debugOverlay {
                     self?.view.bringSubviewToFront(overlay)
                 }
                 #endif
+            },
+            onBlockPositionChanged: { [weak self] blockId in
+                self?.viewModel.updateBlockPosition(blockId: blockId)
             }
         )
 
@@ -154,6 +180,175 @@ public final class ReaderViewController: UIViewController {
             settingsButton.widthAnchor.constraint(equalToConstant: 44),
             settingsButton.heightAnchor.constraint(equalToConstant: 44)
         ])
+    }
+
+    private func setupScrubber() {
+        // Container with blur background
+        scrubberContainer = UIView()
+        scrubberContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        // Blur background
+        let blurEffect = UIBlurEffect(style: .systemMaterial)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        blurView.layer.cornerRadius = 16
+        blurView.clipsToBounds = true
+        scrubberContainer.addSubview(blurView)
+
+        // Read extent indicator (shows as tinted track under the slider)
+        scrubberReadExtentView = UIView()
+        scrubberReadExtentView.translatesAutoresizingMaskIntoConstraints = false
+        scrubberReadExtentView.backgroundColor = UIColor.systemRed.withAlphaComponent(0.3)
+        scrubberReadExtentView.layer.cornerRadius = 2
+        scrubberContainer.addSubview(scrubberReadExtentView)
+
+        // Slider
+        scrubberSlider = UISlider()
+        scrubberSlider.translatesAutoresizingMaskIntoConstraints = false
+        scrubberSlider.minimumValue = 0
+        scrubberSlider.maximumValue = 1
+        scrubberSlider.value = 0
+        scrubberSlider.minimumTrackTintColor = .systemBlue
+        scrubberSlider.maximumTrackTintColor = .systemGray4
+        scrubberSlider.addTarget(self, action: #selector(scrubberValueChanged), for: .valueChanged)
+        scrubberSlider.addTarget(self, action: #selector(scrubberTouchEnded), for: [.touchUpInside, .touchUpOutside])
+        scrubberSlider.accessibilityLabel = "Page scrubber"
+        scrubberContainer.addSubview(scrubberSlider)
+
+        // Page label
+        pageLabel = UILabel()
+        pageLabel.translatesAutoresizingMaskIntoConstraints = false
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        pageLabel.textColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? .white : .black
+        }
+        pageLabel.textAlignment = .center
+        pageLabel.text = "Page 1 of 1"
+        pageLabel.accessibilityIdentifier = "scrubber-page-label"
+        scrubberContainer.addSubview(pageLabel)
+
+        // Shadow for container
+        scrubberContainer.layer.shadowColor = UIColor.black.cgColor
+        scrubberContainer.layer.shadowOpacity = 0.2
+        scrubberContainer.layer.shadowOffset = CGSize(width: 0, height: -2)
+        scrubberContainer.layer.shadowRadius = 4
+
+        view.addSubview(scrubberContainer)
+
+        NSLayoutConstraint.activate([
+            // Container at bottom
+            scrubberContainer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            scrubberContainer.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            scrubberContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            scrubberContainer.heightAnchor.constraint(equalToConstant: 72),
+
+            // Blur fills container
+            blurView.topAnchor.constraint(equalTo: scrubberContainer.topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: scrubberContainer.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: scrubberContainer.trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: scrubberContainer.bottomAnchor),
+
+            // Page label at top
+            pageLabel.topAnchor.constraint(equalTo: scrubberContainer.topAnchor, constant: 12),
+            pageLabel.centerXAnchor.constraint(equalTo: scrubberContainer.centerXAnchor),
+
+            // Slider below page label
+            scrubberSlider.topAnchor.constraint(equalTo: pageLabel.bottomAnchor, constant: 8),
+            scrubberSlider.leadingAnchor.constraint(equalTo: scrubberContainer.leadingAnchor, constant: 16),
+            scrubberSlider.trailingAnchor.constraint(equalTo: scrubberContainer.trailingAnchor, constant: -16),
+
+            // Read extent indicator aligned with slider track
+            scrubberReadExtentView.centerYAnchor.constraint(equalTo: scrubberSlider.centerYAnchor),
+            scrubberReadExtentView.leadingAnchor.constraint(equalTo: scrubberSlider.leadingAnchor),
+            scrubberReadExtentView.heightAnchor.constraint(equalToConstant: 4)
+        ])
+    }
+
+    private func setupTapGesture() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        view.addGestureRecognizer(tapGesture)
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        // Toggle overlay visibility
+        setOverlayVisible(!overlayVisible, animated: true)
+    }
+
+    private func setOverlayVisible(_ visible: Bool, animated: Bool) {
+        overlayVisible = visible
+        let alpha: CGFloat = visible ? 1.0 : 0.0
+
+        if animated {
+            UIView.animate(withDuration: 0.25) {
+                self.backButton.alpha = alpha
+                self.settingsButton.alpha = alpha
+                self.scrubberContainer.alpha = alpha
+            }
+        } else {
+            backButton.alpha = alpha
+            settingsButton.alpha = alpha
+            scrubberContainer.alpha = alpha
+        }
+    }
+
+    private func updateScrubber() {
+        guard viewModel.totalPages > 0 else { return }
+
+        let totalPages = viewModel.totalPages
+        let currentPage = viewModel.currentPageIndex
+        let maxReadPage = viewModel.maxReadPageIndex
+
+        // Update slider position
+        let sliderValue = Float(currentPage) / Float(max(1, totalPages - 1))
+        scrubberSlider.value = sliderValue
+
+        // Update page label
+        pageLabel.text = "Page \(currentPage + 1) of \(totalPages)"
+
+        // Update read extent indicator width
+        let maxReadFraction = CGFloat(maxReadPage) / CGFloat(max(1, totalPages - 1))
+        let sliderWidth = scrubberSlider.bounds.width
+        let extentWidth = sliderWidth * maxReadFraction
+
+        // Find the extent view width constraint and update it
+        for constraint in scrubberReadExtentView.constraints where constraint.firstAttribute == .width {
+            constraint.isActive = false
+        }
+        scrubberReadExtentView.widthAnchor.constraint(equalToConstant: max(4, extentWidth)).isActive = true
+    }
+
+    private func maybePerformUITestJump(totalPages: Int) {
+        guard let targetPage = uiTestTargetPage,
+              !hasPerformedUITestJump,
+              totalPages > 0 else { return }
+        hasPerformedUITestJump = true
+        let targetIndex = min(max(0, targetPage - 1), totalPages - 1)
+        webPageViewController.navigateToPage(targetIndex, animated: false)
+        viewModel.updateCurrentPage(targetIndex, totalPages: totalPages)
+        updateScrubber()
+    }
+
+    @objc private func scrubberValueChanged(_ sender: UISlider) {
+        guard viewModel.totalPages > 1 else { return }
+
+        let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
+        viewModel.navigateToPage(targetPage)
+        viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
+        updateScrubber()
+
+        // Update label immediately for responsiveness
+        pageLabel.text = "Page \(targetPage + 1) of \(viewModel.totalPages)"
+    }
+
+    @objc private func scrubberTouchEnded(_ sender: UISlider) {
+        guard viewModel.totalPages > 1 else { return }
+
+        let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
+        webPageViewController.navigateToPage(targetPage, animated: false)
+        viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
+        updateScrubber()
     }
 
     private func setupKeyCommands() {
@@ -256,6 +451,77 @@ public final class ReaderViewController: UIViewController {
             self.viewModel.llmPayload = nil
         }
     }
+
+    private static func parseUITestTargetPage() -> Int? {
+        let prefix = "--uitesting-jump-to-page="
+        for arg in CommandLine.arguments where arg.hasPrefix(prefix) {
+            let value = arg.dropFirst(prefix.count)
+            if let page = Int(value), page > 0 {
+                return page
+            }
+        }
+        return nil
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+extension ReaderViewController: UIGestureRecognizerDelegate {
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // Allow tap gesture to work alongside WebView gestures
+        return true
+    }
+}
+
+// MARK: - FloatingButton
+private final class FloatingButton: UIButton {
+    init(systemImage: String) {
+        super.init(frame: .zero)
+
+        // Blur background
+        let blurEffect = UIBlurEffect(style: .systemMaterial)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.isUserInteractionEnabled = false
+        blurView.layer.cornerRadius = 22
+        blurView.clipsToBounds = true
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Button configuration
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: systemImage)
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+
+        // Adaptive icon color: dark icons in light mode, light icons in dark mode
+        let iconColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? .white : .black
+        }
+        config.baseForegroundColor = iconColor
+        configuration = config
+
+        // Shadow
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.3
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+        layer.shadowRadius = 4
+
+        // Layout
+        translatesAutoresizingMaskIntoConstraints = false
+
+        // Add blur as background
+        insertSubview(blurView, at: 0)
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 }
 
 #if DEBUG
@@ -341,54 +607,6 @@ private final class DebugOverlayView: UIView {
             }
         }
         return count
-    }
-}
-
-private final class FloatingButton: UIButton {
-    init(systemImage: String) {
-        super.init(frame: .zero)
-
-        // Blur background
-        let blurEffect = UIBlurEffect(style: .systemMaterial)
-        let blurView = UIVisualEffectView(effect: blurEffect)
-        blurView.isUserInteractionEnabled = false
-        blurView.layer.cornerRadius = 22
-        blurView.clipsToBounds = true
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Button configuration
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: systemImage)
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-
-        // Adaptive icon color: dark icons in light mode, light icons in dark mode
-        let iconColor = UIColor { traitCollection in
-            traitCollection.userInterfaceStyle == .dark ? .white : .black
-        }
-        config.baseForegroundColor = iconColor
-        configuration = config
-
-        // Shadow
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.3
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-        layer.shadowRadius = 4
-
-        // Layout
-        translatesAutoresizingMaskIntoConstraints = false
-
-        // Add blur as background
-        insertSubview(blurView, at: 0)
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }
 #endif
