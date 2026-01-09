@@ -30,6 +30,7 @@ public final class EPUBLoader {
     }
 
     private var imageCache: [String: Data] = [:]
+    private var cssCache: [String: String] = [:]
 
     public init() {}
 
@@ -58,8 +59,9 @@ public final class EPUBLoader {
             throw LoaderError.missingSpine
         }
 
-        // Extract and cache images FIRST
+        // Extract and cache images and CSS FIRST
         extractImages(from: archive, package: package)
+        extractCSS(from: archive, package: package)
 
         let title = package.title ?? url.deletingPathExtension().lastPathComponent
         let chapterId = url.lastPathComponent
@@ -77,7 +79,9 @@ public final class EPUBLoader {
             // Keep raw HTML for WKWebView rendering
             if let htmlString = String(data: htmlData, encoding: .utf8) {
                 let basePath = (resolvedPath as NSString).deletingLastPathComponent
-                htmlSections.append(HTMLSection(html: htmlString, basePath: basePath, imageCache: imageCache))
+                // Find and include CSS content referenced by this HTML
+                let cssContent = extractCSSForHTML(htmlString, basePath: basePath)
+                htmlSections.append(HTMLSection(html: htmlString, basePath: basePath, imageCache: imageCache, cssContent: cssContent))
             }
 
             let section = attributedString(fromHTML: htmlData)
@@ -168,6 +172,47 @@ public final class EPUBLoader {
             }
         }
         Self.logger.debug("Cached \(self.imageCache.count) images from EPUB")
+    }
+
+    private func extractCSS(from archive: Archive, package: EPUBPackageParser) {
+        for (_, item) in package.manifest {
+            guard item.mediaType == "text/css" else { continue }
+            let cssPath = package.resolve(item.href)
+            if let cssData = try? data(for: cssPath, in: archive),
+               let cssString = String(data: cssData, encoding: .utf8) {
+                cssCache[cssPath] = cssString
+                // Also cache by filename for relative references
+                let filename = (cssPath as NSString).lastPathComponent
+                cssCache[filename] = cssString
+            }
+        }
+        Self.logger.debug("Cached \(self.cssCache.count) CSS files from EPUB")
+    }
+
+    private func extractCSSForHTML(_ html: String, basePath: String) -> String? {
+        // Find CSS link tags in HTML: <link href="epub.css" rel="stylesheet" ...>
+        let pattern = #"<link[^>]+href\s*=\s*["\']([^"\']+\.css)["\'][^>]*>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return nil
+        }
+
+        let nsHtml = html as NSString
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
+
+        var combinedCSS = ""
+        for match in matches {
+            guard match.numberOfRanges >= 2 else { continue }
+            let hrefRange = match.range(at: 1)
+            let href = nsHtml.substring(with: hrefRange)
+
+            // Try to find CSS in cache
+            let resolvedPath = basePath.isEmpty ? href : (basePath as NSString).appendingPathComponent(href)
+            if let css = cssCache[resolvedPath] ?? cssCache[href] ?? cssCache[(href as NSString).lastPathComponent] {
+                combinedCSS += css + "\n"
+            }
+        }
+
+        return combinedCSS.isEmpty ? nil : combinedCSS
     }
 }
 

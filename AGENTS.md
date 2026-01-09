@@ -5,28 +5,41 @@ If a human can build/test it with one command, agents will succeed. Otherwise, t
 
 when you've made a change, run the app yourself so i see the result.
 
+## CRITICAL: Default to iOS Simulator
+
+**ALWAYS USE THE iOS 26 SIMULATOR BY DEFAULT** - Unless explicitly instructed otherwise, all development, testing, and debugging should happen on the iOS 26 simulator (iPad Pro 11-inch M4).
+
+- The `./scripts/run` script uses the simulator by default
+- Only use physical device when explicitly requested by the user
+- The simulator is faster, more reliable, and easier to automate
+
 ## Simulator Management (CRITICAL)
 
 **ONE SIMULATOR PER SESSION** - Each Claude Code session should use exactly ONE simulator instance for all operations.
 
-### Session Start - Boot and Track Simulator
+### Session Start - Use Running Simulator or Boot One
 
-At the start of a coding session, boot the simulator ONCE and save its UDID:
+At the start of a coding session, check if a simulator is already running. If so, use it. Only boot a new one if nothing is running:
 
 ```bash
-# Boot the simulator (if not already booted)
-xcrun simctl boot "iPad Pro 11-inch (M4)" 2>/dev/null || true
-
-# Get and save the UDID to a session file
-SIMULATOR_UDID=$(xcrun simctl list devices available | \
-  grep "iPad Pro 11-inch (M4)" | \
-  grep -v "unavailable" | \
-  head -1 | \
+# First, check if any simulator is already booted
+SIMULATOR_UDID=$(xcrun simctl list devices | grep "(Booted)" | head -1 | \
   grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}")
 
+if [ -n "$SIMULATOR_UDID" ]; then
+    echo "Using already-running simulator: $SIMULATOR_UDID"
+else
+    # No simulator running, boot the iOS 26 iPad
+    xcrun simctl boot "iPad Pro 11-inch (M4)" 2>/dev/null || true
+    SIMULATOR_UDID=$(xcrun simctl list devices | grep "(Booted)" | head -1 | \
+      grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}")
+    echo "Booted new simulator: $SIMULATOR_UDID"
+fi
+
 echo "$SIMULATOR_UDID" > /tmp/reader-simulator-session.txt
-echo "Using simulator: $SIMULATOR_UDID"
 ```
+
+**IMPORTANT**: Never boot a simulator if one is already running. This prevents duplicate simulators on different iOS versions.
 
 ### Throughout Session - Always Use Tracked Simulator
 
@@ -76,7 +89,14 @@ Available test books include:
 
 ## Debugging and Reading Logs
 
-### For Physical iPad (Primary)
+### For Simulator (Primary)
+```bash
+xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.splap.reader"'
+```
+
+**Note:** Use the simulator for all debugging unless explicitly instructed otherwise.
+
+### For Physical iPad (Only When Required)
 Unified logging (os_log/Logger) doesn't reliably stream to Mac from iOS 26+ devices.
 
 **Best approach:** Write debug logs to a file in the app, then pull it:
@@ -116,12 +136,7 @@ xcrun devicectl device copy from \
 cat /tmp/debug.log
 ```
 
-### For Simulator (Fallback)
-```bash
-xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.splap.reader"'
-```
-
-**Note:** NSLog() and print() may not appear in device logs on newer iOS. Use file logging instead.
+**Note:** NSLog() and print() may not appear in logs on newer iOS. Use file logging or os_log/Logger instead.
 
 1. Project structure (most important)
     Prefer Swift Package Manager (SPM) for feature code.

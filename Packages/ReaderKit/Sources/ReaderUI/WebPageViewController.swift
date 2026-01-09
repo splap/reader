@@ -50,6 +50,7 @@ final class WebPageViewController: UIViewController {
     private var currentPage: Int = 0
     private var totalPages: Int = 0
     private var contentSizeObserver: NSKeyValueObservation?
+    private var cssColumnWidth: CGFloat = 0  // Exact column width from CSS - source of truth for alignment
 
     var fontScale: CGFloat = 2.0 {
         didSet {
@@ -99,7 +100,8 @@ final class WebPageViewController: UIViewController {
         }
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.scrollView.isScrollEnabled = true
-        webView.scrollView.isPagingEnabled = true
+        webView.scrollView.isPagingEnabled = false  // Use custom snapping for precise alignment
+        webView.scrollView.decelerationRate = .fast
         webView.scrollView.bounces = true
         webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.alwaysBounceVertical = false
@@ -125,7 +127,7 @@ final class WebPageViewController: UIViewController {
             // WKWebView may disable scrolling when content loads - re-enable it
             if scrollView.contentSize.width > scrollView.bounds.width {
                 scrollView.isScrollEnabled = true
-                scrollView.isPagingEnabled = true
+                scrollView.isPagingEnabled = false  // Use custom snapping
                 WebPageViewController.logger.info("Re-enabled scrolling via KVO")
             }
         }
@@ -392,9 +394,14 @@ final class WebPageViewController: UIViewController {
         }
     }
 
+    private func currentPageWidth() -> CGFloat {
+        // Use CSS column width if available (precise), otherwise fall back to bounds
+        return cssColumnWidth > 0 ? cssColumnWidth : webView.scrollView.bounds.width
+    }
+
     private func updateCurrentPage() {
         let scrollView = webView.scrollView
-        let pageWidth = scrollView.bounds.width
+        let pageWidth = currentPageWidth()
         guard pageWidth > 0 else { return }
 
         let contentWidth = scrollView.contentSize.width
@@ -410,22 +417,83 @@ final class WebPageViewController: UIViewController {
 
     func navigateToNextPage() {
         let scrollView = webView.scrollView
-        let pageWidth = scrollView.bounds.width
+        let pageWidth = currentPageWidth()
         let nextOffset = min(scrollView.contentOffset.x + pageWidth, scrollView.contentSize.width - pageWidth)
         scrollView.setContentOffset(CGPoint(x: nextOffset, y: 0), animated: true)
     }
 
     func navigateToPreviousPage() {
         let scrollView = webView.scrollView
-        let pageWidth = scrollView.bounds.width
+        let pageWidth = currentPageWidth()
         let prevOffset = max(scrollView.contentOffset.x - pageWidth, 0)
         scrollView.setContentOffset(CGPoint(x: prevOffset, y: 0), animated: true)
+    }
+
+    private func snapToNearestPage() {
+        let scrollView = webView.scrollView
+        let pageWidth = currentPageWidth()
+        guard pageWidth > 0 else { return }
+
+        let targetPage = round(scrollView.contentOffset.x / pageWidth)
+        let targetX = targetPage * pageWidth
+        let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let clampedX = min(max(0, targetX), maxX)
+
+        if abs(scrollView.contentOffset.x - clampedX) > 0.5 {
+            scrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: true)
+        }
+    }
+
+    private func queryCSSColumnWidth(completion: @escaping () -> Void) {
+        // Query the exact CSS column width from the browser
+        // This is the source of truth for pagination alignment
+        let js = """
+        (function() {
+            const container = document.getElementById('pagination-container');
+            if (container) {
+                return container.clientWidth;
+            }
+            return document.documentElement.clientWidth;
+        })();
+        """
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            if let width = result as? Double, width > 0 {
+                self?.cssColumnWidth = CGFloat(width)
+                Self.logger.info("CSS column width: \(width)")
+            }
+            completion()
+        }
     }
 }
 
 // MARK: - UIScrollViewDelegate
 extension WebPageViewController: UIScrollViewDelegate {
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        // Custom page snapping using exact CSS column width
+        let pageWidth = currentPageWidth()
+        guard pageWidth > 0 else { return }
+
+        let rawPage = scrollView.contentOffset.x / pageWidth
+        let maxPage = max(0, floor((scrollView.contentSize.width - scrollView.bounds.width) / pageWidth))
+        let targetPage: CGFloat
+
+        if velocity.x > 0.2 {
+            targetPage = min(maxPage, floor(rawPage) + 1)
+        } else if velocity.x < -0.2 {
+            targetPage = max(0, ceil(rawPage) - 1)
+        } else {
+            targetPage = min(maxPage, max(0, round(rawPage)))
+        }
+
+        targetContentOffset.pointee = CGPoint(x: targetPage * pageWidth, y: 0)
+    }
+
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        snapToNearestPage()
         updateCurrentPage()
     }
 
@@ -435,6 +503,7 @@ extension WebPageViewController: UIScrollViewDelegate {
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            snapToNearestPage()
             updateCurrentPage()
         }
     }
@@ -464,9 +533,13 @@ extension WebPageViewController: WKNavigationDelegate {
                 let sv = self.webView.scrollView
                 Self.logger.info("After load: contentSize=\(sv.contentSize.width)x\(sv.contentSize.height) isScrollEnabled=\(sv.isScrollEnabled)")
                 sv.isScrollEnabled = true
-                sv.isPagingEnabled = true
+                sv.isPagingEnabled = false  // Custom snapping for precise alignment
                 Self.logger.info("Set isScrollEnabled=true, actual value=\(sv.isScrollEnabled)")
-                self.updateCurrentPage()
+
+                // Query exact CSS column width for precise alignment
+                self.queryCSSColumnWidth {
+                    self.updateCurrentPage()
+                }
             }
         }
     }

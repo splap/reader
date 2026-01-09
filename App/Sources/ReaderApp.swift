@@ -27,6 +27,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // Create window
         let window = UIWindow(frame: UIScreen.main.bounds)
 
+        // Apply saved appearance (default: dark)
+        let appearanceMode = UserDefaults.standard.object(forKey: "AppearanceMode") as? Int ?? 0
+        switch appearanceMode {
+        case 0: window.overrideUserInterfaceStyle = .dark
+        case 1: window.overrideUserInterfaceStyle = .light
+        default: window.overrideUserInterfaceStyle = .unspecified
+        }
+
         // Create library view controller
         let libraryVC = LibraryViewController()
         let navController = UINavigationController(rootViewController: libraryVC)

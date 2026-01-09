@@ -6,11 +6,12 @@ cd "$ROOT_DIR"
 
 PROJECT="Reader.xcodeproj"
 CONFIGURATION="Debug"
-DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=18.5,arch=arm64"
+# Use iOS 26 simulator by default
+DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=26.0.1,arch=arm64"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
 EXTRA_BUILD_SETTINGS=""
 
-# Parse test type argument: unit (default), ui, or all
+# Parse test type argument: unit (default), ui, all, or perf
 TEST_TYPE="${1:-unit}"
 
 if [ "${UPDATE_SNAPSHOTS:-}" = "1" ]; then
@@ -24,26 +25,28 @@ fi
 
 run_tests() {
   local scheme="$1"
+  local test_filter="${2:-}"
   echo "Running tests for scheme: $scheme"
 
+  local xcodebuild_args=(
+    -project "$PROJECT"
+    -scheme "$scheme"
+    -configuration "$CONFIGURATION"
+    -destination "$DESTINATION"
+    -derivedDataPath "$DERIVED_DATA"
+  )
+
   if [ -n "$EXTRA_BUILD_SETTINGS" ]; then
-    xcodebuild \
-      -project "$PROJECT" \
-      -scheme "$scheme" \
-      -configuration "$CONFIGURATION" \
-      -destination "$DESTINATION" \
-      -derivedDataPath "$DERIVED_DATA" \
-      "$EXTRA_BUILD_SETTINGS" \
-      test
-  else
-    xcodebuild \
-      -project "$PROJECT" \
-      -scheme "$scheme" \
-      -configuration "$CONFIGURATION" \
-      -destination "$DESTINATION" \
-      -derivedDataPath "$DERIVED_DATA" \
-      test
+    xcodebuild_args+=("$EXTRA_BUILD_SETTINGS")
   fi
+
+  if [ -n "$test_filter" ]; then
+    xcodebuild_args+=(-only-testing:"$test_filter")
+  fi
+
+  xcodebuild_args+=(test)
+
+  xcodebuild "${xcodebuild_args[@]}"
 }
 
 case "$TEST_TYPE" in
@@ -58,11 +61,23 @@ case "$TEST_TYPE" in
     echo ""
     run_tests "ReaderAppUITests"
     ;;
+  perf)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextResizeReflowPerformance"
+    ;;
+  textsize)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
+    ;;
+  alignment)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPageAlignmentOnPage10"
+    ;;
   *)
-    echo "Usage: $0 [unit|ui|all]" >&2
+    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment]" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2
+    echo "  perf: Run text resize reflow performance test" >&2
+    echo "  textsize: Run text size change page count test" >&2
+    echo "  alignment: Run page alignment test" >&2
     exit 1
     ;;
 esac
