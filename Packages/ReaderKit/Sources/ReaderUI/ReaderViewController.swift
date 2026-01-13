@@ -5,7 +5,7 @@ import ReaderCore
 import OSLog
 
 public final class ReaderViewController: UIViewController {
-    private static let logger = Logger(subsystem: "com.example.reader", category: "reader-vc")
+    private static let logger = Logger(subsystem: "com.splap.reader", category: "reader-vc")
     private let viewModel: ReaderViewModel
     private let chapter: Chapter
     private let bookTitle: String?
@@ -14,6 +14,7 @@ public final class ReaderViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
     private var backButton: FloatingButton!
     private var settingsButton: FloatingButton!
+    private var chatButton: FloatingButton!
     private var scrubberContainer: UIView!
     private var scrubberSlider: UISlider!
     private var scrubberReadExtentView: UIView!
@@ -91,6 +92,7 @@ public final class ReaderViewController: UIViewController {
         // Ensure floating buttons and scrubber are above WebView
         view.bringSubviewToFront(backButton)
         view.bringSubviewToFront(settingsButton)
+        view.bringSubviewToFront(chatButton)
         view.bringSubviewToFront(scrubberContainer)
 
         if !hasInitialLayout {
@@ -164,8 +166,13 @@ public final class ReaderViewController: UIViewController {
         settingsButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
         settingsButton.accessibilityLabel = "Settings"
 
+        chatButton = FloatingButton(systemImage: "text.bubble")
+        chatButton.addTarget(self, action: #selector(showChat), for: .touchUpInside)
+        chatButton.accessibilityLabel = "Chat"
+
         view.addSubview(backButton)
         view.addSubview(settingsButton)
+        view.addSubview(chatButton)
 
         NSLayoutConstraint.activate([
             // Back button - top left
@@ -178,7 +185,13 @@ public final class ReaderViewController: UIViewController {
             settingsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
             settingsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             settingsButton.widthAnchor.constraint(equalToConstant: 44),
-            settingsButton.heightAnchor.constraint(equalToConstant: 44)
+            settingsButton.heightAnchor.constraint(equalToConstant: 44),
+
+            // Chat button - next to settings button
+            chatButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            chatButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -12),
+            chatButton.widthAnchor.constraint(equalToConstant: 44),
+            chatButton.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
 
@@ -284,11 +297,13 @@ public final class ReaderViewController: UIViewController {
             UIView.animate(withDuration: 0.25) {
                 self.backButton.alpha = alpha
                 self.settingsButton.alpha = alpha
+                self.chatButton.alpha = alpha
                 self.scrubberContainer.alpha = alpha
             }
         } else {
             backButton.alpha = alpha
             settingsButton.alpha = alpha
+            chatButton.alpha = alpha
             scrubberContainer.alpha = alpha
         }
     }
@@ -415,6 +430,32 @@ public final class ReaderViewController: UIViewController {
             }
         )
         let navController = UINavigationController(rootViewController: settingsVC)
+        present(navController, animated: true)
+    }
+
+    @objc private func showChat() {
+        // Create book context from current state
+        let bookContext = ReaderBookContext(
+            chapter: chapter,
+            bookTitle: bookTitle ?? "Unknown Book",
+            bookAuthor: bookAuthor,
+            currentSpineItemId: viewModel.currentSpineItemId ?? "",
+            currentBlockId: viewModel.currentBlockId
+        )
+
+        let chatVC = BookChatViewController(context: bookContext)
+        let navController = UINavigationController(rootViewController: chatVC)
+
+        // Configure as nearly full-screen sheet
+        if let sheet = navController.sheetPresentationController {
+            let customDetent = UISheetPresentationController.Detent.custom { context in
+                return context.maximumDetentValue * 0.95
+            }
+            sheet.detents = [customDetent]
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 16
+        }
+
         present(navController, animated: true)
     }
 

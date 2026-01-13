@@ -87,14 +87,54 @@ Available test books include:
 - the_persian_a_novel_david_mccloskey.epub
 - the_ultimate_hitchhikers_guide_to_the_galaxy_five_novels_adams_douglas.epub
 
+## CRITICAL: Deployment Verification
+
+**Code is NOT deployed until you verify it's running.** A successful build does NOT mean the code is deployed.
+
+### Required Verification Steps
+
+1. **Add a temporary verification log** when adding new code paths:
+```swift
+Self.logger.warning("DEPLOY_VERIFY: MyNewFeature initialized")
+```
+Use `.warning` level - it always shows in logs. `.debug` and `.info` may be filtered.
+
+2. **Build, install, and launch**:
+```bash
+./scripts/build
+xcrun simctl install booted .build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app
+xcrun simctl terminate booted com.splap.reader 2>/dev/null || true
+xcrun simctl launch booted com.splap.reader
+```
+
+3. **Verify the log appears**:
+```bash
+xcrun simctl spawn booted log show --style compact --debug --predicate 'subsystem == "com.splap.reader"' --last 1m | grep DEPLOY_VERIFY
+```
+
+4. **Remove verification log** after confirming deployment works.
+
+### If No Logs Appear
+- **Check subsystem**: Must be `com.splap.reader` (the bundle ID), NOT `com.example.reader`
+- **Check log level**: Use `.warning` not `.info` or `.debug`
+- **Trigger the code path**: Some code only runs when you open a book, tap a button, etc.
+- **Verify binary updated**: Check timestamp with `ls -la .build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app/ReaderApp`
+
 ## Debugging and Reading Logs
+
+### Subsystem
+**ALWAYS use `com.splap.reader`** - this is the bundle ID. Never use `com.example.reader`.
 
 ### For Simulator (Primary)
 ```bash
+# Stream logs in real-time
 xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.splap.reader"'
+
+# Show recent logs (last N minutes)
+xcrun simctl spawn booted log show --style compact --debug --predicate 'subsystem == "com.splap.reader"' --last 5m
 ```
 
-**Note:** Use the simulator for all debugging unless explicitly instructed otherwise.
+**Note:** Use `--debug` flag to include debug-level messages. Use the simulator for all debugging unless explicitly instructed otherwise.
 
 ### For Physical iPad (Only When Required)
 Unified logging (os_log/Logger) doesn't reliably stream to Mac from iOS 26+ devices.
