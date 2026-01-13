@@ -102,7 +102,7 @@ final class ReaderCoreTests: XCTestCase {
 
         // Verify house CSS contains critical properties
         XCTAssertTrue(css.contains("font-size: 32px"), "House CSS should scale font size")
-        XCTAssertTrue(css.contains("line-height: 1.6"), "House CSS should set line height")
+        XCTAssertTrue(css.contains("line-height: 1.35"), "House CSS should set line height")
         XCTAssertTrue(css.contains("padding: 48px 0"), "House CSS should control body padding")
         XCTAssertTrue(css.contains("column-width: 100vw"), "House CSS should set column width for pagination")
     }

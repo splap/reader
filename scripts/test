@@ -76,8 +76,11 @@ case "$TEST_TYPE" in
   position)
     run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
     ;;
+  doubletap)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
+    ;;
   *)
-    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position]" >&2
+    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap]" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2
@@ -86,6 +89,7 @@ case "$TEST_TYPE" in
     echo "  alignment: Run page alignment test" >&2
     echo "  scrubber: Run scrubber overlay toggle test" >&2
     echo "  position: Run position persistence test" >&2
+    echo "  doubletap: Run double-tap alignment test" >&2
     exit 1
     ;;
 esac

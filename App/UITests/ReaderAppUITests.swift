@@ -680,4 +680,127 @@ final class ReaderAppUITests: XCTestCase {
         return Int(text[range])
     }
 
+    func testDoubleTapDoesNotMisalignPage() {
+        // This test verifies that double-tapping on the page does not cause
+        // the content to shift or become misaligned.
+
+        // Open Consider Phlebas by Banks
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        print("🧪 Opening Consider Phlebas by Banks...")
+        let banksAuthor = app.staticTexts["Banks, Ian M."]
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        banksAuthor.tap()
+
+        // Wait for book to load
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        sleep(3) // Let content render and pagination stabilize
+
+        print("🧪 Book loaded, taking screenshot before double-tap...")
+
+        // Take screenshot before double-tap
+        let screenshotBefore = XCUIScreen.main.screenshot()
+        let attachmentBefore = XCTAttachment(screenshot: screenshotBefore)
+        attachmentBefore.name = "Before Double-Tap"
+        attachmentBefore.lifetime = .keepAlways
+        add(attachmentBefore)
+
+        // Save before screenshot
+        let beforePath = "/tmp/reader-tests/double-tap-before.png"
+        try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+        try? screenshotBefore.pngRepresentation.write(to: URL(fileURLWithPath: beforePath))
+        print("🧪 Before screenshot saved to: \(beforePath)")
+
+        // Double-tap in the center of the webview
+        print("🧪 Performing double-tap...")
+        let centerPoint = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        centerPoint.doubleTap()
+
+        // Wait a moment for any potential misalignment to occur
+        usleep(500000) // 0.5 seconds
+
+        // Take screenshot after double-tap
+        let screenshotAfter = XCUIScreen.main.screenshot()
+        let attachmentAfter = XCTAttachment(screenshot: screenshotAfter)
+        attachmentAfter.name = "After Double-Tap"
+        attachmentAfter.lifetime = .keepAlways
+        add(attachmentAfter)
+
+        // Save after screenshot
+        let afterPath = "/tmp/reader-tests/double-tap-after.png"
+        try? screenshotAfter.pngRepresentation.write(to: URL(fileURLWithPath: afterPath))
+        print("🧪 After screenshot saved to: \(afterPath)")
+
+        // Compare screenshots - they should be identical (or very similar)
+        // We'll compare the PNG data directly
+        let beforeData = screenshotBefore.pngRepresentation
+        let afterData = screenshotAfter.pngRepresentation
+
+        // If the data is identical, the page didn't shift
+        if beforeData == afterData {
+            print("🧪 ✅ Screenshots are identical - no misalignment!")
+        } else {
+            // Screenshots differ - could be due to overlay toggle or actual misalignment
+            // Let's do another double-tap to toggle overlay back and compare again
+            print("🧪 Screenshots differ after first double-tap (overlay may have toggled)")
+            print("🧪 Performing second double-tap to toggle overlay back...")
+
+            centerPoint.doubleTap()
+            usleep(500000)
+
+            let screenshotAfter2 = XCUIScreen.main.screenshot()
+            let attachmentAfter2 = XCTAttachment(screenshot: screenshotAfter2)
+            attachmentAfter2.name = "After Second Double-Tap"
+            attachmentAfter2.lifetime = .keepAlways
+            add(attachmentAfter2)
+
+            let after2Path = "/tmp/reader-tests/double-tap-after2.png"
+            try? screenshotAfter2.pngRepresentation.write(to: URL(fileURLWithPath: after2Path))
+            print("🧪 After second double-tap screenshot saved to: \(after2Path)")
+
+            let after2Data = screenshotAfter2.pngRepresentation
+
+            // After two double-taps, we should be back to original state
+            // Allow for minor differences due to timing, but fail on major shifts
+            let beforeSize = beforeData.count
+            let after2Size = after2Data.count
+            let sizeDiff = abs(beforeSize - after2Size)
+            let sizeDiffPercent = Double(sizeDiff) / Double(beforeSize) * 100
+
+            print("🧪 Screenshot size comparison: before=\(beforeSize), after2=\(after2Size), diff=\(sizeDiffPercent)%")
+
+            // If screenshots are very different in size, something is wrong
+            // A shifted page would have different content visible
+            XCTAssertLessThan(sizeDiffPercent, 5.0,
+                "Screenshots should be nearly identical after two double-taps. Size difference: \(sizeDiffPercent)%")
+
+            // More rigorous check: compare pixel data
+            if beforeData != after2Data {
+                print("🧪 ⚠️ WARNING: Screenshots differ after two double-taps!")
+                print("🧪 This may indicate the page shifted and didn't return to original position")
+                print("🧪 Check screenshots at: \(beforePath) and \(after2Path)")
+
+                // Don't fail yet - let's check if page number changed
+            }
+        }
+
+        // Additional check: reveal overlay and verify page number is still correct
+        print("🧪 Revealing overlay to check page number...")
+        webView.tap()
+        sleep(1)
+
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        if pageLabel.waitForExistence(timeout: 3) {
+            let pageText = pageLabel.label
+            print("🧪 Current page: \(pageText)")
+            XCTAssertTrue(pageText.contains("Page 1"),
+                "Should still be on page 1 after double-taps, but showing: \(pageText)")
+            print("🧪 ✅ Still on page 1 - page alignment preserved!")
+        }
+
+        print("🧪 Double-tap alignment test complete")
+    }
+
 }

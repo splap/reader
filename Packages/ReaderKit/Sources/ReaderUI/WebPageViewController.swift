@@ -118,6 +118,8 @@ final class WebPageViewController: UIViewController {
         webView.scrollView.alwaysBounceVertical = false
         webView.scrollView.showsHorizontalScrollIndicator = false
         webView.scrollView.showsVerticalScrollIndicator = false
+        webView.scrollView.maximumZoomScale = 1.0
+        webView.scrollView.minimumZoomScale = 1.0
         webView.scrollView.delegate = self
         webView.navigationDelegate = self
         webView.isOpaque = false
@@ -232,7 +234,10 @@ final class WebPageViewController: UIViewController {
         var combinedHTML = ""
         for section in htmlSections {
             // Use annotatedHTML for block-based position tracking
-            let processedHTML = processHTMLWithImages(section.annotatedHTML, basePath: section.basePath, imageCache: section.imageCache)
+            // Extract just the body content, stripping out <html>, <head>, and <body> wrapper tags
+            // This prevents publisher CSS from being loaded via <link> tags
+            let bodyContent = extractBodyContent(from: section.annotatedHTML)
+            let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
             combinedHTML += processedHTML + "\n"
         }
 
@@ -245,10 +250,34 @@ final class WebPageViewController: UIViewController {
         <html>
         <head>
             <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
             <style>
                 \(css)
+
+                /* Prevent text selection highlight from causing layout shifts */
+                * {
+                    -webkit-tap-highlight-color: transparent;
+                    -webkit-touch-callout: none;
+                }
             </style>
+            <script>
+                // Prevent double-tap zoom by tracking taps and preventing default
+                (function() {
+                    var lastTap = 0;
+                    document.addEventListener('touchend', function(e) {
+                        var now = Date.now();
+                        if (now - lastTap < 300) {
+                            e.preventDefault();
+                        }
+                        lastTap = now;
+                    }, { passive: false });
+
+                    // Also prevent gesturestart which can trigger zoom
+                    document.addEventListener('gesturestart', function(e) {
+                        e.preventDefault();
+                    }, { passive: false });
+                })();
+            </script>
         </head>
         <body>
             \(combinedHTML)
@@ -326,6 +355,24 @@ final class WebPageViewController: UIViewController {
         case "webp": return "image/webp"
         default: return "image/jpeg"
         }
+    }
+
+    /// Extracts just the body content from an HTML document, stripping out
+    /// <html>, <head>, and <body> wrapper tags. This prevents publisher CSS
+    /// from being loaded via <link> tags in the head.
+    private func extractBodyContent(from html: String) -> String {
+        // Try to find <body> tag and extract its content
+        let bodyPattern = #"<body[^>]*>([\s\S]*?)</body>"#
+        if let regex = try? NSRegularExpression(pattern: bodyPattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+           match.numberOfRanges >= 2 {
+            let contentRange = Range(match.range(at: 1), in: html)!
+            return String(html[contentRange])
+        }
+
+        // If no body tag found, return original HTML
+        // (might be a fragment without full document structure)
+        return html
     }
 
     private func reloadWithNewFontScale() {

@@ -3,6 +3,7 @@ import ReaderCore
 
 public final class LibraryViewController: UITableViewController {
     private var books: [Book] = []
+    private var isOpeningBook = false
 
     public init() {
         super.init(style: .plain)
@@ -69,6 +70,10 @@ public final class LibraryViewController: UITableViewController {
 
     public override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+
+        // Prevent multiple taps while opening a book
+        guard !isOpeningBook else { return }
+
         let book = books[indexPath.row]
         openBook(book)
     }
@@ -81,6 +86,8 @@ public final class LibraryViewController: UITableViewController {
     }
 
     private func openBook(_ book: Book) {
+        isOpeningBook = true
+
         let fileURL = BookLibraryService.shared.getFileURL(for: book)
         let readerVC = ReaderViewController(
             epubURL: fileURL,
@@ -90,6 +97,12 @@ public final class LibraryViewController: UITableViewController {
 
         BookLibraryService.shared.updateLastOpened(bookId: book.id)
         navigationController?.pushViewController(readerVC, animated: true)
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Reset the flag when returning to the library
+        isOpeningBook = false
     }
 
     private func showDeleteConfirmation(for book: Book, at indexPath: IndexPath) {

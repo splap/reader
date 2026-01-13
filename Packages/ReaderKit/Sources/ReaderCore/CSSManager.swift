@@ -43,8 +43,8 @@ public final class CSSManager {
             /* House typography */
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             font-size: \(baseFontSize)px;
-            line-height: 1.6;
-            text-align: left;
+            line-height: 1.35;
+            text-align: justify;
 
             /* Light mode colors */
             color: #000000;
@@ -59,7 +59,7 @@ public final class CSSManager {
         p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, div {
             padding-left: 48px !important;
             padding-right: 48px !important;
-            text-align: left !important;
+            text-align: justify !important;
         }
 
         /* Dark mode support */
@@ -75,21 +75,35 @@ public final class CSSManager {
 
         /* Basic element styling */
         img {
-            max-width: 100%;
+            max-width: calc(100% - 96px);
+            max-height: calc(100vh - 96px - 4em);
+            width: auto;
             height: auto;
             display: block;
-            margin: 1em auto;
+            margin: 0 auto;
             break-inside: avoid;
+            object-fit: contain;
         }
 
-        p {
-            margin-bottom: 1em;
+        p, blockquote {
+            margin-bottom: 1.5em !important;
         }
 
         h1, h2, h3, h4, h5, h6 {
-            margin-top: 1em;
-            margin-bottom: 0.5em;
+            margin-top: 2em;
+            margin-bottom: 1em;
             break-after: avoid;
+        }
+
+        /* Section headers (often marked as bold paragraphs in EPUBs) */
+        p.calibre5, p > .bold, p > span > .bold {
+            text-align: center !important;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-top: 0;
+            margin-bottom: 2em;
+            break-before: column;
+            padding-top: 48px;
         }
         """
     }
