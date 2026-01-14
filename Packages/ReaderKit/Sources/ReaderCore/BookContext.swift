@@ -5,13 +5,20 @@ import Foundation
 /// Lightweight info about a book section
 public struct SectionInfo {
     public let spineItemId: String
-    public let title: String?
+    public let title: String?  // Title extracted from first heading in content
+    public let ncxLabel: String?  // Label from NCX/nav file (preferred)
     public let blockCount: Int
 
-    public init(spineItemId: String, title: String?, blockCount: Int) {
+    public init(spineItemId: String, title: String?, ncxLabel: String? = nil, blockCount: Int) {
         self.spineItemId = spineItemId
         self.title = title
+        self.ncxLabel = ncxLabel
         self.blockCount = blockCount
+    }
+
+    /// The best available label for this section
+    public var displayLabel: String {
+        ncxLabel ?? title ?? "Untitled"
     }
 }
 
@@ -98,10 +105,16 @@ public final class ReaderBookContext: BookContext {
                 // Try to extract title from first heading block
                 let sectionTitle = extractSectionTitle(from: section)
 
+                // Count ALL blocks across all htmlSections with this spineItemId
+                let totalBlockCount = chapter.htmlSections
+                    .filter { $0.spineItemId == section.spineItemId }
+                    .reduce(0) { $0 + $1.blocks.count }
+
                 result.append(SectionInfo(
                     spineItemId: section.spineItemId,
                     title: sectionTitle,
-                    blockCount: section.blocks.count
+                    ncxLabel: chapter.ncxLabels[section.spineItemId],
+                    blockCount: totalBlockCount
                 ))
             }
         }

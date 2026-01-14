@@ -60,6 +60,30 @@ public final class EPUBLoader {
             throw LoaderError.missingSpine
         }
 
+        // Parse NCX file to get chapter labels
+        var ncxLabels: [String: String] = [:]
+        if let ncxItem = package.manifest.values.first(where: { $0.mediaType.contains("ncx") }) {
+            let ncxPath = package.resolve(ncxItem.href)
+            if let ncxData = try data(for: ncxPath, in: archive) {
+                let parser = NCXParser()
+                let navPoints = parser.parse(data: ncxData)
+
+                // Build map from spine item ID to NCX label
+                // NCX content src is like "xhtml/Chapter01.xhtml", need to match with spine item hrefs
+                for navPoint in navPoints {
+                    // Find spine item that matches this nav point
+                    if let matchingItem = spineItems.first(where: { item in
+                        let itemPath = package.resolve(item.href)
+                        // Compare file paths, ignoring fragment identifiers
+                        return itemPath.hasSuffix(navPoint.filePath) || navPoint.filePath.hasSuffix(item.href)
+                    }) {
+                        ncxLabels[matchingItem.id] = navPoint.label
+                    }
+                }
+                Self.logger.info("Parsed NCX: \(ncxLabels.count) labels mapped")
+            }
+        }
+
         // Extract and cache images and CSS FIRST
         extractImages(from: archive, package: package)
         extractCSS(from: archive, package: package)
@@ -124,7 +148,7 @@ public final class EPUBLoader {
             "Loaded EPUB \(url.lastPathComponent, privacy: .public) sections=\(sectionCount, privacy: .public) length=\(combined.length, privacy: .public) htmlSections=\(htmlSections.count, privacy: .public)"
         )
 #endif
-        return Chapter(id: chapterId, attributedText: combined, htmlSections: htmlSections, title: title)
+        return Chapter(id: chapterId, attributedText: combined, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels)
     }
 
     private func data(for path: String, in archive: Archive) throws -> Data? {

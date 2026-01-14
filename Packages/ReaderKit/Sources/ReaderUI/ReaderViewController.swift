@@ -141,8 +141,8 @@ public final class ReaderViewController: UIViewController {
                 }
                 #endif
             },
-            onBlockPositionChanged: { [weak self] blockId in
-                self?.viewModel.updateBlockPosition(blockId: blockId)
+            onBlockPositionChanged: { [weak self] blockId, spineItemId in
+                self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
             }
         )
 

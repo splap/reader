@@ -46,6 +46,7 @@ public struct Chapter {
     public let attributedText: NSAttributedString
     public let htmlSections: [HTMLSection]
     public let title: String?
+    public let ncxLabels: [String: String]  // Map from spineItemId to NCX label
 
     /// All blocks across all sections, flattened for easy lookup
     public var allBlocks: [Block] {
@@ -67,10 +68,11 @@ public struct Chapter {
         return nil
     }
 
-    public init(id: String, attributedText: NSAttributedString, htmlSections: [HTMLSection] = [], title: String? = nil) {
+    public init(id: String, attributedText: NSAttributedString, htmlSections: [HTMLSection] = [], title: String? = nil, ncxLabels: [String: String] = [:]) {
         self.id = id
         self.attributedText = attributedText
         self.htmlSections = htmlSections
         self.title = title
+        self.ncxLabels = ncxLabels
     }
 }

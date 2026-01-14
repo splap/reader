@@ -147,12 +147,13 @@ public final class BlockParser {
 
             blocks.append(block)
 
-            // Build new tag with data-block-id attribute
+            // Build new tag with data-block-id and data-spine-item-id attributes
             let newAttrs: String
+            let blockAttrs = " data-block-id=\"\(block.id)\" data-spine-item-id=\"\(spineItemId)\""
             if existingAttrs.isEmpty {
-                newAttrs = " data-block-id=\"\(block.id)\""
+                newAttrs = blockAttrs
             } else {
-                newAttrs = "\(existingAttrs) data-block-id=\"\(block.id)\""
+                newAttrs = "\(existingAttrs)\(blockAttrs)"
             }
 
             let replacement = "<\(tagName)\(newAttrs)>\(innerHTML)</\(tagName)>"

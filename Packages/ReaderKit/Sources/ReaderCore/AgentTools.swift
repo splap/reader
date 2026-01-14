@@ -7,6 +7,7 @@ public enum AgentTools {
     /// All tool definitions for the API request
     public static var allTools: [ToolDefinition] {
         return [
+            getCurrentPositionTool,
             getChapterTextTool,
             searchContentTool,
             getCharacterMentionsTool,
@@ -16,6 +17,18 @@ public enum AgentTools {
     }
 
     // MARK: - Tool Definitions
+
+    /// Get the reader's current position in the book
+    static let getCurrentPositionTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "get_current_position",
+            description: "Get detailed information about the reader's current position in the book, including chapter name and progress through the chapter.",
+            parameters: JSONSchema(
+                properties: [:],
+                required: []
+            )
+        )
+    )
 
     /// Get the full text content of a chapter/section
     static let getChapterTextTool = ToolDefinition(
@@ -128,6 +141,8 @@ public struct ToolExecutor {
         let name = toolCall.function.name
 
         switch name {
+        case "get_current_position":
+            return executeGetCurrentPosition()
         case "get_chapter_text":
             return executeGetChapterText(args)
         case "search_content":
@@ -144,6 +159,31 @@ public struct ToolExecutor {
     }
 
     // MARK: - Tool Implementations
+
+    private func executeGetCurrentPosition() -> String {
+        var output = ""
+
+        // Get current section info
+        if let currentSection = context.sections.first(where: { $0.spineItemId == context.currentSpineItemId }) {
+            let chapterLabel = currentSection.displayLabel
+            output += "Current chapter: \(chapterLabel)\n"
+
+            // Calculate percentage through chapter
+            if let blockId = context.currentBlockId,
+               let block = context.blocksAround(blockId: blockId, count: 0).first,
+               currentSection.blockCount > 0 {
+                let percentage = Int(round(Double(block.ordinal + 1) / Double(currentSection.blockCount) * 100))
+                output += "Position in chapter: \(percentage)% through\n"
+                output += "Block \(block.ordinal + 1) of \(currentSection.blockCount)"
+            } else {
+                output += "Position in chapter: Beginning"
+            }
+        } else {
+            output = "Current position unknown"
+        }
+
+        return output
+    }
 
     private func executeGetChapterText(_ args: [String: Any]) -> String {
         let spineItemId = args["spine_item_id"] as? String ?? "current"
@@ -260,9 +300,9 @@ public struct ToolExecutor {
 
         output += "Sections:\n"
         for (index, section) in context.sections.enumerated() {
-            let title = section.title ?? "Section \(index + 1)"
+            let label = section.displayLabel
             let marker = section.spineItemId == context.currentSpineItemId ? " [current]" : ""
-            output += "\(index + 1). \(title)\(marker)\n"
+            output += "\(index + 1). \(label)\(marker)\n"
         }
 
         return output

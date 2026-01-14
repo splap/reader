@@ -1,8 +1,10 @@
 import UIKit
 import ReaderCore
+import OSLog
 
 /// Chat interface for conversing with the LLM about a book
 public final class BookChatViewController: UIViewController {
+    private static let logger = Logger(subsystem: "com.splap.reader", category: "chat")
     private let context: BookContext
     private let agentService = ReaderAgentService()
     private let initialSelection: String?
@@ -176,15 +178,20 @@ public final class BookChatViewController: UIViewController {
         }
 
         // Add position info
-        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
-        if let section = currentSection {
-            let chapterTitle = section.title ?? "Untitled Chapter"
-            bookInfo += "\nPosition: \(chapterTitle)"
+        let sections = context.sections
+        if let currentIndex = sections.firstIndex(where: { $0.spineItemId == context.currentSpineItemId }) {
+            let section = sections[currentIndex]
 
-            // Add block number if available
+            // Use NCX label if available, otherwise fall back to extracted title
+            let chapterLabel = section.displayLabel
+            bookInfo += "\nChapter: \(chapterLabel)"
+
+            // Add percentage through chapter if available
             if let blockId = context.currentBlockId,
-               let block = context.blocksAround(blockId: blockId, count: 0).first {
-                bookInfo += " (Block \(block.ordinal + 1) of \(section.blockCount))"
+               let block = context.blocksAround(blockId: blockId, count: 0).first,
+               section.blockCount > 0 {
+                let percentage = Int(round(Double(block.ordinal + 1) / Double(section.blockCount) * 100))
+                bookInfo += "\nPosition: \(percentage)% through chapter"
             }
         }
 

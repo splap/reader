@@ -46,7 +46,7 @@ final class WebPageViewController: UIViewController {
     private let chapterTitle: String?
     private let onSendToLLM: (SelectionPayload) -> Void
     private let onPageChanged: (Int, Int) -> Void  // (currentPage, totalPages)
-    private let onBlockPositionChanged: ((String) -> Void)?  // Block ID of first visible block
+    private let onBlockPositionChanged: ((String, String?) -> Void)?  // (Block ID, Spine Item ID) of first visible block
     private var webView: SelectableWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
@@ -56,6 +56,7 @@ final class WebPageViewController: UIViewController {
     private var initialBlockId: String?  // Block ID to navigate to after content loads (preferred)
     private var hasRestoredPosition = false  // Track if we've restored position
     private var currentBlockId: String?  // Currently visible block ID
+    private var currentSpineItemId: String?  // Currently visible spine item ID
 
     var fontScale: CGFloat = 2.0 {
         didSet {
@@ -74,7 +75,7 @@ final class WebPageViewController: UIViewController {
         initialBlockId: String? = nil,
         onSendToLLM: @escaping (SelectionPayload) -> Void,
         onPageChanged: @escaping (Int, Int) -> Void,
-        onBlockPositionChanged: ((String) -> Void)? = nil
+        onBlockPositionChanged: ((String, String?) -> Void)? = nil
     ) {
         self.htmlSections = htmlSections
         self.bookTitle = bookTitle
@@ -483,9 +484,9 @@ final class WebPageViewController: UIViewController {
 
     // MARK: - Block Position Tracking
 
-    /// Query the first visible block ID from the WebView
-    /// The block must have a data-block-id attribute to be detected
-    func queryFirstVisibleBlockId(completion: @escaping (String?) -> Void) {
+    /// Query the first visible block ID and spine item ID from the WebView
+    /// The block must have data-block-id and data-spine-item-id attributes to be detected
+    func queryFirstVisibleBlock(completion: @escaping (String?, String?) -> Void) {
         let js = """
         (function() {
             // Get all elements with data-block-id attribute
@@ -503,7 +504,10 @@ final class WebPageViewController: UIViewController {
 
                 // Check if block overlaps with visible viewport
                 if (absoluteRight > viewportLeft && absoluteLeft < viewportRight) {
-                    return block.getAttribute('data-block-id');
+                    return {
+                        blockId: block.getAttribute('data-block-id'),
+                        spineItemId: block.getAttribute('data-spine-item-id')
+                    };
                 }
             }
 
@@ -514,10 +518,16 @@ final class WebPageViewController: UIViewController {
         webView.evaluateJavaScript(js) { result, error in
             if let error = error {
                 Self.logger.error("Failed to query block position: \(error.localizedDescription)")
-                completion(nil)
+                completion(nil, nil)
                 return
             }
-            completion(result as? String)
+            if let dict = result as? [String: Any] {
+                let blockId = dict["blockId"] as? String
+                let spineItemId = dict["spineItemId"] as? String
+                completion(blockId, spineItemId)
+            } else {
+                completion(nil, nil)
+            }
         }
     }
 
@@ -565,12 +575,14 @@ final class WebPageViewController: UIViewController {
     private func updateBlockPosition() {
         guard onBlockPositionChanged != nil else { return }
 
-        queryFirstVisibleBlockId { [weak self] blockId in
+        queryFirstVisibleBlock { [weak self] blockId, spineItemId in
             guard let self = self, let blockId = blockId else { return }
 
-            if blockId != self.currentBlockId {
+            // Notify if either block ID or spine item ID changed
+            if blockId != self.currentBlockId || spineItemId != self.currentSpineItemId {
                 self.currentBlockId = blockId
-                self.onBlockPositionChanged?(blockId)
+                self.currentSpineItemId = spineItemId
+                self.onBlockPositionChanged?(blockId, spineItemId)
             }
         }
     }
