@@ -116,35 +116,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     // MARK: - Test Helpers
 
     private func importTestBooksIfNeeded() {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let testBooksURL = documentsURL.appendingPathComponent("TestBooks")
+        // Use the library service's scanTestBooks which handles deduplication
+        BookLibraryService.shared.scanTestBooks()
 
-        guard FileManager.default.fileExists(atPath: testBooksURL.path) else {
-            return
-        }
-
-        do {
-            let files = try FileManager.default.contentsOfDirectory(at: testBooksURL, includingPropertiesForKeys: nil)
-            let epubFiles = files.filter { $0.pathExtension.lowercased() == "epub" }
-
-            NSLog("🧪 Found \(epubFiles.count) test books to import")
-
-            for epubURL in epubFiles {
-                do {
-                    let book = try BookLibraryService.shared.importBook(from: epubURL, startAccessing: false)
-                    NSLog("🧪 Imported test book: \(book.title)")
-                } catch {
-                    NSLog("🧪 Failed to import test book \(epubURL.lastPathComponent): \(error)")
-                }
-            }
-
-            // Notify library view to refresh
-            NotificationCenter.default.post(
-                name: .bookLibraryDidChange,
-                object: nil
-            )
-        } catch {
-            NSLog("🧪 Failed to read TestBooks directory: \(error)")
-        }
+        // Notify library view to refresh
+        NotificationCenter.default.post(
+            name: .bookLibraryDidChange,
+            object: nil
+        )
     }
 }

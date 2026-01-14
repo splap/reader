@@ -210,9 +210,64 @@ public struct SearchResult {
 public struct AgentResponse {
     public let content: String
     public let toolCallsMade: [String]
+    public let executionTrace: AgentExecutionTrace?
 
-    public init(content: String, toolCallsMade: [String] = []) {
+    public init(content: String, toolCallsMade: [String] = [], executionTrace: AgentExecutionTrace? = nil) {
         self.content = content
         self.toolCallsMade = toolCallsMade
+        self.executionTrace = executionTrace
+    }
+}
+
+// MARK: - Execution Trace
+
+/// Captures complete execution context for debugging
+public struct AgentExecutionTrace: Codable {
+    public let bookContext: TraceBookContext
+    public let toolExecutions: [ToolExecution]
+    public let timestamp: Date
+
+    public init(bookContext: TraceBookContext, toolExecutions: [ToolExecution], timestamp: Date) {
+        self.bookContext = bookContext
+        self.toolExecutions = toolExecutions
+        self.timestamp = timestamp
+    }
+}
+
+/// Book context at the time of agent execution
+public struct TraceBookContext: Codable {
+    public let title: String
+    public let author: String?
+    public let currentChapter: String?
+    public let position: String
+    public let surroundingText: String?
+
+    public init(title: String, author: String?, currentChapter: String?, position: String, surroundingText: String?) {
+        self.title = title
+        self.author = author
+        self.currentChapter = currentChapter
+        self.position = position
+        self.surroundingText = surroundingText
+    }
+}
+
+/// Details of a single tool execution
+public struct ToolExecution: Codable {
+    public let toolCallId: String
+    public let functionName: String
+    public let arguments: String
+    public let result: String
+    public let executionTime: TimeInterval
+    public let success: Bool
+    public let error: String?
+
+    public init(toolCallId: String, functionName: String, arguments: String, result: String, executionTime: TimeInterval, success: Bool, error: String? = nil) {
+        self.toolCallId = toolCallId
+        self.functionName = functionName
+        self.arguments = arguments
+        self.result = result
+        self.executionTime = executionTime
+        self.success = success
+        self.error = error
     }
 }

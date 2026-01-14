@@ -25,6 +25,7 @@ public final class BookChatViewController: UIViewController {
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
 
     private var messages: [ChatMessage] = []
+    private var messageTraces: [UUID: AgentExecutionTrace] = [:]
 
     private var inputContainerBottomConstraint: NSLayoutConstraint?
 
@@ -362,7 +363,16 @@ public final class BookChatViewController: UIViewController {
                         displayContent = "[Used: \(toolsUsed)]\n\n\(result.response.content)"
                     }
 
-                    messages.append(ChatMessage(role: .assistant, content: displayContent))
+                    // Create message with trace if available
+                    let hasTrace = result.response.executionTrace != nil
+                    let message = ChatMessage(role: .assistant, content: displayContent, hasTrace: hasTrace)
+
+                    // Store trace if available
+                    if let trace = result.response.executionTrace {
+                        self.messageTraces[message.id] = trace
+                    }
+
+                    messages.append(message)
                     tableView.reloadData()
                     scrollToBottom()
                     setLoading(false)
@@ -428,6 +438,51 @@ public final class BookChatViewController: UIViewController {
             self.view.layoutIfNeeded()
         }
     }
+
+    // MARK: - Trace Formatting
+
+    private func formatTraceForDisplay(_ trace: AgentExecutionTrace, collapsed: Bool) -> String {
+        if collapsed {
+            let toolCount = trace.toolExecutions.count
+            let toolNames = trace.toolExecutions.map { $0.functionName }.joined(separator: ", ")
+            return "📊 Execution Details ▶  (Used \(toolCount) tools: \(toolNames))"
+        }
+
+        var text = "📊 Execution Details ▼\n\n"
+
+        // Book context section
+        text += "BOOK CONTEXT\n"
+        text += "• \(trace.bookContext.title)"
+        if let author = trace.bookContext.author {
+            text += " by \(author)"
+        }
+        text += "\n"
+        if let chapter = trace.bookContext.currentChapter {
+            text += "• Current: \(chapter)\n"
+        }
+        text += "• Position: \(trace.bookContext.position)\n"
+        if let excerpt = trace.bookContext.surroundingText {
+            let excerptPrefix = excerpt.prefix(100)
+            text += "• Context: \"\(excerptPrefix)...\"\n"
+        }
+
+        // Tools section
+        if !trace.toolExecutions.isEmpty {
+            text += "\nTOOLS CALLED\n"
+            for (index, tool) in trace.toolExecutions.enumerated() {
+                text += "\n\(index + 1). \(tool.functionName)\n"
+                let prettyArgs = tool.arguments.prettyJSON()
+                text += "   Input: \(prettyArgs.prefix(150))\n"
+                text += "   Result: \(tool.result.prefix(200))\n"
+                text += "   Time: \(String(format: "%.2f", tool.executionTime))s\n"
+                if !tool.success, let error = tool.error {
+                    text += "   ⚠️ Error: \(error)\n"
+                }
+            }
+        }
+
+        return text
+    }
 }
 
 // MARK: - UITableViewDataSource
@@ -442,13 +497,24 @@ extension BookChatViewController: UITableViewDataSource {
         let message = messages[indexPath.row]
         cell.configure(with: message)
 
-        // Set up tap handler for system messages to toggle collapsed state
-        if message.role == .system {
+        // Display trace if available
+        if message.hasTrace, let trace = messageTraces[message.id] {
+            let traceText = formatTraceForDisplay(trace, collapsed: message.isCollapsed)
+            cell.setTraceText(traceText)
+
+            // Set up tap handler to toggle trace
+            cell.onTap = { [weak self] in
+                self?.messages[indexPath.row].isCollapsed.toggle()
+                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+            }
+        } else if message.role == .system {
+            // Set up tap handler for system messages to toggle collapsed state
             cell.onTap = { [weak self] in
                 self?.messages[indexPath.row].isCollapsed.toggle()
                 self?.tableView.reloadRows(at: [indexPath], with: .automatic)
             }
         } else {
+            cell.setTraceText(nil)
             cell.onTap = nil
         }
 
@@ -486,16 +552,20 @@ private struct ChatMessage {
         case system
     }
 
+    let id: UUID
     let role: Role
     let content: String
     let title: String? // For collapsed system messages
     var isCollapsed: Bool // For system messages
+    let hasTrace: Bool // Whether this message has an execution trace
 
-    init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false) {
+    init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false, hasTrace: Bool = false) {
+        self.id = UUID()
         self.role = role
         self.content = content
         self.title = title
         self.isCollapsed = isCollapsed
+        self.hasTrace = hasTrace
     }
 }
 
@@ -504,6 +574,7 @@ private struct ChatMessage {
 private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
+    private let traceLabel = UILabel()
     var onTap: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -529,14 +600,30 @@ private final class ChatMessageCell: UITableViewCell {
         messageLabel.font = .systemFont(ofSize: 16)
         bubbleView.addSubview(messageLabel)
 
+        traceLabel.translatesAutoresizingMaskIntoConstraints = false
+        traceLabel.numberOfLines = 0
+        traceLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        traceLabel.textColor = .secondaryLabel
+        traceLabel.isHidden = true
+        bubbleView.addSubview(traceLabel)
+
+        // Create fallback constraint for when trace is hidden
+        let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10)
+        messageLabelBottomConstraint.priority = .defaultLow
+
         NSLayoutConstraint.activate([
             bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
             bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 
             messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 10),
-            messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
-            messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12)
+            messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
+            messageLabelBottomConstraint,
+
+            traceLabel.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 8),
+            traceLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
+            traceLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
+            traceLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10)
         ])
 
         // Add tap gesture for collapsible messages
@@ -593,5 +680,29 @@ private final class ChatMessageCell: UITableViewCell {
 
         leadingConstraint?.isActive = true
         trailingConstraint?.isActive = true
+    }
+
+    func setTraceText(_ text: String?) {
+        if let text = text {
+            traceLabel.text = text
+            traceLabel.isHidden = false
+        } else {
+            traceLabel.text = nil
+            traceLabel.isHidden = true
+        }
+    }
+}
+
+// MARK: - String Extension for JSON Formatting
+
+private extension String {
+    func prettyJSON() -> String {
+        guard let data = self.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data),
+              let prettyData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]),
+              let prettyString = String(data: prettyData, encoding: .utf8) else {
+            return self
+        }
+        return prettyString
     }
 }

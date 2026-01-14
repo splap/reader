@@ -121,6 +121,24 @@ xcrun simctl spawn booted log show --style compact --debug --predicate 'subsyste
 - **Trigger the code path**: Some code only runs when you open a book, tap a button, etc.
 - **Verify binary updated**: Check timestamp with `ls -la .build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app/ReaderApp`
 
+## CRITICAL: Logging Standards
+
+**USE LOGGER ONLY** - Never use NSLog, print(), or log the same event multiple times.
+
+```swift
+import OSLog
+private static let logger = Logger(subsystem: "com.splap.reader", category: "feature-name")
+```
+
+**Log Levels:**
+- `.debug` - Verbose details (only with `--debug` flag)
+- `.info` - Important milestones (visible by default)
+- `.error` - Failures
+
+Always use `privacy: .public` to avoid redaction: `Self.logger.info("Title: \(title, privacy: .public)")`
+
+**Physical device only:** Use `writeDebugLog()` in addition to Logger when unified logging doesn't stream.
+
 ## Debugging and Reading Logs
 
 ### Subsystem
@@ -128,14 +146,15 @@ xcrun simctl spawn booted log show --style compact --debug --predicate 'subsyste
 
 ### For Simulator (Primary)
 ```bash
-# Stream logs in real-time
+# Stream logs (default: info and above)
+xcrun simctl spawn booted log stream --style compact --predicate 'subsystem == "com.splap.reader"'
+
+# Add --debug to see verbose .debug logs
 xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.splap.reader"'
 
-# Show recent logs (last N minutes)
+# Show recent logs
 xcrun simctl spawn booted log show --style compact --debug --predicate 'subsystem == "com.splap.reader"' --last 5m
 ```
-
-**Note:** Use `--debug` flag to include debug-level messages. Use the simulator for all debugging unless explicitly instructed otherwise.
 
 ### For Physical iPad (Only When Required)
 Unified logging (os_log/Logger) doesn't reliably stream to Mac from iOS 26+ devices.

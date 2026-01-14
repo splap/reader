@@ -119,18 +119,8 @@ public final class BookLibraryService {
     // MARK: - Import Operations
 
     public func importBook(from sourceURL: URL, startAccessing: Bool = false) throws -> Book {
-        let logMsg = """
-        📚 [IMPORT] Attempting to import book
-        Source URL: \(sourceURL)
-        Source URL path: \(sourceURL.path)
-        Source URL scheme: \(sourceURL.scheme ?? "nil")
-        Start accessing: \(startAccessing)
-        """
-        NSLog("%@", logMsg)
-        writeDebugLog(logMsg)
-        Self.logger.info("Attempting to import book from: \(sourceURL.path, privacy: .public)")
-        Self.logger.info("Source URL scheme: \(sourceURL.scheme ?? "nil", privacy: .public)")
-        Self.logger.info("Start accessing: \(startAccessing, privacy: .public)")
+        writeDebugLog("Starting import from: \(sourceURL.path)")
+        Self.logger.debug("Importing book from: \(sourceURL.path, privacy: .public) (scheme: \(sourceURL.scheme ?? "nil", privacy: .public), security scope: \(startAccessing, privacy: .public))")
 
         // Only use security-scoped resource access if the file is outside our sandbox
         // Files in tmp/Inbox are already accessible
@@ -140,9 +130,7 @@ public final class BookLibraryService {
         if needsSecurityScope {
             didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
             if !didStartAccessing {
-                let errMsg = "❌ Failed to start accessing security scoped resource"
-                writeDebugLog(errMsg)
-                NSLog("📚 [IMPORT] %@", errMsg)
+                writeDebugLog("Failed to start accessing security scoped resource")
                 Self.logger.error("Failed to start accessing security scoped resource")
                 throw BookLibraryError.fileNotFound
             }
@@ -159,27 +147,22 @@ public final class BookLibraryService {
         // Check if file exists
         let fileExists = fileManager.fileExists(atPath: sourceURL.path)
         writeDebugLog("File exists at path: \(fileExists)")
-        NSLog("📚 [IMPORT] File exists at path: \(fileExists)")
-        Self.logger.info("File exists at path: \(fileExists, privacy: .public)")
+        Self.logger.debug("File exists check: \(fileExists, privacy: .public)")
 
         if !fileExists {
-            let errMsg = "❌ File does not exist at path: \(sourceURL.path)"
-            writeDebugLog(errMsg)
-            NSLog("📚 [IMPORT] %@", errMsg)
+            writeDebugLog("File does not exist at path: \(sourceURL.path)")
             Self.logger.error("File does not exist at path: \(sourceURL.path, privacy: .public)")
             throw BookLibraryError.fileNotFound
         }
 
         // Copy file to library
         writeDebugLog("Beginning copy to library")
-        NSLog("📚 [IMPORT] Beginning copy to library")
-        Self.logger.info("Beginning copy to library")
+        Self.logger.debug("Copying book to library")
 
         let (filePath, _) = try copyToLibrary(from: sourceURL)
 
-        writeDebugLog("✅ Successfully copied to: \(filePath)")
-        NSLog("📚 [IMPORT] ✅ Successfully copied to: \(filePath)")
-        Self.logger.info("Successfully copied to: \(filePath, privacy: .public)")
+        writeDebugLog("Successfully copied to: \(filePath)")
+        Self.logger.debug("Copy complete: \(filePath, privacy: .public)")
 
         // Extract metadata
         let fileURL = booksDirectory.appendingPathComponent(filePath)
@@ -269,72 +252,45 @@ public final class BookLibraryService {
         let bookDir = booksDirectory.appendingPathComponent(uuid.uuidString)
         let destURL = bookDir.appendingPathComponent("book.epub")
 
-        NSLog("📁 [COPY] Creating destination directory: \(bookDir.path)")
-        Self.logger.info("Creating destination directory: \(bookDir.path, privacy: .public)")
+        Self.logger.debug("Creating book directory: \(uuid.uuidString, privacy: .public)")
         try fileManager.createDirectory(at: bookDir, withIntermediateDirectories: true)
 
-        NSLog("📁 [COPY] Starting file coordinator copy")
-        NSLog("📁 [COPY] Source: \(sourceURL.path)")
-        NSLog("📁 [COPY] Dest: \(destURL.path)")
-        Self.logger.info("Starting file coordinator copy from: \(sourceURL.path, privacy: .public)")
-        Self.logger.info("Destination: \(destURL.path, privacy: .public)")
+        Self.logger.debug("Copying file from \(sourceURL.lastPathComponent, privacy: .public) to library")
 
         var coordinatorError: NSError?
         var copyError: Error?
 
         let coordinator = NSFileCoordinator()
         coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatorError) { url in
-            NSLog("📁 [COPY] Coordinator provided URL: \(url.path)")
-            NSLog("📁 [COPY] File exists at coordinator URL: \(self.fileManager.fileExists(atPath: url.path))")
-            Self.logger.info("Coordinator provided URL: \(url.path, privacy: .public)")
-            Self.logger.info("File exists at coordinator URL: \(self.fileManager.fileExists(atPath: url.path), privacy: .public)")
+            Self.logger.debug("File coordinator provided URL: \(url.lastPathComponent, privacy: .public)")
 
             do {
                 try self.fileManager.copyItem(at: url, to: destURL)
-                self.writeDebugLog("✅ Copy succeeded")
-                NSLog("📁 [COPY] ✅ Copy succeeded")
-                Self.logger.info("Copy succeeded")
+                self.writeDebugLog("Copy succeeded")
+                Self.logger.debug("File copy completed successfully")
             } catch {
-                let errMsg = """
-                ❌ Copy failed
-                Error: \(error.localizedDescription)
-                Domain: \((error as NSError).domain)
-                Code: \((error as NSError).code)
-                """
-                self.writeDebugLog(errMsg)
-                NSLog("📁 [COPY] %@", errMsg)
+                self.writeDebugLog("Copy failed: \(error.localizedDescription)")
                 Self.logger.error("Copy failed: \(error.localizedDescription, privacy: .public)")
-                Self.logger.error("Error details: \((error as NSError).debugDescription, privacy: .public)")
                 copyError = error
             }
         }
 
         if let error = coordinatorError {
-            let errMsg = """
-            ❌ Coordinator error
-            Error: \(error.localizedDescription)
-            Domain: \(error.domain)
-            Code: \(error.code)
-            """
-            writeDebugLog(errMsg)
-            NSLog("📁 [COPY] %@", errMsg)
-            Self.logger.error("Coordinator error: \(error.localizedDescription, privacy: .public)")
-            Self.logger.error("Coordinator error domain: \(error.domain, privacy: .public)")
-            Self.logger.error("Coordinator error code: \(error.code, privacy: .public)")
+            writeDebugLog("Coordinator error: \(error.localizedDescription)")
+            Self.logger.error("File coordinator error: \(error.localizedDescription, privacy: .public)")
             throw BookLibraryError.copyFailed(error)
         }
 
         if let error = copyError {
-            writeDebugLog("❌ Copy error occurred, throwing")
-            NSLog("📁 [COPY] ❌ Copy error occurred")
-            Self.logger.error("Copy error occurred")
+            writeDebugLog("Copy error occurred")
+            Self.logger.error("Copy operation failed")
             throw BookLibraryError.copyFailed(error)
         }
 
         let attributes = try fileManager.attributesOfItem(atPath: destURL.path)
         let fileSize = attributes[.size] as? Int64 ?? 0
 
-        Self.logger.info("File copied successfully, size: \(fileSize, privacy: .public) bytes")
+        Self.logger.debug("File copied successfully, size: \(fileSize, privacy: .public) bytes")
 
         return (path: "\(uuid.uuidString)/book.epub", size: fileSize)
     }
@@ -366,29 +322,38 @@ public final class BookLibraryService {
             let contents = try fileManager.contentsOfDirectory(at: testBooksURL, includingPropertiesForKeys: nil)
             let epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
 
-            Self.logger.info("Found \(epubFiles.count) epub files in TestBooks")
+            Self.logger.debug("Found \(epubFiles.count) epub files in TestBooks")
 
-            let existingBooks = getAllBooks()
-            let existingFilenames = Set(existingBooks.compactMap { book -> String? in
-                // Extract original filename from the book if possible
-                return book.title
-            })
+            // Load set of already-imported test book filenames from UserDefaults
+            let defaults = UserDefaults.standard
+            var importedFiles = Set(defaults.stringArray(forKey: "ImportedTestBooks") ?? [])
+            Self.logger.debug("Already imported: \(importedFiles.count) test books")
 
+            var newImports = 0
             for epubURL in epubFiles {
-                let filename = epubURL.deletingPathExtension().lastPathComponent
+                let filename = epubURL.lastPathComponent
 
-                // Check if we already have a book with this title (simple dedup)
-                if existingFilenames.contains(filename) {
-                    Self.logger.info("Skipping already imported: \(filename, privacy: .public)")
+                // Check if we've already imported this file
+                if importedFiles.contains(filename) {
+                    Self.logger.debug("Skipping already imported: \(filename, privacy: .public)")
                     continue
                 }
 
                 do {
                     let book = try importBook(from: epubURL, startAccessing: false)
                     Self.logger.info("Imported test book: \(book.title, privacy: .public)")
+                    newImports += 1
+
+                    // Mark this file as imported
+                    importedFiles.insert(filename)
+                    defaults.set(Array(importedFiles), forKey: "ImportedTestBooks")
                 } catch {
                     Self.logger.error("Failed to import \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
+            }
+
+            if newImports > 0 {
+                Self.logger.info("Imported \(newImports, privacy: .public) new test books")
             }
         } catch {
             Self.logger.error("Failed to scan TestBooks: \(error.localizedDescription, privacy: .public)")

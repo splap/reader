@@ -24,6 +24,16 @@ public actor ReaderAgentService {
         // Build system prompt with book context
         let systemPrompt = buildSystemPrompt(context: context)
 
+        // Capture book context for trace
+        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
+        let traceBookContext = TraceBookContext(
+            title: context.bookTitle,
+            author: context.bookAuthor,
+            currentChapter: currentSection?.title,
+            position: buildPositionString(context),
+            surroundingText: buildSurroundingText(context)
+        )
+
         // Add user message to history
         history.append(AgentMessage(role: .user, content: message))
 
@@ -32,6 +42,7 @@ public actor ReaderAgentService {
 
         // Track tool calls made during this conversation
         var toolCallsMade: [String] = []
+        var toolExecutions: [ToolExecution] = []
 
         // Agent loop: keep calling until no more tool calls
         var rounds = 0
@@ -57,7 +68,22 @@ public actor ReaderAgentService {
                 // Execute each tool and add results
                 for call in toolCalls {
                     toolCallsMade.append(call.function.name)
+
+                    // Capture timing and result
+                    let startTime = Date()
                     let result = executor.execute(call)
+                    let executionTime = Date().timeIntervalSince(startTime)
+
+                    // Record tool execution for trace
+                    toolExecutions.append(ToolExecution(
+                        toolCallId: call.id,
+                        functionName: call.function.name,
+                        arguments: call.function.arguments,
+                        result: result,
+                        executionTime: executionTime,
+                        success: true,
+                        error: nil
+                    ))
 
                     history.append(AgentMessage(
                         role: .tool,
@@ -73,8 +99,16 @@ public actor ReaderAgentService {
             // No tool calls - we have a final response
             if let content = response.content {
                 history.append(AgentMessage(role: .assistant, content: content))
+
+                // Build execution trace
+                let trace = AgentExecutionTrace(
+                    bookContext: traceBookContext,
+                    toolExecutions: toolExecutions,
+                    timestamp: Date()
+                )
+
                 return (
-                    response: AgentResponse(content: content, toolCallsMade: toolCallsMade),
+                    response: AgentResponse(content: content, toolCallsMade: toolCallsMade, executionTrace: trace),
                     updatedHistory: history
                 )
             } else {
@@ -123,6 +157,40 @@ public actor ReaderAgentService {
         }
 
         return prompt
+    }
+
+    private func buildPositionString(_ context: BookContext) -> String {
+        // Find current section
+        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
+
+        if let section = currentSection, let title = section.title {
+            return "In \(title)"
+        } else if context.currentBlockId != nil {
+            return "Current position"
+        } else {
+            return "Beginning of book"
+        }
+    }
+
+    private func buildSurroundingText(_ context: BookContext) -> String? {
+        guard let blockId = context.currentBlockId else {
+            return nil
+        }
+
+        let blocks = context.blocksAround(blockId: blockId, count: 3)
+        guard !blocks.isEmpty else {
+            return nil
+        }
+
+        let text = blocks.map { $0.textContent }.joined(separator: " ")
+
+        // Limit to approximately 100 words
+        let words = text.split(separator: " ")
+        if words.count > 100 {
+            return words.prefix(100).joined(separator: " ") + "..."
+        }
+
+        return text
     }
 
     // MARK: - API Call
