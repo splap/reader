@@ -22,11 +22,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             NSLog("🧪 UI Testing mode detected - clearing app state")
             UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
             UserDefaults.standard.synchronize()
+        }
 
-            // Import test books if they exist
-            if !isPositionTest {
-                importTestBooksIfNeeded()
-            }
+        // Always scan for test books on launch (unless position test)
+        if !isPositionTest {
+            importTestBooksIfNeeded()
         }
 
         // Create window
@@ -120,7 +120,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let testBooksURL = documentsURL.appendingPathComponent("TestBooks")
 
         guard FileManager.default.fileExists(atPath: testBooksURL.path) else {
-            NSLog("🧪 No TestBooks directory found at: \(testBooksURL.path)")
             return
         }
 

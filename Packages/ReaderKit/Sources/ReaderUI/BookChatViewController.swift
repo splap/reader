@@ -5,9 +5,14 @@ import ReaderCore
 public final class BookChatViewController: UIViewController {
     private let context: BookContext
     private let agentService = ReaderAgentService()
+    private let initialSelection: String?
+    private let conversationId: UUID?
 
+    private var conversation: Conversation
     private var conversationHistory: [AgentMessage] = []
     private var isLoading = false
+
+    var onToggleDrawer: (() -> Void)?
 
     // MARK: - UI Components
 
@@ -23,8 +28,25 @@ public final class BookChatViewController: UIViewController {
 
     // MARK: - Initialization
 
-    public init(context: BookContext) {
+    public init(context: BookContext, selection: String? = nil, conversationId: UUID? = nil) {
         self.context = context
+        self.initialSelection = selection
+        self.conversationId = conversationId
+
+        // Load existing conversation or create new one
+        if let convId = conversationId,
+           let existingConv = ConversationStorage.shared.getConversation(id: convId) {
+            self.conversation = existingConv
+        } else {
+            // Create new conversation
+            self.conversation = Conversation(
+                title: "New Chat",
+                bookTitle: context.bookTitle,
+                bookAuthor: context.bookAuthor,
+                messages: []
+            )
+        }
+
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -54,6 +76,13 @@ public final class BookChatViewController: UIViewController {
 
         // Navigation bar
         navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "line.3.horizontal"),
+            style: .plain,
+            target: self,
+            action: #selector(toggleDrawer)
+        )
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,
             action: #selector(dismissChat)
@@ -140,20 +169,155 @@ public final class BookChatViewController: UIViewController {
     }
 
     private func addWelcomeMessage() {
-        let welcome = "I can help you understand this book. Try asking:\n\n" +
-            "- \"Summarize this chapter\"\n" +
-            "- \"Who is [character name]?\"\n" +
-            "- \"Find mentions of [topic]\"\n" +
-            "- \"Explain what's happening here\""
+        // Build book context with position
+        var bookInfo = "Book: \(context.bookTitle)"
+        if let author = context.bookAuthor {
+            bookInfo += "\nAuthor: \(author)"
+        }
 
-        messages.append(ChatMessage(role: .assistant, content: welcome))
+        // Add position info
+        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
+        if let section = currentSection {
+            let chapterTitle = section.title ?? "Untitled Chapter"
+            bookInfo += "\nPosition: \(chapterTitle)"
+
+            // Add block number if available
+            if let blockId = context.currentBlockId,
+               let block = context.blocksAround(blockId: blockId, count: 0).first {
+                bookInfo += " (Block \(block.ordinal + 1) of \(section.blockCount))"
+            }
+        }
+
+        messages.append(ChatMessage(
+            role: .system,
+            content: bookInfo,
+            title: "📚 Book Context",
+            isCollapsed: true
+        ))
+
+        // Load existing conversation messages if this is an existing conversation
+        if conversationId != nil && !conversation.messages.isEmpty {
+            for storedMsg in conversation.messages {
+                let role: ChatMessage.Role = storedMsg.role == .user ? .user : .assistant
+                messages.append(ChatMessage(role: role, content: storedMsg.content))
+
+                // Add to conversation history for the agent
+                if storedMsg.role == .user {
+                    conversationHistory.append(AgentMessage(role: .user, content: storedMsg.content))
+                } else {
+                    conversationHistory.append(AgentMessage(
+                        role: .assistant,
+                        content: storedMsg.content,
+                        toolCalls: nil
+                    ))
+                }
+            }
+        } else if let selection = initialSelection {
+            // If there's a selection, add it as a user message (not sent yet)
+            messages.append(ChatMessage(role: .user, content: selection))
+            // Focus text field and show keyboard
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.textField.becomeFirstResponder()
+            }
+        } else {
+            // Show welcome message if no selection
+            let welcome = "I can help you understand this book. Try asking:\n\n" +
+                "- \"Summarize this chapter\"\n" +
+                "- \"Who is [character name]?\"\n" +
+                "- \"Find mentions of [topic]\"\n" +
+                "- \"Explain what's happening here\""
+
+            messages.append(ChatMessage(role: .assistant, content: welcome))
+        }
+
         tableView.reloadData()
     }
 
     // MARK: - Actions
 
+    @objc private func toggleDrawer() {
+        onToggleDrawer?()
+    }
+
     @objc private func dismissChat() {
+        // Save conversation before dismissing
+        saveAndSummarizeConversation()
         dismiss(animated: true)
+    }
+
+    private func saveAndSummarizeConversation() {
+        // Convert UI messages to stored messages (exclude system messages)
+        let storedMessages = messages.compactMap { msg -> StoredMessage? in
+            switch msg.role {
+            case .user:
+                return StoredMessage(role: .user, content: msg.content)
+            case .assistant:
+                return StoredMessage(role: .assistant, content: msg.content)
+            case .system:
+                return nil // Don't save system/context messages
+            }
+        }
+
+        // Only save if there's actual conversation (not just welcome message)
+        guard storedMessages.count > 1 else {
+            return
+        }
+
+        // Update conversation with messages
+        conversation.messages = storedMessages
+        conversation.updatedAt = Date()
+
+        // Auto-summarize if title is still "New Chat"
+        if conversation.title == "New Chat" {
+            summarizeConversation()
+        } else {
+            // Just save without summarizing
+            ConversationStorage.shared.saveConversation(conversation)
+        }
+    }
+
+    private func summarizeConversation() {
+        // Build a prompt to summarize the conversation
+        let conversationText = conversation.messages.prefix(6).map { msg in
+            "\(msg.role == .user ? "User" : "Assistant"): \(msg.content)"
+        }.joined(separator: "\n")
+
+        let summaryPrompt = """
+        Generate a short title (3-5 words max) for this conversation:
+
+        \(conversationText)
+
+        Respond with ONLY the title, nothing else.
+        """
+
+        // Use the agent service to generate a summary
+        Task {
+            do {
+                let result = try await agentService.chat(
+                    message: summaryPrompt,
+                    context: context,
+                    history: []
+                )
+
+                await MainActor.run {
+                    // Use the response as the title
+                    let title = result.response.content
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .prefix(50) // Limit length
+                    self.conversation.title = String(title)
+                    ConversationStorage.shared.saveConversation(self.conversation)
+                }
+            } catch {
+                // Fallback: use first user message as title
+                await MainActor.run {
+                    if let firstUser = self.conversation.messages.first(where: { $0.role == .user }) {
+                        let title = firstUser.content.prefix(30)
+                        self.conversation.title = String(title) + "..."
+                    }
+                    ConversationStorage.shared.saveConversation(self.conversation)
+                }
+            }
+        }
     }
 
     @objc private func sendMessage() {
@@ -268,7 +432,19 @@ extension BookChatViewController: UITableViewDataSource {
 
     public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "MessageCell", for: indexPath) as! ChatMessageCell
-        cell.configure(with: messages[indexPath.row])
+        let message = messages[indexPath.row]
+        cell.configure(with: message)
+
+        // Set up tap handler for system messages to toggle collapsed state
+        if message.role == .system {
+            cell.onTap = { [weak self] in
+                self?.messages[indexPath.row].isCollapsed.toggle()
+                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+            }
+        } else {
+            cell.onTap = nil
+        }
+
         return cell
     }
 }
@@ -300,10 +476,20 @@ private struct ChatMessage {
     enum Role {
         case user
         case assistant
+        case system
     }
 
     let role: Role
     let content: String
+    let title: String? // For collapsed system messages
+    var isCollapsed: Bool // For system messages
+
+    init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false) {
+        self.role = role
+        self.content = content
+        self.title = title
+        self.isCollapsed = isCollapsed
+    }
 }
 
 // MARK: - Chat Message Cell
@@ -311,6 +497,7 @@ private struct ChatMessage {
 private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
+    var onTap: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -344,14 +531,21 @@ private final class ChatMessageCell: UITableViewCell {
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12)
         ])
+
+        // Add tap gesture for collapsible messages
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        bubbleView.addGestureRecognizer(tap)
+        bubbleView.isUserInteractionEnabled = true
+    }
+
+    @objc private func handleTap() {
+        onTap?()
     }
 
     private var leadingConstraint: NSLayoutConstraint?
     private var trailingConstraint: NSLayoutConstraint?
 
     func configure(with message: ChatMessage) {
-        messageLabel.text = message.content
-
         // Remove old constraints
         leadingConstraint?.isActive = false
         trailingConstraint?.isActive = false
@@ -360,14 +554,34 @@ private final class ChatMessageCell: UITableViewCell {
         case .user:
             bubbleView.backgroundColor = .systemBlue
             messageLabel.textColor = .white
+            messageLabel.font = .systemFont(ofSize: 16)
+            messageLabel.text = message.content
             leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
             trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
 
         case .assistant:
             bubbleView.backgroundColor = .secondarySystemBackground
             messageLabel.textColor = .label
+            messageLabel.font = .systemFont(ofSize: 16)
+            messageLabel.text = message.content
             leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
             trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
+
+        case .system:
+            bubbleView.backgroundColor = .tertiarySystemBackground
+            messageLabel.textColor = .secondaryLabel
+            messageLabel.font = .systemFont(ofSize: 14)
+
+            // Show title with disclosure indicator when collapsed, full content when expanded
+            if message.isCollapsed {
+                messageLabel.text = "\(message.title ?? "Context") ▶"
+            } else {
+                messageLabel.text = "\(message.title ?? "Context") ▼\n\n\(message.content)"
+            }
+
+            // System messages span full width
+            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
         }
 
         leadingConstraint?.isActive = true

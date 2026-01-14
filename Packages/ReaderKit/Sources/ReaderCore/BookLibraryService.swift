@@ -349,4 +349,49 @@ public final class BookLibraryService {
             return (title: epubURL.deletingPathExtension().lastPathComponent, author: nil)
         }
     }
+
+    // MARK: - Test Books
+
+    /// Scans the Documents/TestBooks directory and imports any new books found
+    public func scanTestBooks() {
+        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let testBooksURL = documentsURL.appendingPathComponent("TestBooks")
+
+        guard fileManager.fileExists(atPath: testBooksURL.path) else {
+            Self.logger.info("No TestBooks directory found")
+            return
+        }
+
+        do {
+            let contents = try fileManager.contentsOfDirectory(at: testBooksURL, includingPropertiesForKeys: nil)
+            let epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
+
+            Self.logger.info("Found \(epubFiles.count) epub files in TestBooks")
+
+            let existingBooks = getAllBooks()
+            let existingFilenames = Set(existingBooks.compactMap { book -> String? in
+                // Extract original filename from the book if possible
+                return book.title
+            })
+
+            for epubURL in epubFiles {
+                let filename = epubURL.deletingPathExtension().lastPathComponent
+
+                // Check if we already have a book with this title (simple dedup)
+                if existingFilenames.contains(filename) {
+                    Self.logger.info("Skipping already imported: \(filename, privacy: .public)")
+                    continue
+                }
+
+                do {
+                    let book = try importBook(from: epubURL, startAccessing: false)
+                    Self.logger.info("Imported test book: \(book.title, privacy: .public)")
+                } catch {
+                    Self.logger.error("Failed to import \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        } catch {
+            Self.logger.error("Failed to scan TestBooks: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }

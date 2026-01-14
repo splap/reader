@@ -102,6 +102,26 @@ public actor ReaderAgentService {
             prompt += " by \(author)"
         }
 
+        // Add current chapter/section info
+        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
+        if let section = currentSection, let title = section.title {
+            prompt += "\nCurrent chapter: \(title)"
+        }
+
+        // Add context around current reading position
+        if let blockId = context.currentBlockId {
+            let surroundingBlocks = context.blocksAround(blockId: blockId, count: 3)
+            if !surroundingBlocks.isEmpty {
+                let contextText = surroundingBlocks.map { $0.textContent }.joined(separator: "\n\n")
+                prompt += """
+
+
+                Current reading position (visible text on screen):
+                \(contextText)
+                """
+            }
+        }
+
         return prompt
     }
 

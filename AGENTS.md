@@ -9,17 +9,18 @@ when you've made a change, run the app yourself so i see the result.
 
 **ALWAYS USE THE iOS 26 SIMULATOR BY DEFAULT** - Unless explicitly instructed otherwise, all development, testing, and debugging should happen on the iOS 26 simulator (iPad Pro 11-inch M4).
 
-- The `./scripts/run` script uses the simulator by default
+- Always use scripts/run script when you want to compile and run the code on the simulator. 
 - Only use physical device when explicitly requested by the user
 - The simulator is faster, more reliable, and easier to automate
 
 ## Simulator Management (CRITICAL)
 
-**ONE SIMULATOR PER SESSION** - Each Claude Code session should use exactly ONE simulator instance for all operations.
+**ONE SIMULATOR PER GIT WORKTREE** - We name our simulator sessions for their worktree and ensure a given worktree alwyas uses the same simulator
+- if we are not in a git worktree, the worktree name is "none", use that to know wht simulator to use when not in git worktree
 
 ### Session Start - Use Running Simulator or Boot One
 
-At the start of a coding session, check if a simulator is already running. If so, use it. Only boot a new one if nothing is running:
+At the start of a coding session, check if simulator is already running. If so, use it. Only boot a new one if the one you expect to use isn't running.
 
 ```bash
 # First, check if any simulator is already booted

@@ -128,7 +128,7 @@ public final class ReaderViewController: UIViewController {
             initialPageIndex: viewModel.initialPageIndex,
             initialBlockId: viewModel.initialBlockId,
             onSendToLLM: { [weak self] selection in
-                self?.viewModel.llmPayload = LLMPayload(selection: selection)
+                self?.openChatWithSelection(selection.selectedText)
             },
             onPageChanged: { [weak self] newPage, totalPages in
                 self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
@@ -434,6 +434,10 @@ public final class ReaderViewController: UIViewController {
     }
 
     @objc private func showChat() {
+        openChatWithSelection(nil)
+    }
+
+    private func openChatWithSelection(_ selection: String?) {
         // Create book context from current state
         let bookContext = ReaderBookContext(
             chapter: chapter,
@@ -443,20 +447,10 @@ public final class ReaderViewController: UIViewController {
             currentBlockId: viewModel.currentBlockId
         )
 
-        let chatVC = BookChatViewController(context: bookContext)
-        let navController = UINavigationController(rootViewController: chatVC)
+        let chatContainer = ChatContainerViewController(context: bookContext, selection: selection)
+        chatContainer.modalPresentationStyle = .fullScreen
 
-        // Configure as nearly full-screen sheet
-        if let sheet = navController.sheetPresentationController {
-            let customDetent = UISheetPresentationController.Detent.custom { context in
-                return context.maximumDetentValue * 0.95
-            }
-            sheet.detents = [customDetent]
-            sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 16
-        }
-
-        present(navController, animated: true)
+        present(chatContainer, animated: true)
     }
 
     @objc private func navigateBack() {
