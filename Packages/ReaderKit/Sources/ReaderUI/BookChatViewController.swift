@@ -1,6 +1,7 @@
 import UIKit
 import ReaderCore
 import OSLog
+import MapKit
 
 /// Chat interface for conversing with the LLM about a book
 public final class BookChatViewController: UIViewController {
@@ -540,7 +541,33 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
-    // MARK: - Trace Formatting
+    // MARK: - Trace Helpers
+
+    /// Extract map data from show_map tool results in trace
+    private func extractMapsFromTrace(_ trace: AgentExecutionTrace?) -> [(lat: Double, lon: Double, name: String)] {
+        guard let trace = trace else { return [] }
+
+        var maps: [(lat: Double, lon: Double, name: String)] = []
+
+        for execution in trace.toolExecutions {
+            if execution.functionName == "show_map" && execution.success {
+                // Parse MAP_RESULT:lat,lon,name format
+                let result = execution.result
+                if result.hasPrefix("MAP_RESULT:") {
+                    let data = String(result.dropFirst("MAP_RESULT:".count))
+                    let parts = data.split(separator: ",", maxSplits: 2)
+                    if parts.count >= 3,
+                       let lat = Double(parts[0]),
+                       let lon = Double(parts[1]) {
+                        let name = String(parts[2])
+                        maps.append((lat: lat, lon: lon, name: name))
+                    }
+                }
+            }
+        }
+
+        return maps
+    }
 
     private func formatTraceForDisplay(_ trace: AgentExecutionTrace, collapsed: Bool) -> String {
         if collapsed {
@@ -603,16 +630,38 @@ extension BookChatViewController: UITableViewDataSource {
             let traceText = formatTraceForDisplay(trace, collapsed: message.isCollapsed)
             cell.setTraceText(traceText)
 
+            // Extract and display maps from trace
+            let maps = extractMapsFromTrace(trace)
+            cell.setMaps(maps)
+
             // Set up tap handler to toggle trace
             cell.onTap = { [weak self] in
-                self?.messages[indexPath.row].isCollapsed.toggle()
-                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+                guard let self = self else { return }
+                let wasCollapsed = self.messages[indexPath.row].isCollapsed
+                self.messages[indexPath.row].isCollapsed.toggle()
+                self.tableView.reloadRows(at: [indexPath], with: .automatic)
+
+                // If expanding, scroll to show the expanded content
+                if wasCollapsed {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.tableView.scrollToRow(at: indexPath, at: .top, animated: true)
+                    }
+                }
             }
         } else if message.role == .system {
             // Set up tap handler for system messages to toggle collapsed state
             cell.onTap = { [weak self] in
-                self?.messages[indexPath.row].isCollapsed.toggle()
-                self?.tableView.reloadRows(at: [indexPath], with: .automatic)
+                guard let self = self else { return }
+                let wasCollapsed = self.messages[indexPath.row].isCollapsed
+                self.messages[indexPath.row].isCollapsed.toggle()
+                self.tableView.reloadRows(at: [indexPath], with: .automatic)
+
+                // If expanding, scroll to show the expanded content
+                if wasCollapsed {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.tableView.scrollToRow(at: indexPath, at: .top, animated: true)
+                    }
+                }
             }
         } else {
             cell.setTraceText(nil)
@@ -790,7 +839,7 @@ private final class ChatMessageCell: UITableViewCell {
         // Update trace label font
         traceLabel.font = fontManager.monospacedFont(size: 12)
 
-        // Parse content for images and get cleaned text
+        // Parse content for images
         let (cleanedContent, images) = parseImagesFromContent(message.content)
 
         switch message.role {
@@ -830,11 +879,22 @@ private final class ChatMessageCell: UITableViewCell {
         leadingConstraint?.isActive = true
         trailingConstraint?.isActive = true
 
-        // Display images if any
-        displayImages(images)
+        // Display images (maps are set separately via setMaps)
+        displayMedia(images: images, maps: [])
     }
 
-    /// Parse markdown-style image syntax: ![caption](url) or ![[caption]](url)
+    func setMaps(_ maps: [(lat: Double, lon: Double, name: String)]) {
+        // Add maps to the container
+        for map in maps {
+            let mapWrapper = createMapView(lat: map.lat, lon: map.lon, name: map.name)
+            imageContainerView.addArrangedSubview(mapWrapper)
+        }
+        if !maps.isEmpty {
+            imageContainerView.isHidden = false
+        }
+    }
+
+    /// Parse markdown-style image syntax from content
     private func parseImagesFromContent(_ content: String) -> (cleanedContent: String, images: [(url: String, caption: String)]) {
         var images: [(url: String, caption: String)] = []
         var cleanedContent = content
@@ -844,16 +904,16 @@ private final class ChatMessageCell: UITableViewCell {
         let pattern = #"!\[+([^\]]*)\]+\(([^)]+)\)"#
 
         if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-            let range = NSRange(content.startIndex..., in: content)
-            let matches = regex.matches(in: content, options: [], range: range)
+            let range = NSRange(cleanedContent.startIndex..., in: cleanedContent)
+            let matches = regex.matches(in: cleanedContent, options: [], range: range)
 
             // Process matches in reverse order to preserve string indices
             for match in matches.reversed() {
-                if let captionRange = Range(match.range(at: 1), in: content),
-                   let urlRange = Range(match.range(at: 2), in: content),
-                   let fullRange = Range(match.range, in: content) {
-                    let caption = String(content[captionRange])
-                    let url = String(content[urlRange])
+                if let captionRange = Range(match.range(at: 1), in: cleanedContent),
+                   let urlRange = Range(match.range(at: 2), in: cleanedContent),
+                   let fullRange = Range(match.range, in: cleanedContent) {
+                    let caption = String(cleanedContent[captionRange])
+                    let url = String(cleanedContent[urlRange])
                     images.insert((url: url, caption: caption), at: 0)
                     cleanedContent.removeSubrange(fullRange)
                 }
@@ -863,17 +923,24 @@ private final class ChatMessageCell: UITableViewCell {
         return (cleanedContent.trimmingCharacters(in: .whitespacesAndNewlines), images)
     }
 
-    private func displayImages(_ images: [(url: String, caption: String)]) {
-        // Clear existing images
+    private func displayMedia(images: [(url: String, caption: String)], maps: [(lat: Double, lon: Double, name: String)]) {
+        // Clear existing content
         imageContainerView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        guard !images.isEmpty else {
+        guard !images.isEmpty || !maps.isEmpty else {
             imageContainerView.isHidden = true
             return
         }
 
         imageContainerView.isHidden = false
 
+        // Display maps first
+        for map in maps {
+            let mapWrapper = createMapView(lat: map.lat, lon: map.lon, name: map.name)
+            imageContainerView.addArrangedSubview(mapWrapper)
+        }
+
+        // Then display images
         for image in images {
             let imageWrapper = createImageView(url: image.url, caption: image.caption)
             imageContainerView.addArrangedSubview(imageWrapper)
@@ -963,6 +1030,120 @@ private final class ChatMessageCell: UITableViewCell {
         return wrapper
     }
 
+    private func createMapView(lat: Double, lon: Double, name: String) -> UIView {
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+
+        let mapImageView = UIImageView()
+        mapImageView.translatesAutoresizingMaskIntoConstraints = false
+        mapImageView.contentMode = .scaleAspectFit
+        mapImageView.layer.cornerRadius = 12
+        mapImageView.clipsToBounds = true
+        mapImageView.backgroundColor = .tertiarySystemBackground
+        mapImageView.isUserInteractionEnabled = true
+        wrapper.addSubview(mapImageView)
+
+        // Add tap to open in Maps app
+        let tapGesture = MapTapGestureRecognizer(target: self, action: #selector(mapTapped(_:)))
+        tapGesture.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        tapGesture.locationName = name
+        mapImageView.addGestureRecognizer(tapGesture)
+
+        let captionLabel = UILabel()
+        captionLabel.translatesAutoresizingMaskIntoConstraints = false
+        captionLabel.text = name
+        captionLabel.font = fontManager.captionFont
+        captionLabel.textColor = .secondaryLabel
+        captionLabel.textAlignment = .center
+        captionLabel.numberOfLines = 2
+        wrapper.addSubview(captionLabel)
+
+        // Loading indicator
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        mapImageView.addSubview(spinner)
+
+        let mapHeight: CGFloat = 200
+
+        NSLayoutConstraint.activate([
+            mapImageView.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 8),
+            mapImageView.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            mapImageView.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+            mapImageView.heightAnchor.constraint(equalToConstant: mapHeight),
+
+            captionLabel.topAnchor.constraint(equalTo: mapImageView.bottomAnchor, constant: 12),
+            captionLabel.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            captionLabel.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+            captionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -8),
+
+            spinner.centerXAnchor.constraint(equalTo: mapImageView.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: mapImageView.centerYAnchor)
+        ])
+
+        // Use MKMapSnapshotter to generate map image
+        let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        let region = MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: 5000,
+            longitudinalMeters: 5000
+        )
+
+        let options = MKMapSnapshotter.Options()
+        options.region = region
+        options.size = CGSize(width: 350, height: mapHeight)
+        options.mapType = .standard
+
+        let snapshotter = MKMapSnapshotter(options: options)
+        snapshotter.start { [weak self] snapshot, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                // Remove spinner
+                for subview in mapImageView.subviews {
+                    if let spinner = subview as? UIActivityIndicatorView {
+                        spinner.stopAnimating()
+                        spinner.removeFromSuperview()
+                    }
+                }
+
+                guard let snapshot = snapshot, error == nil else {
+                    mapImageView.backgroundColor = .systemRed.withAlphaComponent(0.2)
+                    return
+                }
+
+                // Draw the snapshot with a pin annotation
+                UIGraphicsBeginImageContextWithOptions(snapshot.image.size, true, snapshot.image.scale)
+                snapshot.image.draw(at: .zero)
+
+                // Draw a pin at the coordinate
+                let pinPoint = snapshot.point(for: coordinate)
+                if let pinImage = UIImage(systemName: "mappin.circle.fill")?.withTintColor(.systemRed, renderingMode: .alwaysOriginal) {
+                    let pinSize = CGSize(width: 30, height: 30)
+                    pinImage.draw(in: CGRect(origin: CGPoint(x: pinPoint.x - pinSize.width / 2, y: pinPoint.y - pinSize.height), size: pinSize))
+                }
+
+                let finalImage = UIGraphicsGetImageFromCurrentImageContext()
+                UIGraphicsEndImageContext()
+
+                mapImageView.image = finalImage
+
+                // Trigger table view layout update
+                if let tableView = self.superview as? UITableView {
+                    UIView.performWithoutAnimation {
+                        tableView.beginUpdates()
+                        tableView.endUpdates()
+                    }
+                    if let indexPath = tableView.indexPath(for: self) {
+                        tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
+                    }
+                }
+            }
+        }
+
+        return wrapper
+    }
+
     func setTraceText(_ text: String?) {
         if let text = text {
             traceLabel.text = text
@@ -971,6 +1152,17 @@ private final class ChatMessageCell: UITableViewCell {
             traceLabel.text = nil
             traceLabel.isHidden = true
         }
+    }
+
+    @objc private func mapTapped(_ gesture: MapTapGestureRecognizer) {
+        let coordinate = gesture.coordinate
+        let placemark = MKPlacemark(coordinate: coordinate)
+        let mapItem = MKMapItem(placemark: placemark)
+        mapItem.name = gesture.locationName
+        mapItem.openInMaps(launchOptions: [
+            MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: coordinate),
+            MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05))
+        ])
     }
 }
 
@@ -986,4 +1178,11 @@ private extension String {
         }
         return prettyString
     }
+}
+
+// MARK: - Map Tap Gesture Recognizer
+
+private class MapTapGestureRecognizer: UITapGestureRecognizer {
+    var coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D()
+    var locationName: String = ""
 }

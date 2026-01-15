@@ -14,6 +14,7 @@ public enum AgentTools {
             getSurroundingContextTool,
             getBookStructureTool,
             wikipediaLookupTool,
+            showMapTool,
             renderImageTool
         ]
     }
@@ -177,6 +178,25 @@ public enum AgentTools {
             )
         )
     )
+
+    /// Show a map of a place
+    static let showMapTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "show_map",
+            description: """
+                Display a map showing a place, landmark, or location. Use this when the user wants to see where something is located. The map will be displayed inline in the conversation.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "place": PropertySchema(
+                        type: "string",
+                        description: "The place to show on the map (e.g., 'Eiffel Tower', 'Honduras', 'Baker Street London')"
+                    )
+                ],
+                required: ["place"]
+            )
+        )
+    )
 }
 
 // MARK: - Tool Executor
@@ -209,6 +229,8 @@ public struct ToolExecutor {
             return executeGetBookStructure()
         case "wikipedia_lookup":
             return await executeWikipediaLookup(args)
+        case "show_map":
+            return await executeShowMap(args)
         case "render_image":
             return executeRenderImage(args)
         default:
@@ -427,5 +449,29 @@ public struct ToolExecutor {
 
         // Return markdown-style image syntax that the UI will parse and render
         return "![[\(caption)]](\(url))"
+    }
+
+    private func executeShowMap(_ args: [String: Any]) async -> String {
+        guard let place = args["place"] as? String else {
+            return "Error: place parameter required"
+        }
+
+        let service = MapService()
+
+        do {
+            let results = try await service.search(query: place, limit: 1)
+            if results.isEmpty {
+                return "MAP_ERROR: No location found for '\(place)'"
+            }
+
+            let result = results[0]
+            let name = result.displayName.components(separatedBy: ",").first ?? result.displayName
+
+            // Return structured data that UI will parse from the trace
+            // Format: MAP_RESULT:lat,lon,name
+            return "MAP_RESULT:\(result.lat),\(result.lon),\(name)"
+        } catch {
+            return "MAP_ERROR: \(error.localizedDescription)"
+        }
     }
 }
