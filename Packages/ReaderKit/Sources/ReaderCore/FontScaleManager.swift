@@ -7,20 +7,20 @@ public final class FontScaleManager {
     public static let shared = FontScaleManager()
 
     private static let fontScaleKey = "ReaderFontScale"
-    private static let defaultFontScale: CGFloat = 1.5  // Must be one of the discrete steps
+    private static let defaultFontScale: CGFloat = 1.4  // Must be one of the discrete steps
 
     /// Notification posted when font scale changes
     /// The notification object is the new CGFloat scale value
     public static let fontScaleDidChangeNotification = Notification.Name("FontScaleDidChange")
 
-    /// The current font scale (1.25 to 2.0)
+    /// The current font scale (1.0 to 1.8)
     public var fontScale: CGFloat {
         get {
             let stored = UserDefaults.standard.double(forKey: Self.fontScaleKey)
             return stored > 0 ? CGFloat(stored) : Self.defaultFontScale
         }
         set {
-            let clamped = max(1.25, min(2.0, newValue))
+            let clamped = max(1.0, min(1.8, newValue))
             UserDefaults.standard.set(Double(clamped), forKey: Self.fontScaleKey)
             NotificationCenter.default.post(
                 name: Self.fontScaleDidChangeNotification,

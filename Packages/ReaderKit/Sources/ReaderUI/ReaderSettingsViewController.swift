@@ -7,7 +7,7 @@ public final class ReaderSettingsViewController: UITableViewController {
     private let fontManager = FontScaleManager.shared
 
     // Discrete font scale steps
-    private let fontScaleSteps: [CGFloat] = [1.25, 1.5, 1.75, 2.0]
+    private let fontScaleSteps: [CGFloat] = [1.0, 1.2, 1.4, 1.6, 1.8]
 
     private var apiKey: String = UserDefaults.standard.string(forKey: "OpenRouterAPIKey") ?? ""
     private var selectedModel: String = UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "google/gemini-2.0-flash-exp:free"
