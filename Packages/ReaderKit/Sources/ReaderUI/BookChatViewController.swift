@@ -170,7 +170,7 @@ public final class BookChatViewController: UIViewController {
 
         // Layout
         let bottomConstraint = inputContainer.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14
         )
         inputContainerBottomConstraint = bottomConstraint
 
@@ -182,11 +182,11 @@ public final class BookChatViewController: UIViewController {
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
+            tableView.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -14),
 
             // Input container with horizontal margins
-            inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             bottomConstraint,
 
             // Text view at top of container
@@ -461,6 +461,8 @@ public final class BookChatViewController: UIViewController {
             loadingIndicator.startAnimating()
         } else {
             loadingIndicator.stopAnimating()
+            // Restore focus to text field after loading completes
+            textView.becomeFirstResponder()
         }
     }
 
@@ -694,15 +696,15 @@ private final class ChatMessageCell: UITableViewCell {
         bubbleView.addSubview(traceLabel)
 
         // Create fallback constraint for when trace is hidden
-        // Use less bottom padding to visually center text (accounts for line-height)
-        let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -4)
+        // Equal top/bottom padding to center text vertically
+        let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8)
         messageLabelBottomConstraint.priority = .defaultLow
 
         NSLayoutConstraint.activate([
-            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3),
-            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -3),
+            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
 
-            messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6),
+            messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
             messageLabelBottomConstraint,
@@ -738,14 +740,14 @@ private final class ChatMessageCell: UITableViewCell {
             messageLabel.font = .systemFont(ofSize: 16)
             messageLabel.text = message.content
             leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
-            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
 
         case .assistant:
             bubbleView.backgroundColor = .secondarySystemBackground
             messageLabel.textColor = .label
             messageLabel.font = .systemFont(ofSize: 16)
             messageLabel.text = message.content
-            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
             trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
 
         case .system:
@@ -761,8 +763,8 @@ private final class ChatMessageCell: UITableViewCell {
             }
 
             // System messages span full width
-            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
-            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
+            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
+            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
         }
 
         leadingConstraint?.isActive = true

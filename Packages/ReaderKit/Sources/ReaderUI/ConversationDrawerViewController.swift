@@ -5,9 +5,11 @@ import ReaderCore
 final class ConversationDrawerViewController: UIViewController {
     private let context: BookContext
     private var conversations: [Conversation] = []
+    private var hasCurrentChat = true  // Always true when drawer is shown from a chat
 
     var onSelectConversation: ((UUID) -> Void)?
     var onNewChat: (() -> Void)?
+    var onSelectCurrentChat: (() -> Void)?
 
     private let tableView = UITableView()
     private let newChatButton = UIButton(type: .system)
@@ -30,7 +32,7 @@ final class ConversationDrawerViewController: UIViewController {
 
         view.backgroundColor = .secondarySystemBackground
         view.layer.cornerRadius = 16
-        view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner] // Right corners only
+        // All corners rounded
         view.clipsToBounds = true
 
         setupUI()
@@ -94,12 +96,19 @@ final class ConversationDrawerViewController: UIViewController {
 
 extension ConversationDrawerViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return conversations.count
+        // +1 for "Current Chat" row if active
+        return conversations.count + (hasCurrentChat ? 1 : 0)
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "ConversationCell", for: indexPath) as! ConversationCell
-        cell.configure(with: conversations[indexPath.row])
+
+        if hasCurrentChat && indexPath.row == 0 {
+            cell.configureAsCurrentChat()
+        } else {
+            let conversationIndex = hasCurrentChat ? indexPath.row - 1 : indexPath.row
+            cell.configure(with: conversations[conversationIndex])
+        }
         return cell
     }
 }
@@ -109,17 +118,37 @@ extension ConversationDrawerViewController: UITableViewDataSource {
 extension ConversationDrawerViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        let conversation = conversations[indexPath.row]
-        onSelectConversation?(conversation.id)
+
+        if hasCurrentChat && indexPath.row == 0 {
+            onSelectCurrentChat?()
+        } else {
+            let conversationIndex = hasCurrentChat ? indexPath.row - 1 : indexPath.row
+            let conversation = conversations[conversationIndex]
+            onSelectConversation?(conversation.id)
+        }
     }
 
     func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+        // Don't allow deleting current chat
+        if hasCurrentChat && indexPath.row == 0 {
+            return
+        }
+
         if editingStyle == .delete {
-            let conversation = conversations[indexPath.row]
+            let conversationIndex = hasCurrentChat ? indexPath.row - 1 : indexPath.row
+            let conversation = conversations[conversationIndex]
             ConversationStorage.shared.deleteConversation(id: conversation.id)
-            conversations.remove(at: indexPath.row)
+            conversations.remove(at: conversationIndex)
             tableView.deleteRows(at: [indexPath], with: .fade)
         }
+    }
+
+    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        // Don't allow editing/deleting current chat row
+        if hasCurrentChat && indexPath.row == 0 {
+            return false
+        }
+        return true
     }
 }
 
@@ -171,9 +200,16 @@ private final class ConversationCell: UITableViewCell {
 
     func configure(with conversation: Conversation) {
         titleLabel.text = conversation.title
+        titleLabel.textColor = .label
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         dateLabel.text = formatter.localizedString(for: conversation.updatedAt, relativeTo: Date())
+    }
+
+    func configureAsCurrentChat() {
+        titleLabel.text = "Current Chat"
+        titleLabel.textColor = .systemBlue
+        dateLabel.text = "Active"
     }
 }

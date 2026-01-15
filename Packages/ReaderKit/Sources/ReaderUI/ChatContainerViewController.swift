@@ -50,6 +50,9 @@ public final class ChatContainerViewController: UIViewController {
         drawerViewController.onNewChat = { [weak self] in
             self?.startNewChat()
         }
+        drawerViewController.onSelectCurrentChat = { [weak self] in
+            self?.hideDrawer()
+        }
 
         addChild(drawerViewController)
         view.addSubview(drawerViewController.view)
@@ -60,9 +63,9 @@ public final class ChatContainerViewController: UIViewController {
         drawerWidthConstraint = drawerViewController.view.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
-            drawerViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            drawerViewController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            drawerViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            drawerViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            drawerViewController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            drawerViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14),
             drawerWidthConstraint
         ])
     }
