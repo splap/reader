@@ -12,7 +12,9 @@ public enum AgentTools {
             searchContentTool,
             getCharacterMentionsTool,
             getSurroundingContextTool,
-            getBookStructureTool
+            getBookStructureTool,
+            wikipediaLookupTool,
+            renderImageTool
         ]
     }
 
@@ -123,6 +125,58 @@ public enum AgentTools {
             )
         )
     )
+
+    /// Look up information on Wikipedia
+    static let wikipediaLookupTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "wikipedia_lookup",
+            description: """
+                Look up factual information on Wikipedia. Use this for:
+                - Public figures (politicians, celebrities, historical figures)
+                - Places (cities, countries, landmarks)
+                - Historical events and dates
+                - Scientific concepts and terminology
+                - Organizations and companies
+                Returns a summary with key facts. Great for verifying factual claims or getting background info on real-world topics mentioned in the book.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "query": PropertySchema(
+                        type: "string",
+                        description: "The topic to look up (e.g., 'Albert Einstein', 'World War II', 'Tokyo')"
+                    )
+                ],
+                required: ["query"]
+            )
+        )
+    )
+
+    /// Display an image to the user
+    static let renderImageTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "render_image",
+            description: """
+                Display an image to the user in the chat. Use this when:
+                - The user asks what someone or something looks like
+                - A visual would help explain or illustrate your answer
+                - You have an image URL from Wikipedia or another source
+                The image will be displayed inline in the conversation. Use sparingly - only when visuals genuinely add value.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "url": PropertySchema(
+                        type: "string",
+                        description: "The URL of the image to display"
+                    ),
+                    "caption": PropertySchema(
+                        type: "string",
+                        description: "A brief caption describing the image"
+                    )
+                ],
+                required: ["url"]
+            )
+        )
+    )
 }
 
 // MARK: - Tool Executor
@@ -136,7 +190,7 @@ public struct ToolExecutor {
     }
 
     /// Execute a tool call and return the result as a string
-    public func execute(_ toolCall: ToolCall) -> String {
+    public func execute(_ toolCall: ToolCall) async -> String {
         let args = toolCall.function.parseArguments() ?? [:]
         let name = toolCall.function.name
 
@@ -153,6 +207,10 @@ public struct ToolExecutor {
             return executeGetSurroundingContext(args)
         case "get_book_structure":
             return executeGetBookStructure()
+        case "wikipedia_lookup":
+            return await executeWikipediaLookup(args)
+        case "render_image":
+            return executeRenderImage(args)
         default:
             return "Unknown tool: \(name)"
         }
@@ -306,5 +364,68 @@ public struct ToolExecutor {
         }
 
         return output
+    }
+
+    private func executeWikipediaLookup(_ args: [String: Any]) async -> String {
+        guard let query = args["query"] as? String else {
+            return "Error: query parameter required"
+        }
+
+        let service = WikipediaService()
+
+        do {
+            // Try direct lookup first
+            let summary = try await service.lookup(query: query)
+            return formatWikipediaSummary(summary)
+        } catch let error as WikipediaError {
+            if case .notFound = error {
+                // Fall back to search
+                do {
+                    let results = try await service.search(query: query, limit: 3)
+                    if results.isEmpty {
+                        return "No Wikipedia articles found for '\(query)'"
+                    }
+                    // Try first search result
+                    let summary = try await service.lookup(query: results[0].title)
+                    return formatWikipediaSummary(summary)
+                } catch {
+                    return "No Wikipedia articles found for '\(query)'"
+                }
+            }
+            return "Error looking up Wikipedia: \(error.localizedDescription)"
+        } catch {
+            return "Error looking up Wikipedia: \(error.localizedDescription)"
+        }
+    }
+
+    private func formatWikipediaSummary(_ summary: WikipediaSummary) -> String {
+        var output = "Wikipedia: \(summary.title)\n"
+
+        if let description = summary.description {
+            output += "\(description)\n"
+        }
+
+        output += "\n\(summary.extract)"
+
+        if let imageUrl = summary.imageUrl {
+            output += "\n\nImage available: \(imageUrl)"
+        }
+
+        if let url = summary.pageUrl {
+            output += "\n\nSource: \(url)"
+        }
+
+        return output
+    }
+
+    private func executeRenderImage(_ args: [String: Any]) -> String {
+        guard let url = args["url"] as? String else {
+            return "Error: url parameter required"
+        }
+
+        let caption = args["caption"] as? String ?? "Image"
+
+        // Return markdown-style image syntax that the UI will parse and render
+        return "![[\(caption)]](\(url))"
     }
 }

@@ -71,7 +71,7 @@ public actor ReaderAgentService {
 
                     // Capture timing and result
                     let startTime = Date()
-                    let result = executor.execute(call)
+                    let result = await executor.execute(call)
                     let executionTime = Date().timeIntervalSince(startTime)
 
                     // Record tool execution for trace
@@ -131,6 +131,10 @@ public actor ReaderAgentService {
 
         Don't assume every question is about the book - use your judgment.
         Be concise and direct. When quoting from the book, be accurate.
+
+        IMAGE DISPLAY: When you have an image URL (e.g., from Wikipedia) and showing it would help answer \
+        the user's question (like "what does X look like?"), include it in your response using this format: \
+        ![caption](url). The image will be displayed inline. Only include images when they add value.
         """
 
         prompt += "\n\nCurrent book: \(context.bookTitle)"

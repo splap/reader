@@ -684,9 +684,13 @@ private struct ChatMessage {
 private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
+    private let imageContainerView = UIStackView()
     private let traceLabel = UILabel()
     private let fontManager = FontScaleManager.shared
     var onTap: (() -> Void)?
+
+    // Track active image loading tasks
+    private var imageLoadTasks: [URLSessionDataTask] = []
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -695,6 +699,16 @@ private final class ChatMessageCell: UITableViewCell {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        // Cancel any pending image loads
+        imageLoadTasks.forEach { $0.cancel() }
+        imageLoadTasks.removeAll()
+        // Clear images
+        imageContainerView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        imageContainerView.isHidden = true
     }
 
     private func setupUI() {
@@ -711,6 +725,13 @@ private final class ChatMessageCell: UITableViewCell {
         messageLabel.font = fontManager.bodyFont
         bubbleView.addSubview(messageLabel)
 
+        // Image container for displaying images
+        imageContainerView.translatesAutoresizingMaskIntoConstraints = false
+        imageContainerView.axis = .vertical
+        imageContainerView.spacing = 8
+        imageContainerView.isHidden = true
+        bubbleView.addSubview(imageContainerView)
+
         traceLabel.translatesAutoresizingMaskIntoConstraints = false
         traceLabel.numberOfLines = 0
         traceLabel.font = fontManager.monospacedFont(size: 12)
@@ -723,6 +744,11 @@ private final class ChatMessageCell: UITableViewCell {
         let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8)
         messageLabelBottomConstraint.priority = .defaultLow
 
+        // Image container sits below message label - generous padding
+        let imageContainerTopConstraint = imageContainerView.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 20)
+        let imageContainerBottomConstraint = imageContainerView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -20)
+        imageContainerBottomConstraint.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
             bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
@@ -732,7 +758,12 @@ private final class ChatMessageCell: UITableViewCell {
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
             messageLabelBottomConstraint,
 
-            traceLabel.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 6),
+            imageContainerTopConstraint,
+            imageContainerView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 24),
+            imageContainerView.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -24),
+            imageContainerBottomConstraint,
+
+            traceLabel.topAnchor.constraint(equalTo: imageContainerView.bottomAnchor, constant: 6),
             traceLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             traceLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
             traceLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -4)
@@ -759,12 +790,15 @@ private final class ChatMessageCell: UITableViewCell {
         // Update trace label font
         traceLabel.font = fontManager.monospacedFont(size: 12)
 
+        // Parse content for images and get cleaned text
+        let (cleanedContent, images) = parseImagesFromContent(message.content)
+
         switch message.role {
         case .user:
             bubbleView.backgroundColor = .systemBlue
             messageLabel.textColor = .white
             messageLabel.font = fontManager.bodyFont
-            messageLabel.text = message.content
+            messageLabel.text = cleanedContent
             leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
             trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
 
@@ -772,7 +806,7 @@ private final class ChatMessageCell: UITableViewCell {
             bubbleView.backgroundColor = .secondarySystemBackground
             messageLabel.textColor = .label
             messageLabel.font = fontManager.bodyFont
-            messageLabel.text = message.content
+            messageLabel.text = cleanedContent
             leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
             trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
 
@@ -785,7 +819,7 @@ private final class ChatMessageCell: UITableViewCell {
             if message.isCollapsed {
                 messageLabel.text = "\(message.title ?? "Context") ▶"
             } else {
-                messageLabel.text = "\(message.title ?? "Context") ▼\n\n\(message.content)"
+                messageLabel.text = "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
             }
 
             // System messages span full width
@@ -795,6 +829,138 @@ private final class ChatMessageCell: UITableViewCell {
 
         leadingConstraint?.isActive = true
         trailingConstraint?.isActive = true
+
+        // Display images if any
+        displayImages(images)
+    }
+
+    /// Parse markdown-style image syntax: ![caption](url) or ![[caption]](url)
+    private func parseImagesFromContent(_ content: String) -> (cleanedContent: String, images: [(url: String, caption: String)]) {
+        var images: [(url: String, caption: String)] = []
+        var cleanedContent = content
+
+        // Pattern: ![caption](url) - standard markdown image syntax
+        // Also handles ![[caption]](url) variant
+        let pattern = #"!\[+([^\]]*)\]+\(([^)]+)\)"#
+
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let range = NSRange(content.startIndex..., in: content)
+            let matches = regex.matches(in: content, options: [], range: range)
+
+            // Process matches in reverse order to preserve string indices
+            for match in matches.reversed() {
+                if let captionRange = Range(match.range(at: 1), in: content),
+                   let urlRange = Range(match.range(at: 2), in: content),
+                   let fullRange = Range(match.range, in: content) {
+                    let caption = String(content[captionRange])
+                    let url = String(content[urlRange])
+                    images.insert((url: url, caption: caption), at: 0)
+                    cleanedContent.removeSubrange(fullRange)
+                }
+            }
+        }
+
+        return (cleanedContent.trimmingCharacters(in: .whitespacesAndNewlines), images)
+    }
+
+    private func displayImages(_ images: [(url: String, caption: String)]) {
+        // Clear existing images
+        imageContainerView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        guard !images.isEmpty else {
+            imageContainerView.isHidden = true
+            return
+        }
+
+        imageContainerView.isHidden = false
+
+        for image in images {
+            let imageWrapper = createImageView(url: image.url, caption: image.caption)
+            imageContainerView.addArrangedSubview(imageWrapper)
+        }
+    }
+
+    private func createImageView(url: String, caption: String) -> UIView {
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+
+        let imageView = UIImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.contentMode = .scaleAspectFit
+        imageView.layer.cornerRadius = 12
+        imageView.clipsToBounds = true
+        wrapper.addSubview(imageView)
+
+        let captionLabel = UILabel()
+        captionLabel.translatesAutoresizingMaskIntoConstraints = false
+        captionLabel.text = caption
+        captionLabel.font = fontManager.captionFont
+        captionLabel.textColor = .secondaryLabel
+        captionLabel.textAlignment = .center
+        captionLabel.numberOfLines = 2
+        wrapper.addSubview(captionLabel)
+
+        // Loading indicator
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        imageView.addSubview(spinner)
+
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 8),
+            imageView.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+            imageView.heightAnchor.constraint(lessThanOrEqualToConstant: 280),
+
+            captionLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 12),
+            captionLabel.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            captionLabel.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+            captionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -8),
+
+            spinner.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: imageView.centerYAnchor)
+        ])
+
+        // Set a minimum height while loading
+        let heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 150)
+        heightConstraint.priority = .defaultLow
+        heightConstraint.isActive = true
+
+        // Load image async
+        if let imageUrl = URL(string: url) {
+            let task = URLSession.shared.dataTask(with: imageUrl) { [weak imageView, weak spinner, weak self] data, _, error in
+                DispatchQueue.main.async {
+                    spinner?.stopAnimating()
+                    spinner?.removeFromSuperview()
+
+                    if let data = data, let loadedImage = UIImage(data: data) {
+                        imageView?.image = loadedImage
+
+                        // Update height constraint based on aspect ratio
+                        let aspectRatio = loadedImage.size.height / loadedImage.size.width
+                        let maxWidth = (self?.contentView.bounds.width ?? 300) - 108 // Account for larger margins
+                        let calculatedHeight = min(maxWidth * aspectRatio, 280)
+                        heightConstraint.constant = calculatedHeight
+
+                        // Trigger table view layout update and scroll to show image
+                        if let tableView = self?.superview as? UITableView {
+                            UIView.performWithoutAnimation {
+                                tableView.beginUpdates()
+                                tableView.endUpdates()
+                            }
+                            // Scroll to show the newly loaded image
+                            if let indexPath = tableView.indexPath(for: self!) {
+                                tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
+                            }
+                        }
+                    }
+                }
+            }
+            imageLoadTasks.append(task)
+            task.resume()
+        }
+
+        return wrapper
     }
 
     func setTraceText(_ text: String?) {
