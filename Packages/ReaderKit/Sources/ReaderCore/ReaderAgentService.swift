@@ -123,11 +123,13 @@ public actor ReaderAgentService {
 
     private func buildSystemPrompt(context: BookContext) -> String {
         var prompt = """
-        You are a helpful reading assistant. You help users understand and explore books they're reading.
+        You are a helpful assistant. The user is currently reading a book and may ask questions about it, \
+        but they may also ask general knowledge questions unrelated to the book.
 
-        You have access to tools that let you read chapter content, search for text, and find character mentions.
-        Use these tools when needed to provide accurate, grounded responses.
+        For questions about the book, you have tools to search and read content. Use them when needed.
+        For general questions, answer directly from your knowledge.
 
+        Don't assume every question is about the book - use your judgment.
         Be concise and direct. When quoting from the book, be accurate.
         """
 

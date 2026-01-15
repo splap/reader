@@ -20,7 +20,10 @@ public final class BookChatViewController: UIViewController {
 
     private let tableView = UITableView()
     private let inputContainer = UIView()
-    private let textField = UITextField()
+    private let textView = UITextView()
+    private let placeholderLabel = UILabel()
+    private let buttonRow = UIView()
+    private let modelButton = UIButton(type: .system)
     private let sendButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
 
@@ -28,6 +31,11 @@ public final class BookChatViewController: UIViewController {
     private var messageTraces: [UUID: AgentExecutionTrace] = [:]
 
     private var inputContainerBottomConstraint: NSLayoutConstraint?
+    private var textViewHeightConstraint: NSLayoutConstraint?
+
+    private let minTextViewHeight: CGFloat = 36
+    private let maxTextViewHeight: CGFloat = 200
+    private let buttonRowHeight: CGFloat = 44
 
     // MARK: - Initialization
 
@@ -101,55 +109,112 @@ public final class BookChatViewController: UIViewController {
         tableView.register(ChatMessageCell.self, forCellReuseIdentifier: "MessageCell")
         view.addSubview(tableView)
 
-        // Input container
+        // Input container - single rounded rectangle
         inputContainer.translatesAutoresizingMaskIntoConstraints = false
         inputContainer.backgroundColor = .secondarySystemBackground
+        inputContainer.layer.cornerRadius = 16
+        inputContainer.clipsToBounds = true
         view.addSubview(inputContainer)
 
-        // Text field
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.placeholder = "Ask about the book..."
-        textField.borderStyle = .roundedRect
-        textField.delegate = self
-        textField.returnKeyType = .send
-        inputContainer.addSubview(textField)
+        // Text view - transparent, sits inside the container
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.backgroundColor = .clear
+        textView.font = .systemFont(ofSize: 16)
+        textView.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        textView.isScrollEnabled = false
+        textView.delegate = self
+        inputContainer.addSubview(textView)
 
-        // Send button
+        // Placeholder label
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.text = "Ask about the book..."
+        placeholderLabel.font = .systemFont(ofSize: 16)
+        placeholderLabel.textColor = .placeholderText
+        inputContainer.addSubview(placeholderLabel)
+
+        // Button row - at the bottom of the container
+        buttonRow.translatesAutoresizingMaskIntoConstraints = false
+        buttonRow.backgroundColor = .clear
+        inputContainer.addSubview(buttonRow)
+
+        // Model selector button - left side of button row
+        modelButton.translatesAutoresizingMaskIntoConstraints = false
+        modelButton.setTitle(OpenRouterConfig.modelDisplayName, for: .normal)
+        modelButton.setTitleColor(.secondaryLabel, for: .normal)
+        modelButton.titleLabel?.font = .systemFont(ofSize: 13)
+
+        // Create smaller chevron icon
+        let chevronConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular, scale: .small)
+        let chevronImage = UIImage(systemName: "chevron.down", withConfiguration: chevronConfig)
+        modelButton.setImage(chevronImage, for: .normal)
+        modelButton.tintColor = .secondaryLabel
+        modelButton.semanticContentAttribute = .forceRightToLeft
+        modelButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        modelButton.showsMenuAsPrimaryAction = true
+        modelButton.menu = createModelMenu()
+        buttonRow.addSubview(modelButton)
+
+        // Send button - in the button row, right-aligned
         sendButton.translatesAutoresizingMaskIntoConstraints = false
         sendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
         sendButton.tintColor = .systemBlue
+        sendButton.contentHorizontalAlignment = .fill
+        sendButton.contentVerticalAlignment = .fill
         sendButton.addTarget(self, action: #selector(sendMessage), for: .touchUpInside)
-        inputContainer.addSubview(sendButton)
+        buttonRow.addSubview(sendButton)
 
         // Loading indicator
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.hidesWhenStopped = true
-        inputContainer.addSubview(loadingIndicator)
+        buttonRow.addSubview(loadingIndicator)
 
         // Layout
         let bottomConstraint = inputContainer.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8
         )
         inputContainerBottomConstraint = bottomConstraint
+
+        // Start with minimum height
+        let textViewHeight = textView.heightAnchor.constraint(equalToConstant: minTextViewHeight)
+        textViewHeightConstraint = textViewHeight
 
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: inputContainer.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
 
-            inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // Input container with horizontal margins
+            inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             bottomConstraint,
 
-            textField.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 12),
-            textField.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: 8),
-            textField.bottomAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: -8),
+            // Text view at top of container
+            textView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: 12),
+            textView.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 4),
+            textView.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -4),
+            textViewHeight,
 
-            sendButton.leadingAnchor.constraint(equalTo: textField.trailingAnchor, constant: 8),
-            sendButton.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -12),
-            sendButton.centerYAnchor.constraint(equalTo: textField.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 44),
+            // Placeholder aligned with text
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 12),
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 4),
+
+            // Button row below text view
+            buttonRow.topAnchor.constraint(equalTo: textView.bottomAnchor, constant: 4),
+            buttonRow.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor),
+            buttonRow.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor),
+            buttonRow.bottomAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: -8),
+            buttonRow.heightAnchor.constraint(equalToConstant: 32),
+
+            // Model button in the button row, left side
+            modelButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor, constant: 12),
+            modelButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+
+            // Send button in the button row, right side
+            sendButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor, constant: -12),
+            sendButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+            sendButton.widthAnchor.constraint(equalToConstant: 28),
+            sendButton.heightAnchor.constraint(equalToConstant: 28),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor)
@@ -171,38 +236,21 @@ public final class BookChatViewController: UIViewController {
         )
     }
 
-    private func addWelcomeMessage() {
-        // Build book context with position
-        var bookInfo = "Book: \(context.bookTitle)"
-        if let author = context.bookAuthor {
-            bookInfo += "\nAuthor: \(author)"
-        }
-
-        // Add position info
-        let sections = context.sections
-        if let currentIndex = sections.firstIndex(where: { $0.spineItemId == context.currentSpineItemId }) {
-            let section = sections[currentIndex]
-
-            // Use NCX label if available, otherwise fall back to extracted title
-            let chapterLabel = section.displayLabel
-            bookInfo += "\nChapter: \(chapterLabel)"
-
-            // Add percentage through chapter if available
-            if let blockId = context.currentBlockId,
-               let block = context.blocksAround(blockId: blockId, count: 0).first,
-               section.blockCount > 0 {
-                let percentage = Int(round(Double(block.ordinal + 1) / Double(section.blockCount) * 100))
-                bookInfo += "\nPosition: \(percentage)% through chapter"
+    private func createModelMenu() -> UIMenu {
+        let actions = OpenRouterConfig.availableModels.map { model in
+            UIAction(
+                title: model.name,
+                state: model.id == OpenRouterConfig.model ? .on : .off
+            ) { [weak self] _ in
+                OpenRouterConfig.model = model.id
+                self?.modelButton.setTitle(model.name, for: .normal)
+                self?.modelButton.menu = self?.createModelMenu()
             }
         }
+        return UIMenu(title: "Select Model", children: actions)
+    }
 
-        messages.append(ChatMessage(
-            role: .system,
-            content: bookInfo,
-            title: "📚 Book Context",
-            isCollapsed: true
-        ))
-
+    private func addWelcomeMessage() {
         // Load existing conversation messages if this is an existing conversation
         if conversationId != nil && !conversation.messages.isEmpty {
             for storedMsg in conversation.messages {
@@ -221,11 +269,22 @@ public final class BookChatViewController: UIViewController {
                 }
             }
         } else if let selection = initialSelection {
-            // If there's a selection, add it as a user message (not sent yet)
-            messages.append(ChatMessage(role: .user, content: selection))
-            // Focus text field and show keyboard
+            // Strip quotes from selection, wrap in quotes, and format with "selection: "
+            let cleanedSelection = selection.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "'", with: "")
+            let formattedText = "selection: \"\(cleanedSelection)\"\n\n"
+            textView.text = formattedText
+            placeholderLabel.isHidden = true
+
+            // Delay height calculation until view is laid out, then focus and position cursor
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.textField.becomeFirstResponder()
+                self.view.layoutIfNeeded()
+                self.updateTextViewHeight()
+                self.textView.becomeFirstResponder()
+                // Position cursor at the end (after the two newlines)
+                let endPosition = self.textView.endOfDocument
+                self.textView.selectedTextRange = self.textView.textRange(from: endPosition, to: endPosition)
+                // Scroll to make cursor visible
+                self.textView.scrollRangeToVisible(NSRange(location: self.textView.text.count, length: 0))
             }
         } else {
             // Show welcome message if no selection
@@ -329,7 +388,7 @@ public final class BookChatViewController: UIViewController {
     }
 
     @objc private func sendMessage() {
-        guard let text = textField.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let text = textView.text?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty,
               !isLoading else {
             return
@@ -340,7 +399,9 @@ public final class BookChatViewController: UIViewController {
         tableView.reloadData()
         scrollToBottom()
 
-        textField.text = ""
+        textView.text = ""
+        placeholderLabel.isHidden = false
+        updateTextViewHeight()
         setLoading(true)
 
         // Send to agent
@@ -394,12 +455,28 @@ public final class BookChatViewController: UIViewController {
     private func setLoading(_ loading: Bool) {
         isLoading = loading
         sendButton.isHidden = loading
-        textField.isEnabled = !loading
+        textView.isEditable = !loading
 
         if loading {
             loadingIndicator.startAnimating()
         } else {
             loadingIndicator.stopAnimating()
+        }
+    }
+
+    private func updateTextViewHeight() {
+        let size = CGSize(width: textView.frame.width, height: .infinity)
+        let estimatedSize = textView.sizeThatFits(size)
+
+        // Use OS-provided height, clamped to max
+        let newHeight = min(estimatedSize.height, maxTextViewHeight)
+        textViewHeightConstraint?.constant = max(minTextViewHeight, newHeight)
+
+        // Enable scrolling only when content exceeds max height
+        textView.isScrollEnabled = estimatedSize.height > maxTextViewHeight
+
+        UIView.animate(withDuration: 0.1) {
+            self.view.layoutIfNeeded()
         }
     }
 
@@ -445,10 +522,10 @@ public final class BookChatViewController: UIViewController {
         if collapsed {
             let toolCount = trace.toolExecutions.count
             let toolNames = trace.toolExecutions.map { $0.functionName }.joined(separator: ", ")
-            return "📊 Execution Details ▶  (Used \(toolCount) tools: \(toolNames))"
+            return "Execution Details ▶  (Used \(toolCount) tools: \(toolNames))"
         }
 
-        var text = "📊 Execution Details ▼\n\n"
+        var text = "Execution Details ▼\n\n"
 
         // Book context section
         text += "BOOK CONTEXT\n"
@@ -534,12 +611,21 @@ extension BookChatViewController: UITableViewDelegate {
     }
 }
 
-// MARK: - UITextFieldDelegate
+// MARK: - UITextViewDelegate
 
-extension BookChatViewController: UITextFieldDelegate {
-    public func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        sendMessage()
-        return false
+extension BookChatViewController: UITextViewDelegate {
+    public func textViewDidChange(_ textView: UITextView) {
+        placeholderLabel.isHidden = !textView.text.isEmpty
+        updateTextViewHeight()
+    }
+
+    public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        // Send message on return key if shift is not held
+        if text == "\n" {
+            sendMessage()
+            return false
+        }
+        return true
     }
 }
 
@@ -608,22 +694,23 @@ private final class ChatMessageCell: UITableViewCell {
         bubbleView.addSubview(traceLabel)
 
         // Create fallback constraint for when trace is hidden
-        let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10)
+        // Use less bottom padding to visually center text (accounts for line-height)
+        let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -4)
         messageLabelBottomConstraint.priority = .defaultLow
 
         NSLayoutConstraint.activate([
-            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3),
+            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -3),
 
-            messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 10),
+            messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 6),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
             messageLabelBottomConstraint,
 
-            traceLabel.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 8),
+            traceLabel.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 6),
             traceLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             traceLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            traceLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10)
+            traceLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -4)
         ])
 
         // Add tap gesture for collapsible messages

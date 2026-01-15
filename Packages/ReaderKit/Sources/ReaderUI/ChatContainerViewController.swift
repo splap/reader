@@ -139,64 +139,74 @@ public final class ChatContainerViewController: UIViewController {
     }
 
     private func loadConversation(id: UUID) {
-        // Remove current chat nav controller
-        chatNavController.willMove(toParent: nil)
-        chatNavController.view.removeFromSuperview()
-        chatNavController.removeFromParent()
-
         // Create new chat with conversation
-        chatViewController = BookChatViewController(context: context, selection: nil, conversationId: id)
-        chatViewController.onToggleDrawer = { [weak self] in
+        let newChatViewController = BookChatViewController(context: context, selection: nil, conversationId: id)
+        newChatViewController.onToggleDrawer = { [weak self] in
             self?.toggleDrawer()
         }
 
         // Wrap in nav controller
-        chatNavController = UINavigationController(rootViewController: chatViewController)
+        let newNavController = UINavigationController(rootViewController: newChatViewController)
+        newNavController.view.translatesAutoresizingMaskIntoConstraints = false
 
-        addChild(chatNavController)
-        view.addSubview(chatNavController.view)
-        chatNavController.didMove(toParent: self)
-
-        chatNavController.view.translatesAutoresizingMaskIntoConstraints = false
+        // Add new view first (underneath)
+        addChild(newNavController)
+        view.insertSubview(newNavController.view, belowSubview: chatNavController.view)
+        newNavController.didMove(toParent: self)
 
         NSLayoutConstraint.activate([
-            chatNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
-            chatNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            chatNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            chatNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            newNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
+            newNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            newNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        hideDrawer()
+        // Force layout so new view is ready
+        view.layoutIfNeeded()
+
+        // Remove old chat nav controller
+        chatNavController.willMove(toParent: nil)
+        chatNavController.view.removeFromSuperview()
+        chatNavController.removeFromParent()
+
+        // Update references
+        chatNavController = newNavController
+        chatViewController = newChatViewController
     }
 
     private func startNewChat() {
-        // Remove current chat nav controller
-        chatNavController.willMove(toParent: nil)
-        chatNavController.view.removeFromSuperview()
-        chatNavController.removeFromParent()
-
         // Create new chat
-        chatViewController = BookChatViewController(context: context, selection: nil)
-        chatViewController.onToggleDrawer = { [weak self] in
+        let newChatViewController = BookChatViewController(context: context, selection: nil)
+        newChatViewController.onToggleDrawer = { [weak self] in
             self?.toggleDrawer()
         }
 
         // Wrap in nav controller
-        chatNavController = UINavigationController(rootViewController: chatViewController)
+        let newNavController = UINavigationController(rootViewController: newChatViewController)
+        newNavController.view.translatesAutoresizingMaskIntoConstraints = false
 
-        addChild(chatNavController)
-        view.addSubview(chatNavController.view)
-        chatNavController.didMove(toParent: self)
-
-        chatNavController.view.translatesAutoresizingMaskIntoConstraints = false
+        // Add new view first (underneath)
+        addChild(newNavController)
+        view.insertSubview(newNavController.view, belowSubview: chatNavController.view)
+        newNavController.didMove(toParent: self)
 
         NSLayoutConstraint.activate([
-            chatNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
-            chatNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            chatNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            chatNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            newNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
+            newNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            newNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        hideDrawer()
+        // Force layout so new view is ready
+        view.layoutIfNeeded()
+
+        // Remove old chat nav controller
+        chatNavController.willMove(toParent: nil)
+        chatNavController.view.removeFromSuperview()
+        chatNavController.removeFromParent()
+
+        // Update references
+        chatNavController = newNavController
+        chatViewController = newChatViewController
     }
 }

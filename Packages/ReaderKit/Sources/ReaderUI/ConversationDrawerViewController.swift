@@ -29,6 +29,9 @@ final class ConversationDrawerViewController: UIViewController {
         super.viewDidLoad()
 
         view.backgroundColor = .secondarySystemBackground
+        view.layer.cornerRadius = 16
+        view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner] // Right corners only
+        view.clipsToBounds = true
 
         setupUI()
         loadConversations()
