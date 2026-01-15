@@ -4,6 +4,10 @@ import ReaderCore
 public final class ReaderSettingsViewController: UITableViewController {
     private var fontScale: CGFloat
     private let onFontScaleChanged: (CGFloat) -> Void
+    private let fontManager = FontScaleManager.shared
+
+    // Discrete font scale steps
+    private let fontScaleSteps: [CGFloat] = [1.25, 1.5, 1.75, 2.0]
 
     private var apiKey: String = UserDefaults.standard.string(forKey: "OpenRouterAPIKey") ?? ""
     private var selectedModel: String = UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "google/gemini-2.0-flash-exp:free"
@@ -30,6 +34,18 @@ public final class ReaderSettingsViewController: UITableViewController {
         super.viewDidLoad()
         title = "Settings"
         navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(dismiss(_:)))
+
+        // Observe font scale changes to update UI
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(fontScaleDidChange),
+            name: FontScaleManager.fontScaleDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func fontScaleDidChange() {
+        tableView.reloadData()
     }
 
     @objc private func dismiss(_ sender: Any) {
@@ -104,25 +120,28 @@ public final class ReaderSettingsViewController: UITableViewController {
         cell.selectionStyle = .none
 
         let slider = UISlider()
-        slider.minimumValue = 1.25
-        slider.maximumValue = 2.0
+        slider.minimumValue = Float(fontScaleSteps.first ?? 1.25)
+        slider.maximumValue = Float(fontScaleSteps.last ?? 2.0)
         slider.value = Float(fontScale)
         slider.translatesAutoresizingMaskIntoConstraints = false
-        slider.addTarget(self, action: #selector(fontSizeChanged(_:)), for: .valueChanged)
+        // Update label only during drag (no heavy computation)
+        slider.addTarget(self, action: #selector(fontSizeSliding(_:)), for: .valueChanged)
+        // Apply changes only on release
+        slider.addTarget(self, action: #selector(fontSizeReleased(_:)), for: [.touchUpInside, .touchUpOutside])
 
         let minLabel = UILabel()
         minLabel.text = "A"
-        minLabel.font = .systemFont(ofSize: 12)
+        minLabel.font = fontManager.scaledFont(size: 12)
         minLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let maxLabel = UILabel()
         maxLabel.text = "A"
-        maxLabel.font = .systemFont(ofSize: 20)
+        maxLabel.font = fontManager.scaledFont(size: 20)
         maxLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let valueLabel = UILabel()
-        valueLabel.text = String(format: "%.1fx", fontScale)
-        valueLabel.font = .systemFont(ofSize: 14)
+        valueLabel.text = String(format: "%.2gx", fontScale)
+        valueLabel.font = fontManager.scaledFont(size: 14)
         valueLabel.textColor = .secondaryLabel
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
         valueLabel.tag = 100
@@ -158,6 +177,7 @@ public final class ReaderSettingsViewController: UITableViewController {
         textField.isSecureTextEntry = true
         textField.autocapitalizationType = .none
         textField.autocorrectionType = .no
+        textField.font = fontManager.bodyFont
         textField.translatesAutoresizingMaskIntoConstraints = false
         textField.addTarget(self, action: #selector(apiKeyChanged(_:)), for: .editingChanged)
 
@@ -177,7 +197,7 @@ public final class ReaderSettingsViewController: UITableViewController {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.textLabel?.text = "Get API Key from OpenRouter"
         cell.textLabel?.textColor = .systemBlue
-        cell.textLabel?.font = .systemFont(ofSize: 14)
+        cell.textLabel?.font = fontManager.scaledFont(size: 14)
         cell.accessoryType = .disclosureIndicator
         return cell
     }
@@ -185,21 +205,58 @@ public final class ReaderSettingsViewController: UITableViewController {
     private func modelPickerCell() -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
         cell.textLabel?.text = "Model"
+        cell.textLabel?.font = fontManager.bodyFont
         cell.detailTextLabel?.text = models.first(where: { $0.0 == selectedModel })?.1 ?? selectedModel
+        cell.detailTextLabel?.font = fontManager.bodyFont
         cell.accessoryType = .disclosureIndicator
         return cell
     }
 
     // MARK: - Actions
 
-    @objc private func fontSizeChanged(_ slider: UISlider) {
-        fontScale = CGFloat(slider.value)
+    /// Snaps a value to the nearest discrete font scale step
+    private func snapToStep(_ value: CGFloat) -> CGFloat {
+        var closest = fontScaleSteps[0]
+        var minDist = abs(value - closest)
+        for step in fontScaleSteps {
+            let dist = abs(value - step)
+            if dist < minDist {
+                minDist = dist
+                closest = step
+            }
+        }
+        return closest
+    }
+
+    /// Called during slider drag - only updates the label, no heavy computation
+    @objc private func fontSizeSliding(_ slider: UISlider) {
+        let snappedValue = snapToStep(CGFloat(slider.value))
+
+        // Update label to show snapped value
+        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)),
+           let label = cell.contentView.viewWithTag(100) as? UILabel {
+            label.text = String(format: "%.2gx", snappedValue)
+        }
+    }
+
+    /// Called when slider is released - applies the font scale change
+    @objc private func fontSizeReleased(_ slider: UISlider) {
+        let snappedValue = snapToStep(CGFloat(slider.value))
+
+        // Snap slider to the discrete value
+        slider.value = Float(snappedValue)
+
+        // Only trigger expensive updates if value actually changed
+        guard snappedValue != fontScale else { return }
+
+        fontScale = snappedValue
+        fontManager.fontScale = fontScale  // Persist to UserDefaults
         onFontScaleChanged(fontScale)
 
         // Update label
         if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)),
            let label = cell.contentView.viewWithTag(100) as? UILabel {
-            label.text = String(format: "%.1fx", fontScale)
+            label.text = String(format: "%.2gx", fontScale)
         }
     }
 

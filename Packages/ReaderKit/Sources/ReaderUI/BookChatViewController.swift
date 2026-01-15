@@ -9,6 +9,7 @@ public final class BookChatViewController: UIViewController {
     private let agentService = ReaderAgentService()
     private let initialSelection: String?
     private let conversationId: UUID?
+    private let fontManager = FontScaleManager.shared
 
     private var conversation: Conversation
     private var conversationHistory: [AgentMessage] = []
@@ -71,12 +72,33 @@ public final class BookChatViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         setupKeyboardObservers()
+        setupFontScaleObserver()
         addWelcomeMessage()
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         NotificationCenter.default.removeObserver(self)
+    }
+
+    private func setupFontScaleObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(fontScaleDidChange),
+            name: FontScaleManager.fontScaleDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func fontScaleDidChange() {
+        // Update fonts
+        textView.font = fontManager.bodyFont
+        placeholderLabel.font = fontManager.bodyFont
+        modelButton.titleLabel?.font = fontManager.captionFont
+        updateTextViewHeight()
+
+        // Reload table to update message cells
+        tableView.reloadData()
     }
 
     // MARK: - Setup
@@ -119,7 +141,7 @@ public final class BookChatViewController: UIViewController {
         // Text view - transparent, sits inside the container
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.backgroundColor = .clear
-        textView.font = .systemFont(ofSize: 16)
+        textView.font = fontManager.bodyFont
         textView.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         textView.isScrollEnabled = false
         textView.delegate = self
@@ -128,7 +150,7 @@ public final class BookChatViewController: UIViewController {
         // Placeholder label
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.text = "Ask about the book..."
-        placeholderLabel.font = .systemFont(ofSize: 16)
+        placeholderLabel.font = fontManager.bodyFont
         placeholderLabel.textColor = .placeholderText
         inputContainer.addSubview(placeholderLabel)
 
@@ -141,7 +163,7 @@ public final class BookChatViewController: UIViewController {
         modelButton.translatesAutoresizingMaskIntoConstraints = false
         modelButton.setTitle(OpenRouterConfig.modelDisplayName, for: .normal)
         modelButton.setTitleColor(.secondaryLabel, for: .normal)
-        modelButton.titleLabel?.font = .systemFont(ofSize: 13)
+        modelButton.titleLabel?.font = fontManager.captionFont
 
         // Create smaller chevron icon
         let chevronConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular, scale: .small)
@@ -663,6 +685,7 @@ private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
     private let traceLabel = UILabel()
+    private let fontManager = FontScaleManager.shared
     var onTap: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -685,12 +708,12 @@ private final class ChatMessageCell: UITableViewCell {
 
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
         messageLabel.numberOfLines = 0
-        messageLabel.font = .systemFont(ofSize: 16)
+        messageLabel.font = fontManager.bodyFont
         bubbleView.addSubview(messageLabel)
 
         traceLabel.translatesAutoresizingMaskIntoConstraints = false
         traceLabel.numberOfLines = 0
-        traceLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        traceLabel.font = fontManager.monospacedFont(size: 12)
         traceLabel.textColor = .secondaryLabel
         traceLabel.isHidden = true
         bubbleView.addSubview(traceLabel)
@@ -733,11 +756,14 @@ private final class ChatMessageCell: UITableViewCell {
         leadingConstraint?.isActive = false
         trailingConstraint?.isActive = false
 
+        // Update trace label font
+        traceLabel.font = fontManager.monospacedFont(size: 12)
+
         switch message.role {
         case .user:
             bubbleView.backgroundColor = .systemBlue
             messageLabel.textColor = .white
-            messageLabel.font = .systemFont(ofSize: 16)
+            messageLabel.font = fontManager.bodyFont
             messageLabel.text = message.content
             leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
             trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
@@ -745,7 +771,7 @@ private final class ChatMessageCell: UITableViewCell {
         case .assistant:
             bubbleView.backgroundColor = .secondarySystemBackground
             messageLabel.textColor = .label
-            messageLabel.font = .systemFont(ofSize: 16)
+            messageLabel.font = fontManager.bodyFont
             messageLabel.text = message.content
             leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
             trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
@@ -753,7 +779,7 @@ private final class ChatMessageCell: UITableViewCell {
         case .system:
             bubbleView.backgroundColor = .tertiarySystemBackground
             messageLabel.textColor = .secondaryLabel
-            messageLabel.font = .systemFont(ofSize: 14)
+            messageLabel.font = fontManager.scaledFont(size: 14)
 
             // Show title with disclosure indicator when collapsed, full content when expanded
             if message.isCollapsed {

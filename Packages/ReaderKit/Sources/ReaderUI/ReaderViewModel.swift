@@ -31,7 +31,7 @@ final class ReaderViewModel: ObservableObject {
     @Published var currentPageIndex: Int = 0
     @Published var totalPages: Int = 0  // For WebView mode
     @Published var maxReadPageIndex: Int = 0  // Furthest page user has reached
-    @Published var fontScale: CGFloat = 1.4
+    @Published var fontScale: CGFloat = FontScaleManager.shared.fontScale
     @Published var settingsPresented: Bool = false
     @Published var llmPayload: LLMPayload?
 
@@ -152,6 +152,7 @@ final class ReaderViewModel: ObservableObject {
 
     func updateFontScale(_ scale: CGFloat) {
         fontScale = scale
+        FontScaleManager.shared.fontScale = scale  // Persist to UserDefaults
         updateLayout(pageSize: lastPageSize, insets: lastInsets)
     }
 

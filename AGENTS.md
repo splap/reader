@@ -211,7 +211,10 @@ cat /tmp/debug.log
         ./scripts/build – deterministic xcodebuild
         ./scripts/test – unit tests (UI tests optional/separate)
         ./scripts/lint – SwiftLint / SwiftFormat
-        ./scripts/run – builds and runs the app
+        ./scripts/run – builds and runs the app, then tails logs (NEVER EXITS!)
+
+    IMPORTANT: ./scripts/run tails logs indefinitely after launching the app.
+    Always run it in the background: `./scripts/run &` or use run_in_background parameter.
 
 3. Headless, explicit builds
     Always use xcodebuild, never Xcode UI.

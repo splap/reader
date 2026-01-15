@@ -6,6 +6,7 @@ final class ConversationDrawerViewController: UIViewController {
     private let context: BookContext
     private var conversations: [Conversation] = []
     private var hasCurrentChat = true  // Always true when drawer is shown from a chat
+    private let fontManager = FontScaleManager.shared
 
     var onSelectConversation: ((UUID) -> Void)?
     var onNewChat: (() -> Void)?
@@ -37,6 +38,24 @@ final class ConversationDrawerViewController: UIViewController {
 
         setupUI()
         loadConversations()
+        setupFontScaleObserver()
+    }
+
+    private func setupFontScaleObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(fontScaleDidChange),
+            name: FontScaleManager.fontScaleDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func fontScaleDidChange() {
+        // Update button font
+        newChatButton.titleLabel?.font = fontManager.titleFont
+
+        // Reload table to update cell fonts
+        tableView.reloadData()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -50,7 +69,7 @@ final class ConversationDrawerViewController: UIViewController {
         // New chat button at top
         newChatButton.translatesAutoresizingMaskIntoConstraints = false
         newChatButton.setTitle("+ New Chat", for: .normal)
-        newChatButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        newChatButton.titleLabel?.font = fontManager.titleFont
         newChatButton.addTarget(self, action: #selector(newChatTapped), for: .touchUpInside)
         newChatButton.backgroundColor = .systemBlue
         newChatButton.setTitleColor(.white, for: .normal)
@@ -157,6 +176,7 @@ extension ConversationDrawerViewController: UITableViewDelegate {
 private final class ConversationCell: UITableViewCell {
     private let titleLabel = UILabel()
     private let dateLabel = UILabel()
+    private let fontManager = FontScaleManager.shared
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -176,13 +196,13 @@ private final class ConversationCell: UITableViewCell {
         }()
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        titleLabel.font = fontManager.scaledFont(size: 15, weight: .medium)
         titleLabel.textColor = .label
         titleLabel.numberOfLines = 2
         contentView.addSubview(titleLabel)
 
         dateLabel.translatesAutoresizingMaskIntoConstraints = false
-        dateLabel.font = .systemFont(ofSize: 13)
+        dateLabel.font = fontManager.captionFont
         dateLabel.textColor = .secondaryLabel
         contentView.addSubview(dateLabel)
 
@@ -199,6 +219,10 @@ private final class ConversationCell: UITableViewCell {
     }
 
     func configure(with conversation: Conversation) {
+        // Update fonts to pick up any scale changes
+        titleLabel.font = fontManager.scaledFont(size: 15, weight: .medium)
+        dateLabel.font = fontManager.captionFont
+
         titleLabel.text = conversation.title
         titleLabel.textColor = .label
 
@@ -208,6 +232,10 @@ private final class ConversationCell: UITableViewCell {
     }
 
     func configureAsCurrentChat() {
+        // Update fonts to pick up any scale changes
+        titleLabel.font = fontManager.scaledFont(size: 15, weight: .medium)
+        dateLabel.font = fontManager.captionFont
+
         titleLabel.text = "Current Chat"
         titleLabel.textColor = .systemBlue
         dateLabel.text = "Active"
