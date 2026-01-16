@@ -35,16 +35,13 @@ private class SelectableWebView: WKWebView {
     }
 }
 
-final class WebPageViewController: UIViewController {
+public final class WebPageViewController: UIViewController, PageRenderer {
 
     private static let logger = Log.logger(category: "page-view")
     private let htmlSections: [HTMLSection]
     private let bookTitle: String?
     private let bookAuthor: String?
     private let chapterTitle: String?
-    private let onSendToLLM: (SelectionPayload) -> Void
-    private let onPageChanged: (Int, Int) -> Void  // (currentPage, totalPages)
-    private let onBlockPositionChanged: ((String, String?) -> Void)?  // (Block ID, Spine Item ID) of first visible block
     private var webView: SelectableWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
@@ -55,24 +52,29 @@ final class WebPageViewController: UIViewController {
     private var currentBlockId: String?  // Currently visible block ID
     private var currentSpineItemId: String?  // Currently visible spine item ID
 
-    var fontScale: CGFloat = 2.0 {
+    // MARK: - PageRenderer Protocol Properties
+
+    public var viewController: UIViewController { self }
+
+    public var fontScale: CGFloat = 2.0 {
         didSet {
             guard fontScale != oldValue else { return }
             reloadWithNewFontScale()
         }
     }
 
-    init(
+    public var onPageChanged: ((Int, Int) -> Void)?
+    public var onBlockPositionChanged: ((String, String?) -> Void)?
+    public var onSendToLLM: ((SelectionPayload) -> Void)?
+
+    public init(
         htmlSections: [HTMLSection],
         bookTitle: String? = nil,
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
         fontScale: CGFloat = 2.0,
         initialPageIndex: Int = 0,
-        initialBlockId: String? = nil,
-        onSendToLLM: @escaping (SelectionPayload) -> Void,
-        onPageChanged: @escaping (Int, Int) -> Void,
-        onBlockPositionChanged: ((String, String?) -> Void)? = nil
+        initialBlockId: String? = nil
     ) {
         self.htmlSections = htmlSections
         self.bookTitle = bookTitle
@@ -81,9 +83,6 @@ final class WebPageViewController: UIViewController {
         self.fontScale = fontScale
         self.initialPageIndex = initialPageIndex
         self.initialBlockId = initialBlockId
-        self.onSendToLLM = onSendToLLM
-        self.onPageChanged = onPageChanged
-        self.onBlockPositionChanged = onBlockPositionChanged
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -91,7 +90,7 @@ final class WebPageViewController: UIViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func viewDidLoad() {
+    public override func viewDidLoad() {
         super.viewDidLoad()
 
         view.backgroundColor = .clear
@@ -135,7 +134,7 @@ final class WebPageViewController: UIViewController {
         loadContent()
     }
 
-    override func viewDidLayoutSubviews() {
+    public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
     }
 
@@ -229,7 +228,7 @@ final class WebPageViewController: UIViewController {
                 spineItemId: spineItemId
             )
 
-            self.onSendToLLM(payload)
+            self.onSendToLLM?(payload)
         }
     }
 
@@ -418,18 +417,18 @@ final class WebPageViewController: UIViewController {
         if newTotalPages != totalPages || newCurrentPage != currentPage {
             totalPages = newTotalPages
             currentPage = max(0, min(newCurrentPage, totalPages - 1))
-            onPageChanged(currentPage, totalPages)
+            onPageChanged?(currentPage, totalPages)
         }
     }
 
-    func navigateToNextPage() {
+    public func navigateToNextPage() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
         let nextOffset = min(scrollView.contentOffset.x + pageWidth, scrollView.contentSize.width - pageWidth)
         scrollView.setContentOffset(CGPoint(x: nextOffset, y: 0), animated: true)
     }
 
-    func navigateToPreviousPage() {
+    public func navigateToPreviousPage() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
         let prevOffset = max(scrollView.contentOffset.x - pageWidth, 0)
@@ -437,7 +436,7 @@ final class WebPageViewController: UIViewController {
     }
 
     // Navigate to a specific page (0-indexed)
-    func navigateToPage(_ pageIndex: Int, animated: Bool = true) {
+    public func navigateToPage(_ pageIndex: Int, animated: Bool = true) {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
         guard pageWidth > 0 else { return }
@@ -489,7 +488,7 @@ final class WebPageViewController: UIViewController {
 
     /// Query the first visible block ID and spine item ID from the WebView
     /// The block must have data-block-id and data-spine-item-id attributes to be detected
-    func queryFirstVisibleBlock(completion: @escaping (String?, String?) -> Void) {
+    public func queryFirstVisibleBlock(completion: @escaping (String?, String?) -> Void) {
         let js = """
         (function() {
             // Get all elements with data-block-id attribute
@@ -538,7 +537,7 @@ final class WebPageViewController: UIViewController {
     /// - Parameters:
     ///   - blockId: The data-block-id value to scroll to
     ///   - animated: Whether to animate the scroll
-    func navigateToBlock(_ blockId: String, animated: Bool = false) {
+    public func navigateToBlock(_ blockId: String, animated: Bool = false) {
         let js = """
         (function() {
             const block = document.querySelector('[data-block-id="\(blockId)"]');
@@ -593,7 +592,7 @@ final class WebPageViewController: UIViewController {
 
 // MARK: - UIScrollViewDelegate
 extension WebPageViewController: UIScrollViewDelegate {
-    func scrollViewWillEndDragging(
+    public func scrollViewWillEndDragging(
         _ scrollView: UIScrollView,
         withVelocity velocity: CGPoint,
         targetContentOffset: UnsafeMutablePointer<CGPoint>
@@ -617,18 +616,18 @@ extension WebPageViewController: UIScrollViewDelegate {
         targetContentOffset.pointee = CGPoint(x: targetPage * pageWidth, y: 0)
     }
 
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         snapToNearestPage()
         updateCurrentPage()
         updateBlockPosition()
     }
 
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+    public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         updateCurrentPage()
         updateBlockPosition()
     }
 
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
             snapToNearestPage()
             updateCurrentPage()
@@ -639,7 +638,7 @@ extension WebPageViewController: UIScrollViewDelegate {
 
 // MARK: - WKNavigationDelegate
 extension WebPageViewController: WKNavigationDelegate {
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Self.logger.debug("didFinish navigation")
 
         // Inject JavaScript to ensure content is scrollable and wait for layout

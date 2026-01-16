@@ -55,29 +55,36 @@ public final class ReaderSettingsViewController: UITableViewController {
     // MARK: - Table View
 
     public override func numberOfSections(in tableView: UITableView) -> Int {
-        return 3
+        return 5
     }
 
     public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
-        case 0: return 1 // Font size
-        case 1: return 2 // API key + link
-        case 2: return 1 // Model picker
+        case 0: return 1 // Appearance
+        case 1: return 1 // Font size
+        case 2: return 1 // Render mode
+        case 3: return 2 // API key + link
+        case 4: return 1 // Model picker
         default: return 0
         }
     }
 
     public override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
-        case 0: return "Font Size"
-        case 1: return "OpenRouter API"
-        case 2: return "AI Model"
+        case 0: return "Appearance"
+        case 1: return "Font Size"
+        case 2: return "Rendering"
+        case 3: return "OpenRouter API"
+        case 4: return "AI Model"
         default: return nil
         }
     }
 
     public override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section == 1 {
+        if section == 2 {
+            return "Native uses iOS text rendering for cleaner layout. HTML preserves original formatting. Changes apply when reopening the book."
+        }
+        if section == 3 {
             return "Your API key is stored securely on device and only used to call the LLM when you select text."
         }
         return nil
@@ -86,14 +93,18 @@ public final class ReaderSettingsViewController: UITableViewController {
     public override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch indexPath.section {
         case 0:
-            return fontSizeCell()
+            return appearanceModeCell()
         case 1:
+            return fontSizeCell()
+        case 2:
+            return renderModeCell()
+        case 3:
             if indexPath.row == 0 {
                 return apiKeyCell()
             } else {
                 return linkCell()
             }
-        case 2:
+        case 4:
             return modelPickerCell()
         default:
             return UITableViewCell()
@@ -103,12 +114,16 @@ public final class ReaderSettingsViewController: UITableViewController {
     public override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        if indexPath.section == 1 && indexPath.row == 1 {
+        if indexPath.section == 0 {
+            showAppearanceModePicker()
+        } else if indexPath.section == 2 {
+            showRenderModePicker()
+        } else if indexPath.section == 3 && indexPath.row == 1 {
             // Open OpenRouter link
             if let url = URL(string: "https://openrouter.ai/keys") {
                 UIApplication.shared.open(url)
             }
-        } else if indexPath.section == 2 {
+        } else if indexPath.section == 4 {
             showModelPicker()
         }
     }
@@ -212,6 +227,26 @@ public final class ReaderSettingsViewController: UITableViewController {
         return cell
     }
 
+    private func renderModeCell() -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        cell.textLabel?.text = "Renderer"
+        cell.textLabel?.font = fontManager.bodyFont
+        cell.detailTextLabel?.text = ReaderPreferences.shared.renderMode.displayName
+        cell.detailTextLabel?.font = fontManager.bodyFont
+        cell.accessoryType = .disclosureIndicator
+        return cell
+    }
+
+    private func appearanceModeCell() -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        cell.textLabel?.text = "Theme"
+        cell.textLabel?.font = fontManager.bodyFont
+        cell.detailTextLabel?.text = ReaderPreferences.shared.appearanceMode.displayName
+        cell.detailTextLabel?.font = fontManager.bodyFont
+        cell.accessoryType = .disclosureIndicator
+        return cell
+    }
+
     // MARK: - Actions
 
     /// Snaps a value to the nearest discrete font scale step
@@ -272,7 +307,7 @@ public final class ReaderSettingsViewController: UITableViewController {
             let action = UIAlertAction(title: modelName, style: .default) { [weak self] _ in
                 self?.selectedModel = modelId
                 UserDefaults.standard.set(modelId, forKey: "OpenRouterModel")
-                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 2)], with: .automatic)
+                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 4)], with: .automatic)
             }
             if modelId == selectedModel {
                 action.setValue(true, forKey: "checked")
@@ -284,7 +319,55 @@ public final class ReaderSettingsViewController: UITableViewController {
 
         if let popover = alert.popoverPresentationController {
             popover.sourceView = tableView
+            popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 4))
+        }
+
+        present(alert, animated: true)
+    }
+
+    private func showRenderModePicker() {
+        let alert = UIAlertController(title: "Select Renderer", message: nil, preferredStyle: .actionSheet)
+
+        for mode in RenderMode.allCases {
+            let action = UIAlertAction(title: mode.displayName, style: .default) { [weak self] _ in
+                ReaderPreferences.shared.renderMode = mode
+                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 2)], with: .automatic)
+            }
+            if mode == ReaderPreferences.shared.renderMode {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = tableView
             popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 2))
+        }
+
+        present(alert, animated: true)
+    }
+
+    private func showAppearanceModePicker() {
+        let alert = UIAlertController(title: "Select Theme", message: nil, preferredStyle: .actionSheet)
+
+        for mode in AppearanceMode.allCases {
+            let action = UIAlertAction(title: mode.displayName, style: .default) { [weak self] _ in
+                ReaderPreferences.shared.appearanceMode = mode
+                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .automatic)
+            }
+            if mode == ReaderPreferences.shared.appearanceMode {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = tableView
+            popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 0))
         }
 
         present(alert, animated: true)

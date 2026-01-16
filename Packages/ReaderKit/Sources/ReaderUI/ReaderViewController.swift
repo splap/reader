@@ -10,7 +10,7 @@ public final class ReaderViewController: UIViewController {
     private let chapter: Chapter
     private let bookTitle: String?
     private let bookAuthor: String?
-    private var webPageViewController: WebPageViewController!
+    private var pageRenderer: PageRenderer!
     private var cancellables = Set<AnyCancellable>()
     private var backButton: FloatingButton!
     private var settingsButton: FloatingButton!
@@ -87,9 +87,9 @@ public final class ReaderViewController: UIViewController {
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        webPageViewController.view.frame = view.bounds
+        pageRenderer.viewController.view.frame = view.bounds
 
-        // Ensure floating buttons and scrubber are above WebView
+        // Ensure floating buttons and scrubber are above the page renderer
         view.bringSubviewToFront(backButton)
         view.bringSubviewToFront(settingsButton)
         view.bringSubviewToFront(chatButton)
@@ -119,40 +119,62 @@ public final class ReaderViewController: UIViewController {
             viewModel.setCurrentSpineItem(firstSection.spineItemId)
         }
 
-        let webPageVC = WebPageViewController(
-            htmlSections: chapter.htmlSections,
-            bookTitle: bookTitle,
-            bookAuthor: bookAuthor,
-            chapterTitle: chapter.title,
-            fontScale: viewModel.fontScale,
-            initialPageIndex: viewModel.initialPageIndex,
-            initialBlockId: viewModel.initialBlockId,
-            onSendToLLM: { [weak self] selection in
-                self?.openChatWithSelection(selection)
-            },
-            onPageChanged: { [weak self] newPage, totalPages in
-                self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
-                self?.updateScrubber()
-                self?.maybePerformUITestJump(totalPages: totalPages)
-                #if DEBUG
-                self?.debugOverlay?.update()
-                if let overlay = self?.debugOverlay {
-                    self?.view.bringSubviewToFront(overlay)
-                }
-                #endif
-            },
-            onBlockPositionChanged: { [weak self] blockId, spineItemId in
-                self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
+        // Create renderer based on current preference
+        let renderer: PageRenderer
+        let renderMode = ReaderPreferences.shared.renderMode
+
+        Self.logger.info("Creating renderer with mode: \(renderMode.rawValue, privacy: .public)")
+
+        switch renderMode {
+        case .native:
+            renderer = NativePageViewController(
+                htmlSections: chapter.htmlSections,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterTitle: chapter.title,
+                fontScale: viewModel.fontScale,
+                initialBlockId: viewModel.initialBlockId
+            )
+
+        case .webView:
+            renderer = WebPageViewController(
+                htmlSections: chapter.htmlSections,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterTitle: chapter.title,
+                fontScale: viewModel.fontScale,
+                initialPageIndex: viewModel.initialPageIndex,
+                initialBlockId: viewModel.initialBlockId
+            )
+        }
+
+        // Configure callbacks
+        renderer.onSendToLLM = { [weak self] selection in
+            self?.openChatWithSelection(selection)
+        }
+        renderer.onPageChanged = { [weak self] newPage, totalPages in
+            self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
+            self?.updateScrubber()
+            self?.maybePerformUITestJump(totalPages: totalPages)
+            #if DEBUG
+            self?.debugOverlay?.update()
+            if let overlay = self?.debugOverlay {
+                self?.view.bringSubviewToFront(overlay)
             }
-        )
+            #endif
+        }
+        renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
+            self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
+        }
 
-        self.webPageViewController = webPageVC
+        self.pageRenderer = renderer
 
-        addChild(webPageVC)
-        view.addSubview(webPageVC.view)
-        webPageVC.view.frame = view.bounds
-        webPageVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        webPageVC.didMove(toParent: self)
+        let rendererVC = renderer.viewController
+        addChild(rendererVC)
+        view.addSubview(rendererVC.view)
+        rendererVC.view.frame = view.bounds
+        rendererVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        rendererVC.didMove(toParent: self)
     }
 
 
@@ -340,7 +362,7 @@ public final class ReaderViewController: UIViewController {
               totalPages > 0 else { return }
         hasPerformedUITestJump = true
         let targetIndex = min(max(0, targetPage - 1), totalPages - 1)
-        webPageViewController.navigateToPage(targetIndex, animated: false)
+        pageRenderer.navigateToPage(targetIndex, animated: false)
         viewModel.updateCurrentPage(targetIndex, totalPages: totalPages)
         updateScrubber()
     }
@@ -361,7 +383,7 @@ public final class ReaderViewController: UIViewController {
         guard viewModel.totalPages > 1 else { return }
 
         let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
-        webPageViewController.navigateToPage(targetPage, animated: false)
+        pageRenderer.navigateToPage(targetPage, animated: false)
         viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
         updateScrubber()
     }
@@ -396,7 +418,7 @@ public final class ReaderViewController: UIViewController {
             .dropFirst()
             .sink { [weak self] newScale in
                 guard let self else { return }
-                self.webPageViewController.fontScale = newScale
+                self.pageRenderer.fontScale = newScale
                 #if DEBUG
                 self.debugOverlay?.update()
                 #endif
@@ -458,11 +480,11 @@ public final class ReaderViewController: UIViewController {
     }
 
     @objc private func navigateToPreviousPage() {
-        webPageViewController.navigateToPreviousPage()
+        pageRenderer.navigateToPreviousPage()
     }
 
     @objc private func navigateToNextPage() {
-        webPageViewController.navigateToNextPage()
+        pageRenderer.navigateToNextPage()
     }
 
     private func presentLLMModal(with payload: LLMPayload) {

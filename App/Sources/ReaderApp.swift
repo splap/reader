@@ -34,12 +34,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let window = UIWindow(frame: UIScreen.main.bounds)
 
         // Apply saved appearance (default: dark)
-        let appearanceMode = UserDefaults.standard.object(forKey: "AppearanceMode") as? Int ?? 0
-        switch appearanceMode {
-        case 0: window.overrideUserInterfaceStyle = .dark
-        case 1: window.overrideUserInterfaceStyle = .light
-        default: window.overrideUserInterfaceStyle = .unspecified
-        }
+        let appearance = ReaderPreferences.shared.appearanceMode
+        window.overrideUserInterfaceStyle = appearance.userInterfaceStyle
 
         // Create library view controller
         let libraryVC = LibraryViewController()
