@@ -1,11 +1,11 @@
 name: Reader
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.splap
   deploymentTarget:
     iOS: "17.0"
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.example.reader
+    PRODUCT_BUNDLE_IDENTIFIER: com.splap.reader
     DEVELOPMENT_TEAM: ""
 packages:
   ReaderKit:
