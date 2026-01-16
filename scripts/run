@@ -111,7 +111,7 @@ if [ "$USE_SIMULATOR" = "1" ]; then
   echo "=== App Logs (com.splap.reader) ==="
   echo "Press Ctrl+C to stop"
   echo ""
-  xcrun simctl spawn "$DEVICE_UDID" log stream --style compact --predicate 'subsystem == "com.splap.reader" OR process == "ReaderApp"' 2>/dev/null
+  xcrun simctl spawn "$DEVICE_UDID" log stream --style compact --level debug --predicate 'subsystem == "com.splap.reader"' 2>/dev/null
 else
   xcrun devicectl device process launch --device "$DEVICE_UDID" "$APP_BUNDLE_ID" --console
 fi

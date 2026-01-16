@@ -5,7 +5,7 @@ import MapKit
 
 /// Chat interface for conversing with the LLM about a book
 public final class BookChatViewController: UIViewController {
-    private static let logger = Logger(subsystem: "com.splap.reader", category: "chat")
+    private static let logger = Log.logger(category: "chat")
     private let context: BookContext
     private let agentService = ReaderAgentService()
     private let initialSelection: String?
@@ -71,6 +71,7 @@ public final class BookChatViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        Self.logger.debug("Chat UI opened for book: \(self.context.bookTitle ?? "unknown", privacy: .public)")
         setupUI()
         setupKeyboardObservers()
         setupFontScaleObserver()

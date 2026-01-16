@@ -54,7 +54,7 @@ public final class UserDefaultsBookStorage: BookLibraryStorage {
             let books = try JSONDecoder().decode([Book].self, from: data)
             return books
         } catch {
-            Logger(subsystem: "com.example.reader", category: "library")
+            Log.logger(category: "library")
                 .error("Failed to decode books: \(error.localizedDescription, privacy: .public)")
             return []
         }
@@ -65,14 +65,14 @@ public final class UserDefaultsBookStorage: BookLibraryStorage {
             let data = try JSONEncoder().encode(books)
             defaults.set(data, forKey: key)
         } catch {
-            Logger(subsystem: "com.example.reader", category: "library")
+            Log.logger(category: "library")
                 .error("Failed to encode books: \(error.localizedDescription, privacy: .public)")
         }
     }
 }
 
 public final class BookLibraryService {
-    private static let logger = Logger(subsystem: "com.splap.reader", category: "library")
+    private static let logger = Log.logger(category: "library")
 
     public static let shared = BookLibraryService()
 

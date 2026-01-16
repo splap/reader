@@ -11,7 +11,7 @@ public struct PaginationResult {
 }
 
 public final class TextEngine {
-    private static let logger = Logger(subsystem: "com.example.reader", category: "text-engine")
+    private static let logger = Log.logger(category: "text-engine")
 
     private struct InsetsKey: Hashable {
         let top: CGFloat

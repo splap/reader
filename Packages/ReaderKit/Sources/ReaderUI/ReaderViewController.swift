@@ -5,7 +5,7 @@ import ReaderCore
 import OSLog
 
 public final class ReaderViewController: UIViewController {
-    private static let logger = Logger(subsystem: "com.splap.reader", category: "reader-vc")
+    private static let logger = Log.logger(category: "reader-vc")
     private let viewModel: ReaderViewModel
     private let chapter: Chapter
     private let bookTitle: String?

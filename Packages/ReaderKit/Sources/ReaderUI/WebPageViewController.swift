@@ -39,7 +39,7 @@ private class SelectableWebView: WKWebView {
 
 final class WebPageViewController: UIViewController {
 
-    private static let logger = Logger(subsystem: "com.example.reader", category: "page-view")
+    private static let logger = Log.logger(category: "page-view")
     private let htmlSections: [HTMLSection]
     private let bookTitle: String?
     private let bookAuthor: String?

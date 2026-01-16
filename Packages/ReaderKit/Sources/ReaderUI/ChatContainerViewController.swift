@@ -4,7 +4,7 @@ import OSLog
 
 /// Container view controller that manages the conversation drawer and chat view
 public final class ChatContainerViewController: UIViewController {
-    private static let logger = Logger(subsystem: "com.splap.reader", category: "chat-container")
+    private static let logger = Log.logger(category: "chat-container")
     private let context: BookContext
     private let initialSelection: String?
 

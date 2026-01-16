@@ -9,7 +9,7 @@ struct LLMPayload: Identifiable {
 }
 
 final class ReaderViewModel: ObservableObject {
-    private static let logger = Logger(subsystem: "com.example.reader", category: "paging")
+    private static let logger = Log.logger(category: "paging")
 
     private static func debugLog(_ message: String) {
         let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("reader-position-debug.log")

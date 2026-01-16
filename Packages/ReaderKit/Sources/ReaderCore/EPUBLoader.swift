@@ -4,7 +4,7 @@ import UIKit
 import ZIPFoundation
 
 public final class EPUBLoader {
-    private static let logger = Logger(subsystem: "com.example.reader", category: "epub")
+    private static let logger = Log.logger(category: "epub")
 
     public enum LoaderError: Error, CustomStringConvertible {
         case invalidArchive
