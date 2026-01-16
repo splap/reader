@@ -11,16 +11,7 @@ private class SelectableWebView: WKWebView {
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         let actionName = NSStringFromSelector(action)
 
-        // Log all actions to see what we're dealing with
-        NSLog("WebView action: \(actionName)")
-
-        // Show our custom action
-        if action == #selector(sendToLLMAction) {
-            return true
-        }
-
         // Hide specific actions to make room for our action in the primary menu
-        // Block translate, look up, search web, and share
         if actionName.contains("translate") ||
            actionName.contains("define") ||
            actionName.contains("_lookup") ||
@@ -32,8 +23,15 @@ private class SelectableWebView: WKWebView {
         return super.canPerformAction(action, withSender: sender)
     }
 
-    @objc func sendToLLMAction() {
-        onSendToLLM?()
+    override func buildMenu(with builder: any UIMenuBuilder) {
+        super.buildMenu(with: builder)
+
+        let sendToLLMAction = UIAction(title: "Send to LLM", image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { [weak self] _ in
+            self?.onSendToLLM?()
+        }
+
+        let menu = UIMenu(title: "", options: .displayInline, children: [sendToLLMAction])
+        builder.insertChild(menu, atStartOfMenu: .standardEdit)
     }
 }
 
@@ -50,7 +48,6 @@ final class WebPageViewController: UIViewController {
     private var webView: SelectableWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
-    private var contentSizeObserver: NSKeyValueObservation?
     private var cssColumnWidth: CGFloat = 0  // Exact column width from CSS - source of truth for alignment
     private var initialPageIndex: Int = 0  // Page to navigate to after content loads (legacy)
     private var initialBlockId: String?  // Block ID to navigate to after content loads (preferred)
@@ -134,21 +131,6 @@ final class WebPageViewController: UIViewController {
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-
-        // Observe contentSize to re-enable scrolling when content loads
-        contentSizeObserver = webView.scrollView.observe(\.contentSize, options: [.new]) { scrollView, change in
-            WebPageViewController.logger.debug("contentSize changed to \(scrollView.contentSize.width)x\(scrollView.contentSize.height), isScrollEnabled=\(scrollView.isScrollEnabled)")
-            // WKWebView may disable scrolling when content loads - re-enable it
-            if scrollView.contentSize.width > scrollView.bounds.width {
-                scrollView.isScrollEnabled = true
-                scrollView.isPagingEnabled = false  // Use custom snapping
-                WebPageViewController.logger.info("Re-enabled scrolling via KVO")
-            }
-        }
-
-        // Register custom menu item for text selection
-        let menuItem = UIMenuItem(title: "Send to LLM", action: #selector(SelectableWebView.sendToLLMAction))
-        UIMenuController.shared.menuItems = [menuItem]
 
         loadContent()
     }
@@ -652,14 +634,9 @@ extension WebPageViewController: WKNavigationDelegate {
                 Self.logger.error("JavaScript error: \(error.localizedDescription)")
             }
 
-            // Wait a bit more for CSS columns to finish laying out
+            // Wait for CSS columns to finish laying out
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                 guard let self = self else { return }
-                let sv = self.webView.scrollView
-                Self.logger.info("After load: contentSize=\(sv.contentSize.width)x\(sv.contentSize.height) isScrollEnabled=\(sv.isScrollEnabled)")
-                sv.isScrollEnabled = true
-                sv.isPagingEnabled = false  // Custom snapping for precise alignment
-                Self.logger.info("Set isScrollEnabled=true, actual value=\(sv.isScrollEnabled)")
 
                 // Query exact CSS column width for precise alignment
                 self.queryCSSColumnWidth {

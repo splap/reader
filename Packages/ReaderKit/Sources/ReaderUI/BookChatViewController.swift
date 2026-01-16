@@ -71,7 +71,7 @@ public final class BookChatViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        Self.logger.debug("Chat UI opened for book: \(self.context.bookTitle ?? "unknown", privacy: .public)")
+        Self.logger.debug("Chat UI opened for book: \(self.context.bookTitle, privacy: .public)")
         setupUI()
         setupKeyboardObservers()
         setupFontScaleObserver()
@@ -163,17 +163,14 @@ public final class BookChatViewController: UIViewController {
 
         // Model selector button - left side of button row
         modelButton.translatesAutoresizingMaskIntoConstraints = false
-        modelButton.setTitle(OpenRouterConfig.modelDisplayName, for: .normal)
-        modelButton.setTitleColor(.secondaryLabel, for: .normal)
-        modelButton.titleLabel?.font = fontManager.captionFont
-
-        // Create smaller chevron icon
-        let chevronConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular, scale: .small)
-        let chevronImage = UIImage(systemName: "chevron.down", withConfiguration: chevronConfig)
-        modelButton.setImage(chevronImage, for: .normal)
-        modelButton.tintColor = .secondaryLabel
-        modelButton.semanticContentAttribute = .forceRightToLeft
-        modelButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        var config = UIButton.Configuration.plain()
+        config.title = OpenRouterConfig.modelDisplayName
+        config.baseForegroundColor = .secondaryLabel
+        config.image = UIImage(systemName: "chevron.down")
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 10, weight: .regular, scale: .small)
+        config.imagePlacement = .trailing
+        config.imagePadding = 4
+        modelButton.configuration = config
         modelButton.showsMenuAsPrimaryAction = true
         modelButton.menu = createModelMenu()
         buttonRow.addSubview(modelButton)
