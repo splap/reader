@@ -128,7 +128,7 @@ public final class ReaderViewController: UIViewController {
             initialPageIndex: viewModel.initialPageIndex,
             initialBlockId: viewModel.initialBlockId,
             onSendToLLM: { [weak self] selection in
-                self?.openChatWithSelection(selection.selectedText)
+                self?.openChatWithSelection(selection)
             },
             onPageChanged: { [weak self] newPage, totalPages in
                 self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
@@ -437,7 +437,7 @@ public final class ReaderViewController: UIViewController {
         openChatWithSelection(nil)
     }
 
-    private func openChatWithSelection(_ selection: String?) {
+    private func openChatWithSelection(_ selection: SelectionPayload?) {
         // Create book context from current state
         let bookContext = ReaderBookContext(
             chapter: chapter,

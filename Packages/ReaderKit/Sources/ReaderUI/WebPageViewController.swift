@@ -140,7 +140,7 @@ final class WebPageViewController: UIViewController {
     }
 
     private func extractAndSendSelection() {
-        // JavaScript to get selected text and surrounding context
+        // JavaScript to get selected text, surrounding context, and block/spine IDs
         let js = """
         (function() {
             const selection = window.getSelection();
@@ -158,26 +158,41 @@ final class WebPageViewController: UIViewController {
 
             // Find the position of selected text in full text
             const selectionStart = fullText.indexOf(selectedText);
-            if (selectionStart === -1) {
-                return {
-                    selectedText: selectedText,
-                    contextText: selectedText,
-                    location: 0,
-                    length: selectedText.length
-                };
+            let contextText = selectedText;
+            let location = 0;
+
+            if (selectionStart !== -1) {
+                location = selectionStart;
+                // Extract context (500 chars before and after)
+                const contextLength = 500;
+                const contextStart = Math.max(0, selectionStart - contextLength);
+                const contextEnd = Math.min(fullText.length, selectionStart + selectedText.length + contextLength);
+                contextText = fullText.substring(contextStart, contextEnd);
             }
 
-            // Extract context (500 chars before and after)
-            const contextLength = 500;
-            const contextStart = Math.max(0, selectionStart - contextLength);
-            const contextEnd = Math.min(fullText.length, selectionStart + selectedText.length + contextLength);
-            const contextText = fullText.substring(contextStart, contextEnd);
+            // Walk up DOM tree from selection to find element with data-block-id
+            let blockId = null;
+            let spineItemId = null;
+            let node = selection.anchorNode;
+            while (node && node !== document.body) {
+                if (node.nodeType === 1) {  // Element node
+                    const el = node;
+                    if (el.dataset && el.dataset.blockId) {
+                        blockId = el.dataset.blockId;
+                        spineItemId = el.dataset.spineItemId || null;
+                        break;
+                    }
+                }
+                node = node.parentNode;
+            }
 
             return {
                 selectedText: selectedText,
                 contextText: contextText,
-                location: selectionStart,
-                length: selectedText.length
+                location: location,
+                length: selectedText.length,
+                blockId: blockId,
+                spineItemId: spineItemId
             };
         })();
         """
@@ -199,13 +214,19 @@ final class WebPageViewController: UIViewController {
                 return
             }
 
+            // Extract optional block and spine IDs
+            let blockId = dict["blockId"] as? String
+            let spineItemId = dict["spineItemId"] as? String
+
             let payload = SelectionPayload(
                 selectedText: selectedText,
                 contextText: contextText,
                 range: NSRange(location: location, length: length),
                 bookTitle: self.bookTitle,
                 bookAuthor: self.bookAuthor,
-                chapterTitle: self.chapterTitle
+                chapterTitle: self.chapterTitle,
+                blockId: blockId,
+                spineItemId: spineItemId
             )
 
             self.onSendToLLM(payload)

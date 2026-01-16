@@ -8,7 +8,7 @@ public final class BookChatViewController: UIViewController {
     private static let logger = Log.logger(category: "chat")
     private let context: BookContext
     private let agentService = ReaderAgentService()
-    private let initialSelection: String?
+    private let initialSelection: SelectionPayload?
     private let conversationId: UUID?
     private let fontManager = FontScaleManager.shared
 
@@ -41,7 +41,7 @@ public final class BookChatViewController: UIViewController {
 
     // MARK: - Initialization
 
-    public init(context: BookContext, selection: String? = nil, conversationId: UUID? = nil) {
+    public init(context: BookContext, selection: SelectionPayload? = nil, conversationId: UUID? = nil) {
         self.context = context
         self.initialSelection = selection
         self.conversationId = conversationId
@@ -117,11 +117,21 @@ public final class BookChatViewController: UIViewController {
             action: #selector(toggleDrawer)
         )
 
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        // Debug transcript button
+        let debugButton = UIBarButtonItem(
+            image: UIImage(systemName: "doc.text"),
+            style: .plain,
+            target: self,
+            action: #selector(copyDebugTranscript)
+        )
+
+        let closeButton = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,
             action: #selector(dismissChat)
         )
+
+        navigationItem.rightBarButtonItems = [closeButton, debugButton]
 
         // Table view for messages
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -276,7 +286,14 @@ public final class BookChatViewController: UIViewController {
         if conversationId != nil && !conversation.messages.isEmpty {
             for storedMsg in conversation.messages {
                 let role: ChatMessage.Role = storedMsg.role == .user ? .user : .assistant
-                messages.append(ChatMessage(role: role, content: storedMsg.content))
+                let hasTrace = storedMsg.executionTrace != nil
+                let message = ChatMessage(role: role, content: storedMsg.content, isCollapsed: hasTrace, hasTrace: hasTrace)
+                messages.append(message)
+
+                // Restore execution trace if available
+                if let trace = storedMsg.executionTrace {
+                    messageTraces[message.id] = trace
+                }
 
                 // Add to conversation history for the agent
                 if storedMsg.role == .user {
@@ -291,7 +308,7 @@ public final class BookChatViewController: UIViewController {
             }
         } else if let selection = initialSelection {
             // Strip quotes from selection, wrap in quotes, and format with "selection: "
-            let cleanedSelection = selection.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "'", with: "")
+            let cleanedSelection = selection.selectedText.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "'", with: "")
             let formattedText = "selection: \"\(cleanedSelection)\"\n\n"
             textView.text = formattedText
             placeholderLabel.isHidden = true
@@ -333,6 +350,80 @@ public final class BookChatViewController: UIViewController {
         dismiss(animated: true)
     }
 
+    @objc private func copyDebugTranscript() {
+        let transcript = buildDebugTranscript()
+        UIPasteboard.general.string = transcript
+
+        // Show brief confirmation
+        let alert = UIAlertController(
+            title: "Copied",
+            message: "Debug transcript copied to clipboard (\(transcript.count) chars)",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func buildDebugTranscript() -> String {
+        var transcript = "=== DEBUG TRANSCRIPT ===\n"
+        transcript += "Book: \(context.bookTitle)\n"
+        if let author = context.bookAuthor {
+            transcript += "Author: \(author)\n"
+        }
+        transcript += "Generated: \(Date())\n"
+        transcript += "========================\n\n"
+
+        // Include full conversation history (raw LLM messages)
+        transcript += "--- CONVERSATION HISTORY (Raw LLM Messages) ---\n\n"
+        for (index, msg) in conversationHistory.enumerated() {
+            transcript += "[\(index)] \(msg.role.rawValue.uppercased())\n"
+
+            if let content = msg.content {
+                transcript += "Content:\n\(content)\n"
+            }
+
+            if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                transcript += "Tool Calls:\n"
+                for call in toolCalls {
+                    transcript += "  - \(call.function.name)\n"
+                    transcript += "    Args: \(call.function.arguments)\n"
+                }
+            }
+
+            if let toolCallId = msg.toolCallId {
+                transcript += "Tool Call ID: \(toolCallId)\n"
+            }
+
+            transcript += "\n"
+        }
+
+        // Include execution traces
+        transcript += "--- EXECUTION TRACES ---\n\n"
+        for (index, message) in messages.enumerated() {
+            if let trace = messageTraces[message.id] {
+                transcript += "Message \(index) Trace:\n"
+                transcript += "  Book: \(trace.bookContext.title)\n"
+                transcript += "  Position: \(trace.bookContext.position)\n"
+                if let chapter = trace.bookContext.currentChapter {
+                    transcript += "  Chapter: \(chapter)\n"
+                }
+                if let surrounding = trace.bookContext.surroundingText {
+                    transcript += "  Context: \(surrounding.prefix(200))...\n"
+                }
+                transcript += "  Tools:\n"
+                for tool in trace.toolExecutions {
+                    transcript += "    - \(tool.functionName)\n"
+                    transcript += "      Args: \(tool.arguments)\n"
+                    transcript += "      Result: \(tool.result.prefix(500))\n"
+                    transcript += "      Time: \(String(format: "%.2f", tool.executionTime))s\n"
+                }
+                transcript += "\n"
+            }
+        }
+
+        return transcript
+    }
+
     private func saveAndSummarizeConversation() {
         // Convert UI messages to stored messages (exclude system messages)
         let storedMessages = messages.compactMap { msg -> StoredMessage? in
@@ -340,7 +431,9 @@ public final class BookChatViewController: UIViewController {
             case .user:
                 return StoredMessage(role: .user, content: msg.content)
             case .assistant:
-                return StoredMessage(role: .assistant, content: msg.content)
+                // Include execution trace if available
+                let trace = messageTraces[msg.id]
+                return StoredMessage(role: .assistant, content: msg.content, executionTrace: trace)
             case .system:
                 return nil // Don't save system/context messages
             }
@@ -431,7 +524,10 @@ public final class BookChatViewController: UIViewController {
                 let result = try await agentService.chat(
                     message: text,
                     context: context,
-                    history: conversationHistory
+                    history: conversationHistory,
+                    selectionContext: initialSelection?.contextText,
+                    selectionBlockId: initialSelection?.blockId,
+                    selectionSpineItemId: initialSelection?.spineItemId
                 )
 
                 await MainActor.run {
@@ -730,6 +826,7 @@ private struct ChatMessage {
 
 private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
+    private let contentStack = UIStackView()  // Main vertical stack for all content
     private let messageLabel = UILabel()
     private let imageContainerView = UIStackView()
     private let traceLabel = UILabel()
@@ -762,58 +859,47 @@ private final class ChatMessageCell: UITableViewCell {
         backgroundColor = .clear
         selectionStyle = .none
 
+        // Bubble container
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.layer.cornerRadius = 12
         bubbleView.clipsToBounds = true
         contentView.addSubview(bubbleView)
 
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Main content stack - handles all vertical layout automatically
+        // Hidden views are removed from layout by UIStackView
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .vertical
+        contentStack.spacing = 8
+        contentStack.alignment = .fill
+        bubbleView.addSubview(contentStack)
+
+        // Message label
         messageLabel.numberOfLines = 0
         messageLabel.font = fontManager.bodyFont
-        bubbleView.addSubview(messageLabel)
+        contentStack.addArrangedSubview(messageLabel)
 
-        // Image container for displaying images
-        imageContainerView.translatesAutoresizingMaskIntoConstraints = false
+        // Image container for displaying images/maps
         imageContainerView.axis = .vertical
         imageContainerView.spacing = 8
         imageContainerView.isHidden = true
-        bubbleView.addSubview(imageContainerView)
+        contentStack.addArrangedSubview(imageContainerView)
 
-        traceLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Trace label for execution details
         traceLabel.numberOfLines = 0
         traceLabel.font = fontManager.monospacedFont(size: 12)
         traceLabel.textColor = .secondaryLabel
         traceLabel.isHidden = true
-        bubbleView.addSubview(traceLabel)
+        contentStack.addArrangedSubview(traceLabel)
 
-        // Create fallback constraint for when trace is hidden
-        // Equal top/bottom padding to center text vertically
-        let messageLabelBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -8)
-        messageLabelBottomConstraint.priority = .defaultLow
-
-        // Image container sits below message label - generous padding
-        let imageContainerTopConstraint = imageContainerView.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 20)
-        let imageContainerBottomConstraint = imageContainerView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -20)
-        imageContainerBottomConstraint.priority = .defaultHigh
-
+        // Simple constraints: bubble in cell, stack in bubble with padding
         NSLayoutConstraint.activate([
-            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
+            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
-            messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
-            messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
-            messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            messageLabelBottomConstraint,
-
-            imageContainerTopConstraint,
-            imageContainerView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 24),
-            imageContainerView.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -24),
-            imageContainerBottomConstraint,
-
-            traceLabel.topAnchor.constraint(equalTo: imageContainerView.bottomAnchor, constant: 6),
-            traceLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
-            traceLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            traceLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -4)
+            contentStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
+            contentStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
+            contentStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
+            contentStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -12)
         ])
 
         // Add tap gesture for collapsible messages

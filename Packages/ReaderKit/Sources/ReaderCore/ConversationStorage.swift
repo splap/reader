@@ -40,11 +40,13 @@ public struct StoredMessage: Codable {
     public let role: Role
     public let content: String
     public let timestamp: Date
+    public let executionTrace: AgentExecutionTrace?
 
-    public init(role: Role, content: String, timestamp: Date = Date()) {
+    public init(role: Role, content: String, timestamp: Date = Date(), executionTrace: AgentExecutionTrace? = nil) {
         self.role = role
         self.content = content
         self.timestamp = timestamp
+        self.executionTrace = executionTrace
     }
 }
 

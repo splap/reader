@@ -7,6 +7,8 @@ public struct SelectionPayload: Equatable {
     public let bookTitle: String?
     public let bookAuthor: String?
     public let chapterTitle: String?
+    public let blockId: String?
+    public let spineItemId: String?
 
     public init(
         selectedText: String,
@@ -14,7 +16,9 @@ public struct SelectionPayload: Equatable {
         range: NSRange,
         bookTitle: String? = nil,
         bookAuthor: String? = nil,
-        chapterTitle: String? = nil
+        chapterTitle: String? = nil,
+        blockId: String? = nil,
+        spineItemId: String? = nil
     ) {
         self.selectedText = selectedText
         self.contextText = contextText
@@ -22,5 +26,7 @@ public struct SelectionPayload: Equatable {
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
         self.chapterTitle = chapterTitle
+        self.blockId = blockId
+        self.spineItemId = spineItemId
     }
 }

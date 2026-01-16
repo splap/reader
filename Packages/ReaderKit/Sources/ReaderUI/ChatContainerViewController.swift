@@ -6,7 +6,7 @@ import OSLog
 public final class ChatContainerViewController: UIViewController {
     private static let logger = Log.logger(category: "chat-container")
     private let context: BookContext
-    private let initialSelection: String?
+    private let initialSelection: SelectionPayload?
 
     private var drawerViewController: ConversationDrawerViewController!
     private var chatViewController: BookChatViewController!
@@ -18,7 +18,7 @@ public final class ChatContainerViewController: UIViewController {
 
     // MARK: - Initialization
 
-    public init(context: BookContext, selection: String? = nil) {
+    public init(context: BookContext, selection: SelectionPayload? = nil) {
         self.context = context
         self.initialSelection = selection
         super.init(nibName: nil, bundle: nil)

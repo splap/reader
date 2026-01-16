@@ -11,10 +11,20 @@ public actor ReaderAgentService {
 
     /// Send a chat message and get a response, potentially with tool calls
     /// Returns the response and updated conversation history
+    /// - Parameters:
+    ///   - message: The user's message
+    ///   - context: Book context for tool execution
+    ///   - history: Conversation history
+    ///   - selectionContext: Optional surrounding text from user's text selection (500 chars around selection)
+    ///   - selectionBlockId: Optional block ID where the selection was made
+    ///   - selectionSpineItemId: Optional spine item ID where the selection was made
     public func chat(
         message: String,
         context: BookContext,
-        history: [AgentMessage]
+        history: [AgentMessage],
+        selectionContext: String? = nil,
+        selectionBlockId: String? = nil,
+        selectionSpineItemId: String? = nil
     ) async throws -> (response: AgentResponse, updatedHistory: [AgentMessage]) {
         var history = history
         guard let apiKey = OpenRouterConfig.apiKey, !apiKey.isEmpty else {
@@ -22,16 +32,15 @@ public actor ReaderAgentService {
         }
 
         // Build system prompt with book context
-        let systemPrompt = buildSystemPrompt(context: context)
+        let systemPrompt = buildSystemPrompt(context: context, selectionContext: selectionContext, selectionBlockId: selectionBlockId)
 
         // Capture book context for trace
-        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
-        let traceBookContext = TraceBookContext(
-            title: context.bookTitle,
-            author: context.bookAuthor,
-            currentChapter: currentSection?.title,
-            position: buildPositionString(context),
-            surroundingText: buildSurroundingText(context)
+        // Use selection position if available, otherwise fall back to current reading position
+        let traceBookContext = buildTraceBookContext(
+            context: context,
+            selectionContext: selectionContext,
+            selectionBlockId: selectionBlockId,
+            selectionSpineItemId: selectionSpineItemId
         )
 
         // Add user message to history
@@ -121,7 +130,7 @@ public actor ReaderAgentService {
 
     // MARK: - System Prompt
 
-    private func buildSystemPrompt(context: BookContext) -> String {
+    private func buildSystemPrompt(context: BookContext, selectionContext: String?, selectionBlockId: String?) -> String {
         var prompt = """
         You are a helpful assistant. The user is currently reading a book and may ask questions about it, \
         but they may also ask general knowledge questions unrelated to the book.
@@ -148,8 +157,22 @@ public actor ReaderAgentService {
             prompt += "\nCurrent chapter: \(title)"
         }
 
-        // Add context around current reading position
-        if let blockId = context.currentBlockId {
+        // If user selected text, include the surrounding context from their selection
+        // This takes priority over block-based position context
+        if let selectionContext = selectionContext {
+            prompt += """
+
+
+            The user has highlighted text in the book. Here is the surrounding context from around their selection:
+            \(selectionContext)
+            """
+
+            // If we have the block ID, tell the LLM it can use tools for more context
+            if let blockId = selectionBlockId {
+                prompt += "\n\nTo get more context around this selection, you can use get_surrounding_context with block_id: \"\(blockId)\""
+            }
+        } else if let blockId = context.currentBlockId {
+            // Fall back to block-based context from reading position
             let surroundingBlocks = context.blocksAround(blockId: blockId, count: 3)
             if !surroundingBlocks.isEmpty {
                 let contextText = surroundingBlocks.map { $0.textContent }.joined(separator: "\n\n")
@@ -197,6 +220,58 @@ public actor ReaderAgentService {
         }
 
         return text
+    }
+
+    /// Build trace book context with proper position info from selection or reading position
+    private func buildTraceBookContext(
+        context: BookContext,
+        selectionContext: String?,
+        selectionBlockId: String?,
+        selectionSpineItemId: String?
+    ) -> TraceBookContext {
+        // If we have selection position info, use it to build better position string
+        if let blockId = selectionBlockId, let spineItemId = selectionSpineItemId {
+            // Find the section for this spine item
+            if let section = context.sections.first(where: { $0.spineItemId == spineItemId }) {
+                // Get the block to find its ordinal
+                let blocks = context.blocksAround(blockId: blockId, count: 0)
+                if let block = blocks.first {
+                    let percentage = section.blockCount > 0
+                        ? Int(round(Double(block.ordinal + 1) / Double(section.blockCount) * 100))
+                        : 0
+                    let chapterTitle = section.title ?? "Chapter"
+                    let position = "\(chapterTitle) (\(percentage)% through)"
+
+                    return TraceBookContext(
+                        title: context.bookTitle,
+                        author: context.bookAuthor,
+                        currentChapter: section.title,
+                        position: position,
+                        surroundingText: selectionContext
+                    )
+                }
+            }
+
+            // Fallback if we couldn't look up the block
+            let section = context.sections.first { $0.spineItemId == selectionSpineItemId }
+            return TraceBookContext(
+                title: context.bookTitle,
+                author: context.bookAuthor,
+                currentChapter: section?.title,
+                position: section?.title ?? "Selected text",
+                surroundingText: selectionContext
+            )
+        }
+
+        // Fall back to reader's current position
+        let currentSection = context.sections.first { $0.spineItemId == context.currentSpineItemId }
+        return TraceBookContext(
+            title: context.bookTitle,
+            author: context.bookAuthor,
+            currentChapter: currentSection?.title,
+            position: buildPositionString(context),
+            surroundingText: selectionContext ?? buildSurroundingText(context)
+        )
     }
 
     // MARK: - API Call
