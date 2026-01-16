@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 // MARK: - Conversation Model
 
@@ -55,6 +56,7 @@ public struct StoredMessage: Codable {
 public final class ConversationStorage {
     public static let shared = ConversationStorage()
 
+    private static let logger = Log.logger(category: "conversations")
     private let userDefaults: UserDefaults
     private let key = "reader.conversations"
 
@@ -73,7 +75,7 @@ public final class ConversationStorage {
             let conversations = try JSONDecoder().decode([Conversation].self, from: data)
             return conversations.sorted { $0.updatedAt > $1.updatedAt }
         } catch {
-            print("Failed to decode conversations: \(error)")
+            Self.logger.error("Failed to decode conversations: \(error.localizedDescription, privacy: .public)")
             return []
         }
     }
@@ -111,7 +113,7 @@ public final class ConversationStorage {
             let data = try JSONEncoder().encode(conversations)
             userDefaults.set(data, forKey: key)
         } catch {
-            print("Failed to encode conversations: \(error)")
+            Self.logger.error("Failed to encode conversations: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

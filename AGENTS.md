@@ -63,7 +63,7 @@ xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data
 
 ## Test Books Location
 
-Test epub files are located at: `/Volumes/jimini/media/books`
+Test epub files location: Set `TEST_BOOKS_DIR` environment variable to your epub directory
 
 To load test books into the SESSION simulator:
 ```bash
@@ -76,7 +76,7 @@ APP_CONTAINER=$(xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reade
 # Load books
 BOOKS_DIR="$APP_CONTAINER/Documents/TestBooks"
 mkdir -p "$BOOKS_DIR"
-cp /Volumes/jimini/media/books/*.epub "$BOOKS_DIR/"
+cp "$TEST_BOOKS_DIR"/*.epub "$BOOKS_DIR/"
 ```
 
 Available test books include:

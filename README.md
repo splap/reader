@@ -1,106 +1,107 @@
 # Reader
 
-An iPadOS EPUB reader with built-in LLM chat for asking questions about your books.
+A native iPadOS EPUB reader with integrated LLM assistant. Select text in any book and ask questions - the AI can search the book, look up Wikipedia, and display maps inline.
+
+## Demo
+
+Import an EPUB, read with paginated CSS columns, select text and chat:
+
+- Ask "Who is this character?" and the LLM searches the book for mentions
+- Ask "Where is this place?" and see an inline map
+- Ask general questions and get Wikipedia-augmented answers
 
 ## Features
 
-- **EPUB Reading**: Reflowable, paginated reading with WKWebView and CSS columns
-- **LLM Chat**: Select text and ask questions via OpenRouter API
-- **Tool-Augmented Responses**: LLM can search book content, look up Wikipedia, show maps
-- **Library Management**: Import EPUBs, track reading position, conversation history
-- **Customization**: Adjustable font scale, text justification
+| Feature | Implementation |
+|---------|---------------|
+| EPUB Rendering | WKWebView with CSS multi-column pagination |
+| Text Selection | JavaScript bridge to native selection handling |
+| LLM Integration | OpenRouter API with tool-calling agent loop |
+| Book Search | Full-text search across all chapters |
+| Wikipedia Lookup | Fetch summaries and images inline |
+| Map Display | MapKit snapshots rendered in chat |
+| Conversation History | Persisted with full execution traces |
+| Reading Position | Auto-saved per book |
 
 ## Architecture
 
 ```
 Reader/
-├── App/                    # Thin app target (wiring + assets)
+├── App/                        # Thin app shell
+├── Packages/ReaderKit/
 │   └── Sources/
-├── Packages/ReaderKit/     # All feature code as SPM package
-│   └── Sources/
-│       ├── ReaderCore/     # Models, services, EPUB parsing
-│       └── ReaderUI/       # View controllers
-└── scripts/                # Build automation
+│       ├── ReaderCore/         # Domain logic (no UIKit)
+│       │   ├── EPUBLoader      # EPUB extraction & parsing
+│       │   ├── ReaderAgentService  # LLM agent with tool loop
+│       │   ├── AgentTools      # Book search, Wikipedia, maps
+│       │   └── BookContext     # Provides content to tools
+│       └── ReaderUI/           # UIKit view controllers
+│           ├── ReaderViewController   # Main reader
+│           ├── WebPageViewController  # WKWebView + JS bridge
+│           └── BookChatViewController # Chat interface
+├── scripts/                    # Reproducible build automation
+└── project.yml                 # XcodeGen project definition
 ```
 
-### Key Components
+### Design Decisions
 
-**ReaderCore**
-- `EPUBLoader` / `NCXParser` - EPUB parsing and extraction
-- `ReaderAgentService` - LLM chat with tool calling loop
-- `AgentTools` - Search book, Wikipedia lookup, map display
-- `ConversationStorage` - Persist chat history with execution traces
-- `BookContext` - Provides book content to LLM tools
+**WKWebView over TextKit**: EPUB content is HTML/CSS. Rather than converting to attributed strings, render natively in a web view with CSS column pagination. Trade-off: text selection requires a JavaScript bridge.
 
-**ReaderUI**
-- `LibraryViewController` - Book list and import
-- `ReaderViewController` - Main reader with WebView
-- `BookChatViewController` - Chat interface with debug transcript
-- `ChatContainerViewController` - Chat + conversation drawer
+**SPM Package Architecture**: All feature code lives in `ReaderKit` as a Swift Package. The app target is a thin shell. This enables fast incremental builds and clear dependency boundaries.
+
+**Tool-Calling Agent**: The LLM uses a multi-turn tool-calling loop. When the model needs book content, it calls `search_book`. When it needs external info, it calls `wikipedia_lookup`. Results feed back into the conversation until the model produces a final response.
+
+**Execution Traces**: Every LLM response includes a trace of what tools were called, with arguments and results. These traces persist with the conversation for debugging.
 
 ## Requirements
 
-- macOS with Xcode 15+
-- iOS 17.0+ deployment target
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) for project generation
-- OpenRouter API key for LLM features
+- Xcode 15+
+- iOS 17.0+ (iPad)
+- [Mint](https://github.com/yonaskolb/mint) (for XcodeGen)
+- OpenRouter API key
 
-## Setup
+## Quick Start
 
 ```bash
-# Install dependencies and generate Xcode project
+# Bootstrap (installs deps, generates Xcode project)
 ./scripts/bootstrap
 
-# Build
-./scripts/build
-
-# Run on simulator (tails logs - runs indefinitely)
+# Build and run on simulator
 ./scripts/run &
 
 # Run tests
-./scripts/test          # Unit tests
-./scripts/test ui       # UI tests
-./scripts/test all      # All tests
+./scripts/test
 ```
-
-## Configuration
-
-Set your OpenRouter API key in the app settings, or via `OpenRouterConfig.apiKey`.
 
 ## Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `./scripts/bootstrap` | Install deps, generate Xcode project |
-| `./scripts/build` | Build with xcodebuild |
-| `./scripts/run` | Build, install, launch, tail logs |
-| `./scripts/test` | Run unit/UI tests |
-| `./scripts/lint` | SwiftLint / SwiftFormat |
-| `./scripts/load-test-books` | Copy test EPUBs to simulator |
+| `bootstrap` | Install dependencies, generate Xcode project |
+| `build` | Deterministic xcodebuild |
+| `run` | Build, install, launch, stream logs |
+| `test` | Unit tests (`test ui` for UI tests) |
+| `lint` | SwiftLint + SwiftFormat |
 
-## Development
+## Configuration
 
-The project uses XcodeGen (`project.yml`) to generate the Xcode project. After modifying `project.yml` or package structure, run `./scripts/bootstrap`.
+Set `OpenRouterAPIKey` in app settings. The LLM model can be changed at runtime.
+
+## Development Notes
 
 ### Logging
 
-Uses OSLog with subsystem `com.splap.reader`:
+Centralized OSLog with subsystem `com.splap.reader`:
 
 ```swift
-import OSLog
-private static let logger = Log.logger(category: "my-feature")
-Self.logger.info("Message: \(value, privacy: .public)")
-```
-
-View logs:
-```bash
-xcrun simctl spawn booted log stream --style compact --predicate 'subsystem == "com.splap.reader"'
+private static let logger = Log.logger(category: "feature")
+Self.logger.info("Event: \(value, privacy: .public)")
 ```
 
 ### Debug Transcript
 
-The chat view has a doc icon button that copies the full LLM transcript to clipboard - useful for debugging what context was sent and what responses came back.
+Tap the doc icon in chat to copy the full LLM transcript - shows exactly what was sent to the model and what came back, including all tool calls.
 
-## License
+### AI-Assisted Development
 
-Private project.
+This project uses Claude Code for development. See `AGENTS.md` for the development workflow, including simulator management, logging standards, and deployment verification practices.
