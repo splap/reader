@@ -79,14 +79,12 @@ mkdir -p "$BOOKS_DIR"
 cp "$TEST_BOOKS_DIR"/*.epub "$BOOKS_DIR/"
 ```
 
-Available test books include:
-- Consider-Phlebas.epub (Banks, Ian M.)
-- The-Optimist.epub
-- ai_engineering_building_applications_with_foundation_models_chip_huyen.epub
-- silent_sun_hard_science_fiction_brandon_q_morris_morris_brandon_q.epub
-- the_fish_that_ate_the_whale_the_life_and_times_of_cohen_rich.epub
-- the_persian_a_novel_david_mccloskey.epub
-- the_ultimate_hitchhikers_guide_to_the_galaxy_five_novels_adams_douglas.epub
+**Bundled books** (included in app, appear on first launch):
+- Frankenstein (Mary Shelley)
+- Meditations (Marcus Aurelius)
+- The Metamorphosis (Franz Kafka)
+
+Additional test books can be loaded via `TEST_BOOKS_DIR` environment variable.
 
 ## CRITICAL: Deployment Verification
 

@@ -24,8 +24,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             UserDefaults.standard.synchronize()
         }
 
-        // Always scan for test books on launch (unless position test)
+        // Copy bundled books on first launch, then scan for all test books
         if !isPositionTest {
+            copyBundledBooksIfNeeded()
             importTestBooksIfNeeded()
         }
 
@@ -111,6 +112,30 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             print("Failed to import EPUB from external source: \(error)")
             return false
         }
+    }
+
+    // MARK: - Bundled Books
+
+    private func copyBundledBooksIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "BundledBooksInstalled") else { return }
+
+        let bundledBooks = ["frankenstein", "meditations", "the-metamorphosis"]
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let testBooksURL = documentsURL.appendingPathComponent("TestBooks")
+
+        try? FileManager.default.createDirectory(at: testBooksURL, withIntermediateDirectories: true)
+
+        for bookName in bundledBooks {
+            if let bundleURL = Bundle.main.url(forResource: bookName, withExtension: "epub") {
+                let destURL = testBooksURL.appendingPathComponent("\(bookName).epub")
+                if !FileManager.default.fileExists(atPath: destURL.path) {
+                    try? FileManager.default.copyItem(at: bundleURL, to: destURL)
+                }
+            }
+        }
+
+        defaults.set(true, forKey: "BundledBooksInstalled")
     }
 
     // MARK: - Test Helpers

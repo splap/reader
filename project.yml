@@ -19,6 +19,8 @@ targets:
       path: App/Info.plist
     sources:
       - path: App/Sources
+      - path: App/Resources
+        buildPhase: resources
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
