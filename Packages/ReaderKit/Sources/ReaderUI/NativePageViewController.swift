@@ -93,6 +93,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         scrollView.bounces = true
         scrollView.delegate = self
         scrollView.alwaysBounceVertical = false
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.isDirectionalLockEnabled = true
 
         view.addSubview(scrollView)
 

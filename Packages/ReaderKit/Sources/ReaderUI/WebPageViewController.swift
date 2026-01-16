@@ -113,6 +113,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         webView.scrollView.bounces = true
         webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.isDirectionalLockEnabled = true
         webView.scrollView.showsHorizontalScrollIndicator = false
         webView.scrollView.showsVerticalScrollIndicator = false
         webView.scrollView.maximumZoomScale = 1.0

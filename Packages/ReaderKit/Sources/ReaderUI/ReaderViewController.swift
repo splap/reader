@@ -23,9 +23,8 @@ public final class ReaderViewController: UIViewController {
     private let uiTestTargetPage: Int? = ReaderViewController.parseUITestTargetPage()
     private var hasPerformedUITestJump = false
 
-    #if DEBUG
-    private var debugOverlay: DebugOverlayView?
-    #endif
+    // Top bar container
+    private var topBarContainer: UIView!
 
     public init(chapter: Chapter = SampleChapter.make(), bookTitle: String? = nil, bookAuthor: String? = nil) {
         self.viewModel = ReaderViewModel(chapter: chapter)
@@ -64,7 +63,6 @@ public final class ReaderViewController: UIViewController {
         setupScrubber()
         setupTapGesture()
         setupKeyCommands()
-        setupDebugOverlay()
         bindViewModel()
 
         let showOverlay = CommandLine.arguments.contains("--uitesting-show-overlay")
@@ -89,28 +87,13 @@ public final class ReaderViewController: UIViewController {
 
         pageRenderer.viewController.view.frame = view.bounds
 
-        // Ensure floating buttons and scrubber are above the page renderer
-        view.bringSubviewToFront(backButton)
-        view.bringSubviewToFront(settingsButton)
-        view.bringSubviewToFront(chatButton)
+        // Ensure top bar and scrubber are above the page renderer
+        view.bringSubviewToFront(topBarContainer)
         view.bringSubviewToFront(scrubberContainer)
 
         if !hasInitialLayout {
             hasInitialLayout = true
-            #if DEBUG
-            debugOverlay?.update()
-            #endif
         }
-
-        #if DEBUG
-        if let overlay = debugOverlay {
-            overlay.sizeToFit()
-            let x = (view.bounds.width - overlay.bounds.width) / 2
-            let y = (view.bounds.height - overlay.bounds.height) / 2
-            overlay.frame.origin = CGPoint(x: x, y: y)
-            view.bringSubviewToFront(overlay)
-        }
-        #endif
     }
 
     private func setupWebPageViewController() {
@@ -156,12 +139,6 @@ public final class ReaderViewController: UIViewController {
             self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
             self?.updateScrubber()
             self?.maybePerformUITestJump(totalPages: totalPages)
-            #if DEBUG
-            self?.debugOverlay?.update()
-            if let overlay = self?.debugOverlay {
-                self?.view.bringSubviewToFront(overlay)
-            }
-            #endif
         }
         renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
             self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
@@ -179,6 +156,25 @@ public final class ReaderViewController: UIViewController {
 
 
     private func setupFloatingButtons() {
+        // Create top bar container with blur background
+        topBarContainer = UIView()
+        topBarContainer.translatesAutoresizingMaskIntoConstraints = false
+        topBarContainer.backgroundColor = .clear
+
+        // Blur background - use thin material for more transparency
+        let blurEffect = UIBlurEffect(style: .systemThinMaterial)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        blurView.layer.cornerRadius = 16
+        blurView.clipsToBounds = true
+        topBarContainer.addSubview(blurView)
+
+        // Shadow for container
+        topBarContainer.layer.shadowColor = UIColor.black.cgColor
+        topBarContainer.layer.shadowOpacity = 0.2
+        topBarContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
+        topBarContainer.layer.shadowRadius = 4
+
         // Create buttons
         backButton = FloatingButton(systemImage: "chevron.left")
         backButton.addTarget(self, action: #selector(navigateBack), for: .touchUpInside)
@@ -192,25 +188,40 @@ public final class ReaderViewController: UIViewController {
         chatButton.addTarget(self, action: #selector(showChat), for: .touchUpInside)
         chatButton.accessibilityLabel = "Chat"
 
-        view.addSubview(backButton)
-        view.addSubview(settingsButton)
-        view.addSubview(chatButton)
+        // Add buttons to container
+        topBarContainer.addSubview(backButton)
+        topBarContainer.addSubview(settingsButton)
+        topBarContainer.addSubview(chatButton)
+
+        view.addSubview(topBarContainer)
 
         NSLayoutConstraint.activate([
-            // Back button - top left
-            backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            // Top bar container at top
+            topBarContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            topBarContainer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            topBarContainer.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            topBarContainer.heightAnchor.constraint(equalToConstant: 76),
+
+            // Blur fills container
+            blurView.topAnchor.constraint(equalTo: topBarContainer.topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: topBarContainer.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: topBarContainer.trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: topBarContainer.bottomAnchor),
+
+            // Back button - top left within container
+            backButton.topAnchor.constraint(equalTo: topBarContainer.topAnchor, constant: 16),
+            backButton.leadingAnchor.constraint(equalTo: topBarContainer.leadingAnchor, constant: 16),
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
 
-            // Settings button - top right
-            settingsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            settingsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            // Settings button - top right within container
+            settingsButton.topAnchor.constraint(equalTo: topBarContainer.topAnchor, constant: 16),
+            settingsButton.trailingAnchor.constraint(equalTo: topBarContainer.trailingAnchor, constant: -16),
             settingsButton.widthAnchor.constraint(equalToConstant: 44),
             settingsButton.heightAnchor.constraint(equalToConstant: 44),
 
             // Chat button - next to settings button
-            chatButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            chatButton.topAnchor.constraint(equalTo: topBarContainer.topAnchor, constant: 16),
             chatButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -12),
             chatButton.widthAnchor.constraint(equalToConstant: 44),
             chatButton.heightAnchor.constraint(equalToConstant: 44)
@@ -221,9 +232,10 @@ public final class ReaderViewController: UIViewController {
         // Container with blur background
         scrubberContainer = UIView()
         scrubberContainer.translatesAutoresizingMaskIntoConstraints = false
+        scrubberContainer.backgroundColor = .clear
 
-        // Blur background
-        let blurEffect = UIBlurEffect(style: .systemMaterial)
+        // Blur background - use thin material for more transparency
+        let blurEffect = UIBlurEffect(style: .systemThinMaterial)
         let blurView = UIVisualEffectView(effect: blurEffect)
         blurView.translatesAutoresizingMaskIntoConstraints = false
         blurView.layer.cornerRadius = 16
@@ -317,15 +329,11 @@ public final class ReaderViewController: UIViewController {
 
         if animated {
             UIView.animate(withDuration: 0.25) {
-                self.backButton.alpha = alpha
-                self.settingsButton.alpha = alpha
-                self.chatButton.alpha = alpha
+                self.topBarContainer.alpha = alpha
                 self.scrubberContainer.alpha = alpha
             }
         } else {
-            backButton.alpha = alpha
-            settingsButton.alpha = alpha
-            chatButton.alpha = alpha
+            topBarContainer.alpha = alpha
             scrubberContainer.alpha = alpha
         }
     }
@@ -402,16 +410,6 @@ public final class ReaderViewController: UIViewController {
         ))
     }
 
-    private func setupDebugOverlay() {
-        #if DEBUG
-        debugOverlay = DebugOverlayView(viewModel: viewModel)
-        if let overlay = debugOverlay {
-            view.addSubview(overlay)
-            view.bringSubviewToFront(overlay)
-        }
-        #endif
-    }
-
     private func bindViewModel() {
         // Observe font scale changes
         viewModel.$fontScale
@@ -419,9 +417,6 @@ public final class ReaderViewController: UIViewController {
             .sink { [weak self] newScale in
                 guard let self else { return }
                 self.pageRenderer.fontScale = newScale
-                #if DEBUG
-                self.debugOverlay?.update()
-                #endif
             }
             .store(in: &cancellables)
 
@@ -537,14 +532,6 @@ private final class FloatingButton: UIButton {
     init(systemImage: String) {
         super.init(frame: .zero)
 
-        // Blur background
-        let blurEffect = UIBlurEffect(style: .systemMaterial)
-        let blurView = UIVisualEffectView(effect: blurEffect)
-        blurView.isUserInteractionEnabled = false
-        blurView.layer.cornerRadius = 22
-        blurView.clipsToBounds = true
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-
         // Button configuration
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: systemImage)
@@ -557,113 +544,11 @@ private final class FloatingButton: UIButton {
         config.baseForegroundColor = iconColor
         configuration = config
 
-        // Shadow
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.3
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-        layer.shadowRadius = 4
-
         // Layout
         translatesAutoresizingMaskIntoConstraints = false
-
-        // Add blur as background
-        insertSubview(blurView, at: 0)
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 }
-
-#if DEBUG
-private final class DebugOverlayView: UIView {
-    private weak var viewModel: ReaderViewModel?
-    private let stackView = UIStackView()
-
-    init(viewModel: ReaderViewModel) {
-        self.viewModel = viewModel
-        super.init(frame: .zero)
-        setupView()
-        update()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupView() {
-        backgroundColor = UIColor { traitCollection in
-            traitCollection.userInterfaceStyle == .dark
-                ? UIColor.white.withAlphaComponent(0.7)
-                : UIColor.black.withAlphaComponent(0.7)
-        }
-        layer.cornerRadius = 8
-        isUserInteractionEnabled = false
-        clipsToBounds = true
-
-        stackView.axis = .vertical
-        stackView.alignment = .leading
-        stackView.spacing = 6
-
-        addSubview(stackView)
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
-        ])
-    }
-
-    override func sizeToFit() {
-        super.sizeToFit()
-        let size = stackView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        frame.size = CGSize(width: size.width + 32, height: size.height + 32)
-    }
-
-    func update() {
-        stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        guard let viewModel else { return }
-
-        stackView.addArrangedSubview(makeLabel("build: \(BuildInfo.timestamp)"))
-        stackView.addArrangedSubview(makeLabel("total pages: \(viewModel.totalPages)"))
-        stackView.addArrangedSubview(makeLabel("current page: \(viewModel.currentPageIndex)"))
-        stackView.addArrangedSubview(makeLabel("font scale: \(String(format: "%.1f", viewModel.fontScale))x"))
-
-        sizeToFit()
-    }
-
-    private func makeLabel(_ text: String) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.textColor = UIColor { traitCollection in
-            traitCollection.userInterfaceStyle == .dark ? .black : .white
-        }
-        label.font = .systemFont(ofSize: 14)
-        return label
-    }
-
-    private func countWords(in text: String) -> Int {
-        var count = 0
-        var inWord = false
-        for scalar in text.unicodeScalars {
-            if CharacterSet.alphanumerics.contains(scalar) {
-                if !inWord {
-                    count += 1
-                    inWord = true
-                }
-            } else {
-                inWord = false
-            }
-        }
-        return count
-    }
-}
-#endif
