@@ -183,7 +183,97 @@ public final class BookLibraryService {
 
         Self.logger.info("Imported book: \(title, privacy: .public) (\(book.id, privacy: .public))")
 
+        // Index the book for search (background, non-blocking)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            self?.indexBookSync(book)
+        }
+
         return book
+    }
+
+    /// Synchronous indexing for background dispatch
+    private func indexBookSync(_ book: Book) {
+        Self.logger.info("Indexing book: \(book.title, privacy: .public)")
+
+        let fileURL = getFileURL(for: book)
+        let loader = EPUBLoader()
+        let chapter: Chapter
+        do {
+            chapter = try loader.loadChapter(from: fileURL, maxSections: .max)
+        } catch {
+            Self.logger.error("Index failed - EPUB load error: \(error, privacy: .public)")
+            return
+        }
+
+        let bookId = book.id.uuidString
+        let chapters = [chapter]
+        let chunks = Chunker.chunkBook(chapters: chapters, bookId: bookId)
+        Self.logger.debug("Created \(chunks.count, privacy: .public) chunks from \(chapter.allBlocks.count, privacy: .public) blocks")
+
+        let group = DispatchGroup()
+        group.enter()
+        Task {
+            do {
+                // Step 1: Index chunks in FTS5 (lexical search)
+                try await ChunkStore.shared.indexBook(chunks: chunks, bookId: bookId)
+                Self.logger.info("Indexed \(chunks.count, privacy: .public) chunks for \(book.title, privacy: .public)")
+
+                // Step 2: Generate embeddings and build vector index (semantic search)
+                await self.buildVectorIndex(bookId: bookId, chunks: chunks)
+
+                // Step 3: Build concept map (entities, themes, events)
+                await self.buildConceptMap(bookId: bookId, chapters: chapters)
+
+            } catch {
+                Self.logger.error("Index failed - store error: \(error, privacy: .public)")
+            }
+            group.leave()
+        }
+        group.wait()
+    }
+
+    /// Builds vector index for semantic search
+    private func buildVectorIndex(bookId: String, chunks: [Chunk]) async {
+        do {
+            let embeddingService = EmbeddingService.shared
+
+            // Check if embedding model is available
+            let modelAvailable = try await embeddingService.loadModel()
+            guard modelAvailable else {
+                Self.logger.info("Embedding model not available, skipping vector index")
+                return
+            }
+
+            // Generate embeddings
+            let texts = chunks.map(\.text)
+            let embeddings = try await embeddingService.embedBatch(texts: texts)
+
+            // Build HNSW index
+            try await VectorStore.shared.buildIndex(bookId: bookId, chunks: chunks, embeddings: embeddings)
+
+            Self.logger.info("Built vector index with \(embeddings.count, privacy: .public) embeddings")
+        } catch {
+            Self.logger.error("Vector index build failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Builds concept map for routing and discovery
+    private func buildConceptMap(bookId: String, chapters: [Chapter]) async {
+        do {
+            // Build the concept map
+            let conceptMap = ConceptMapBuilder.build(
+                bookId: bookId,
+                chapters: chapters,
+                chunkEmbeddings: nil  // TODO: Pass chunk embeddings when available
+            )
+
+            // Save to persistent storage
+            try await ConceptMapStore.shared.save(map: conceptMap)
+
+            Self.logger.info("Built concept map: \(conceptMap.entities.count, privacy: .public) entities, \(conceptMap.themes.count, privacy: .public) themes")
+        } catch {
+            Self.logger.error("Concept map build failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Library Operations
@@ -224,6 +314,32 @@ public final class BookLibraryService {
         // Remove from storage
         books.remove(at: index)
         storage.saveBooks(books)
+
+        // Remove from all indices
+        Task {
+            let bookId = id.uuidString
+
+            // Delete FTS5 index
+            do {
+                try await ChunkStore.shared.deleteBook(bookId: bookId)
+            } catch {
+                Self.logger.error("Failed to delete book from chunk index: \(error.localizedDescription, privacy: .public)")
+            }
+
+            // Delete vector index
+            do {
+                try await VectorStore.shared.deleteBook(bookId: bookId)
+            } catch {
+                Self.logger.error("Failed to delete book from vector index: \(error.localizedDescription, privacy: .public)")
+            }
+
+            // Delete concept map
+            do {
+                try await ConceptMapStore.shared.delete(bookId: bookId)
+            } catch {
+                Self.logger.error("Failed to delete book concept map: \(error.localizedDescription, privacy: .public)")
+            }
+        }
 
         Self.logger.info("Deleted book: \(book.title, privacy: .public) (\(id, privacy: .public))")
     }
@@ -303,6 +419,23 @@ public final class BookLibraryService {
         } catch {
             Self.logger.error("Failed to extract metadata: \(error.localizedDescription, privacy: .public)")
             return (title: epubURL.deletingPathExtension().lastPathComponent, author: nil)
+        }
+    }
+
+    // MARK: - Indexing
+
+    /// Indexes a specific book by title (for testing/debugging)
+    /// - Parameter titleContains: Substring to match in book title
+    public func indexBookByTitle(_ titleContains: String) {
+        guard let book = getAllBooks().first(where: { $0.title.lowercased().contains(titleContains.lowercased()) }) else {
+            Self.logger.warning("No book found matching '\(titleContains, privacy: .public)'")
+            return
+        }
+
+        Self.logger.info("Indexing book: \(book.title, privacy: .public)")
+
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            self?.indexBookSync(book)
         }
     }
 

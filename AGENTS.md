@@ -5,6 +5,21 @@ If a human can build/test it with one command, agents will succeed. Otherwise, t
 
 when you've made a change, run the app yourself so i see the result.
 
+## CRITICAL: Python via UV Only
+
+**NEVER use `pip install`. Always use `uv` for Python.**
+
+```bash
+# WRONG - never do this
+pip install transformers torch coremltools
+python scripts/convert_bge_to_coreml.py
+
+# CORRECT - always use uv
+uv run --with transformers --with torch --with coremltools python scripts/convert_bge_to_coreml.py
+```
+
+`uv` handles virtual environments and dependencies automatically. No need to create venvs or install packages globally.
+
 ## CRITICAL: Default to iOS Simulator
 
 **ALWAYS USE THE iOS 26 SIMULATOR BY DEFAULT** - Unless explicitly instructed otherwise, all development, testing, and debugging should happen on the iOS 26 simulator (iPad Pro 11-inch M4).

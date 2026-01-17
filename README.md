@@ -17,29 +17,86 @@ Import an EPUB, read with paginated CSS columns, select text and chat:
 | EPUB Rendering | WKWebView with CSS multi-column pagination |
 | Text Selection | JavaScript bridge to native selection handling |
 | LLM Integration | OpenRouter API with tool-calling agent loop |
-| Book Search | Full-text search across all chapters |
+| Book Search | FTS5 lexical + semantic vector search |
+| Concept Map | Entity/theme routing for scoped retrieval |
 | Wikipedia Lookup | Fetch summaries and images inline |
 | Map Display | MapKit snapshots rendered in chat |
 | Conversation History | Persisted with full execution traces |
 | Reading Position | Auto-saved per book |
+
+## Tool-First Book QA
+
+The reader implements a **tool-first QA architecture**: the LLM starts with minimal context and retrieves what it needs via tools, rather than preloading the entire book.
+
+### Preprocessing Pipeline
+
+When a book is imported, `BookLibraryService.indexBookSync()` builds three artifacts:
+
+**1. Chunk Store** — Text split into ~800 token chunks with 10% overlap
+- Files: `Chunk.swift`, `Chunker.swift`, `ChunkStore.swift`
+- Storage: SQLite with FTS5 virtual table for lexical search
+- BM25 ranking, scoped by chapter
+
+**2. Semantic Vector Index** — Dense embeddings for conceptual search
+- Model: `BAAI/bge-small-en-v1.5` (384-dim, MIT license)
+- Runtime: Core ML with Neural Engine acceleration
+- Index: HNSW via USearch (Swift bindings)
+- Files: `EmbeddingService.swift`, `VectorStore.swift`
+- Conversion: `scripts/convert_bge_to_coreml.py`
+
+**3. Book Concept Map** — Lightweight routing metadata
+- Entities: capitalized spans with salience scoring and co-occurrence
+- Themes: hierarchical agglomerative clustering (70/30 semantic/TF-IDF blend)
+- Events: entity pair interactions with chapter coverage
+- Hard caps: ≤500 entities, ≤200 themes, ≤500 events; each links to ≤24 chapters
+- Files: `TFIDFAnalyzer.swift`, `EntityExtractor.swift`, `ThemeClusterer.swift`, `ConceptMap.swift`, `ConceptMapStore.swift`
+
+### Agent Tools
+
+Defined in `AgentTools.swift`, executed by `ToolExecutor`:
+
+| Tool | Purpose |
+|------|---------|
+| `search_content` | FTS5 lexical search with BM25 ranking |
+| `semantic_search` | Vector similarity for conceptual queries |
+| `book_concept_map_lookup` | Route queries to relevant chapters |
+| `get_chapter_text` | Full chapter content |
+| `get_surrounding_context` | Blocks around a position |
+| `get_character_mentions` | All mentions of an entity |
+| `get_book_structure` | Table of contents |
+| `wikipedia_lookup` | External knowledge |
+| `show_map` | Inline map display |
+| `render_image` | Inline image display |
+
+### Runtime Flow
+
+See `plan.md` for the router and execution flow specification. The runtime orchestrates tool calls with:
+- Max 8 tool calls per question
+- Single scope escalation (chapters → whole book)
+- Evidence rule: no book answers without retrieved support
 
 ## Architecture
 
 ```
 Reader/
 ├── App/                        # Thin app shell
+│   └── Resources/
+│       └── bge-small-en.mlpackage  # Embedding model (128MB)
 ├── Packages/ReaderKit/
 │   └── Sources/
 │       ├── ReaderCore/         # Domain logic (no UIKit)
 │       │   ├── EPUBLoader      # EPUB extraction & parsing
+│       │   ├── Chunker         # Text chunking for search
+│       │   ├── ChunkStore      # FTS5 lexical index
+│       │   ├── EmbeddingService    # Core ML embeddings
+│       │   ├── VectorStore     # HNSW semantic index
+│       │   ├── ConceptMap*     # Entity/theme extraction
 │       │   ├── ReaderAgentService  # LLM agent with tool loop
-│       │   ├── AgentTools      # Book search, Wikipedia, maps
+│       │   ├── AgentTools      # Tool definitions
 │       │   └── BookContext     # Provides content to tools
 │       └── ReaderUI/           # UIKit view controllers
-│           ├── ReaderViewController   # Main reader
-│           ├── WebPageViewController  # WKWebView + JS bridge
-│           └── BookChatViewController # Chat interface
 ├── scripts/                    # Reproducible build automation
+│   └── convert_bge_to_coreml.py  # Model conversion
 └── project.yml                 # XcodeGen project definition
 ```
 
@@ -49,7 +106,9 @@ Reader/
 
 **SPM Package Architecture**: All feature code lives in `ReaderKit` as a Swift Package. The app target is a thin shell. This enables fast incremental builds and clear dependency boundaries.
 
-**Tool-Calling Agent**: The LLM uses a multi-turn tool-calling loop. When the model needs book content, it calls `search_book`. When it needs external info, it calls `wikipedia_lookup`. Results feed back into the conversation until the model produces a final response.
+**On-Device Embeddings**: The 128MB bge-small-en model runs entirely on-device via Core ML, using the Neural Engine when available. No network calls for semantic search.
+
+**Tool-Calling Agent**: The LLM uses a multi-turn tool-calling loop. When the model needs book content, it calls search tools. Results feed back into the conversation until the model produces a final response.
 
 **Execution Traces**: Every LLM response includes a trace of what tools were called, with arguments and results. These traces persist with the conversation for debugging.
 
@@ -59,6 +118,15 @@ Reader/
 - iOS 17.0+ (iPad)
 - [Mint](https://github.com/yonaskolb/mint) (for XcodeGen)
 - OpenRouter API key
+
+### Model Conversion (one-time)
+
+The embedding model must be converted to Core ML format:
+
+```bash
+# Convert model (creates App/Resources/bge-small-en.mlpackage)
+uv run --with transformers --with torch --with coremltools python scripts/convert_bge_to_coreml.py
+```
 
 ## Quick Start
 

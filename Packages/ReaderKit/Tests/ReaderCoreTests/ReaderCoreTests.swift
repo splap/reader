@@ -225,3 +225,398 @@ final class ReaderCoreTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Chunker Tests
+
+final class ChunkerTests: XCTestCase {
+    func testTokenEstimation() {
+        // ~4 chars per token
+        XCTAssertEqual(Chunk.estimateTokens(""), 1)  // Minimum of 1
+        XCTAssertEqual(Chunk.estimateTokens("word"), 1)
+        XCTAssertEqual(Chunk.estimateTokens("Hello, world!"), 3)  // 13 chars / 4 = 3
+        XCTAssertEqual(Chunk.estimateTokens(String(repeating: "a", count: 400)), 100)
+    }
+
+    func testChunkingWithSmallBlocks() {
+        // Create blocks that fit within one chunk
+        let blocks = (0..<5).map { ordinal in
+            Block(
+                spineItemId: "chapter1",
+                type: .paragraph,
+                textContent: "This is paragraph \(ordinal).",
+                htmlContent: "<p>This is paragraph \(ordinal).</p>",
+                ordinal: ordinal
+            )
+        }
+
+        let chunks = Chunker.chunk(blocks: blocks, bookId: "book1", chapterId: "chapter1")
+
+        // Small blocks should result in a single chunk
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(chunks.first?.blockIds.count, 5)
+        XCTAssertTrue(chunks.first?.text.contains("paragraph 0") ?? false)
+        XCTAssertTrue(chunks.first?.text.contains("paragraph 4") ?? false)
+    }
+
+    func testChunkingWithLargeBlocks() {
+        // Create blocks that exceed chunk size (800 tokens = ~3200 chars)
+        let largeText = String(repeating: "Lorem ipsum dolor sit amet. ", count: 150)  // ~4350 chars
+        let blocks = (0..<3).map { ordinal in
+            Block(
+                spineItemId: "chapter1",
+                type: .paragraph,
+                textContent: "[\(ordinal)] " + largeText,
+                htmlContent: "<p>[\(ordinal)] \(largeText)</p>",
+                ordinal: ordinal
+            )
+        }
+
+        let chunks = Chunker.chunk(blocks: blocks, bookId: "book1", chapterId: "chapter1")
+
+        // Should create multiple chunks
+        XCTAssertGreaterThan(chunks.count, 1)
+
+        // Verify chunk IDs are unique
+        let ids = Set(chunks.map { $0.id })
+        XCTAssertEqual(ids.count, chunks.count)
+
+        // Verify ordinals are sequential
+        for (index, chunk) in chunks.enumerated() {
+            XCTAssertEqual(chunk.ordinal, index)
+        }
+    }
+
+    func testChunkOverlap() {
+        // Create enough blocks to trigger overlap
+        let blocks = (0..<20).map { ordinal in
+            Block(
+                spineItemId: "chapter1",
+                type: .paragraph,
+                textContent: String(repeating: "Word ", count: 200) + "[\(ordinal)]",  // ~1000 chars each
+                htmlContent: "<p>\(String(repeating: "Word ", count: 200))[\(ordinal)]</p>",
+                ordinal: ordinal
+            )
+        }
+
+        let chunks = Chunker.chunk(blocks: blocks, bookId: "book1", chapterId: "chapter1")
+
+        // With overlap, some block IDs should appear in multiple chunks
+        guard chunks.count >= 2 else {
+            XCTFail("Expected at least 2 chunks")
+            return
+        }
+
+        // Check that chunks have reasonable token counts
+        for chunk in chunks {
+            XCTAssertGreaterThan(chunk.tokenCount, 0)
+        }
+    }
+
+    func testEmptyBlocks() {
+        let chunks = Chunker.chunk(blocks: [], bookId: "book1", chapterId: "chapter1")
+        XCTAssertTrue(chunks.isEmpty)
+    }
+
+    func testChunkBookMultipleChapters() {
+        let blocks1 = [
+            Block(spineItemId: "ch1", type: .paragraph, textContent: "Chapter 1 content", htmlContent: "<p>Chapter 1 content</p>", ordinal: 0)
+        ]
+        let blocks2 = [
+            Block(spineItemId: "ch2", type: .paragraph, textContent: "Chapter 2 content", htmlContent: "<p>Chapter 2 content</p>", ordinal: 0)
+        ]
+
+        let chapter1 = Chapter(
+            id: "ch1",
+            attributedText: NSAttributedString(string: "Chapter 1 content"),
+            htmlSections: [HTMLSection(html: "<p>Chapter 1 content</p>", basePath: "", blocks: blocks1, spineItemId: "ch1")],
+            title: "Chapter 1"
+        )
+        let chapter2 = Chapter(
+            id: "ch2",
+            attributedText: NSAttributedString(string: "Chapter 2 content"),
+            htmlSections: [HTMLSection(html: "<p>Chapter 2 content</p>", basePath: "", blocks: blocks2, spineItemId: "ch2")],
+            title: "Chapter 2"
+        )
+
+        let chunks = Chunker.chunkBook(chapters: [chapter1, chapter2], bookId: "book1")
+
+        XCTAssertEqual(chunks.count, 2)
+        XCTAssertEqual(chunks[0].chapterId, "ch1")
+        XCTAssertEqual(chunks[1].chapterId, "ch2")
+    }
+}
+
+// MARK: - ChunkStore Tests
+
+final class ChunkStoreTests: XCTestCase {
+    var testDbPath: URL!
+
+    override func setUp() async throws {
+        // Use a unique test database
+        testDbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-chunks-\(UUID().uuidString).sqlite")
+    }
+
+    override func tearDown() async throws {
+        // Clean up test database
+        try? FileManager.default.removeItem(at: testDbPath)
+    }
+
+    func testIndexAndRetrieveChunks() async throws {
+        let store = ChunkStore.shared
+
+        let chunks = [
+            Chunk(bookId: "test-book", chapterId: "ch1", text: "The quick brown fox jumps over the lazy dog.", blockIds: ["b1"], startOffset: 0, endOffset: 44, ordinal: 0),
+            Chunk(bookId: "test-book", chapterId: "ch1", text: "Pack my box with five dozen liquor jugs.", blockIds: ["b2"], startOffset: 45, endOffset: 85, ordinal: 1),
+        ]
+
+        try await store.indexBook(chunks: chunks, bookId: "test-book")
+
+        // Verify chunks were stored
+        let retrieved = try await store.getChunks(bookId: "test-book")
+        XCTAssertEqual(retrieved.count, 2)
+
+        // Verify chunk content
+        let firstChunk = retrieved.first { $0.ordinal == 0 }
+        XCTAssertNotNil(firstChunk)
+        XCTAssertTrue(firstChunk?.text.contains("quick brown fox") ?? false)
+    }
+
+    func testFTS5Search() async throws {
+        let store = ChunkStore.shared
+
+        let chunks = [
+            Chunk(bookId: "search-book", chapterId: "ch1", text: "The monster emerged from the dark forest.", blockIds: ["b1"], startOffset: 0, endOffset: 41, ordinal: 0),
+            Chunk(bookId: "search-book", chapterId: "ch1", text: "She walked through the sunny meadow.", blockIds: ["b2"], startOffset: 42, endOffset: 78, ordinal: 1),
+            Chunk(bookId: "search-book", chapterId: "ch2", text: "The forest was peaceful in the morning.", blockIds: ["b3"], startOffset: 0, endOffset: 39, ordinal: 0),
+        ]
+
+        try await store.indexBook(chunks: chunks, bookId: "search-book")
+
+        // Search for "forest"
+        let results = try await store.search(query: "forest", bookId: "search-book")
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertTrue(results.allSatisfy { $0.chunk.text.contains("forest") })
+    }
+
+    func testScopedSearch() async throws {
+        let store = ChunkStore.shared
+
+        let chunks = [
+            Chunk(bookId: "scope-book", chapterId: "ch1", text: "Chapter one has important content.", blockIds: ["b1"], startOffset: 0, endOffset: 34, ordinal: 0),
+            Chunk(bookId: "scope-book", chapterId: "ch2", text: "Chapter two also has important content.", blockIds: ["b2"], startOffset: 0, endOffset: 39, ordinal: 0),
+        ]
+
+        try await store.indexBook(chunks: chunks, bookId: "scope-book")
+
+        // Search scoped to ch1
+        let results = try await store.search(query: "important", bookId: "scope-book", chapterIds: ["ch1"])
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.chunk.chapterId, "ch1")
+    }
+
+    func testDeleteBook() async throws {
+        let store = ChunkStore.shared
+
+        let chunks = [
+            Chunk(bookId: "delete-book", chapterId: "ch1", text: "This will be deleted.", blockIds: ["b1"], startOffset: 0, endOffset: 21, ordinal: 0),
+        ]
+
+        try await store.indexBook(chunks: chunks, bookId: "delete-book")
+
+        // Verify indexed
+        let isIndexed = try await store.isBookIndexed(bookId: "delete-book")
+        XCTAssertTrue(isIndexed)
+
+        // Delete
+        try await store.deleteBook(bookId: "delete-book")
+
+        // Verify deleted
+        let isStillIndexed = try await store.isBookIndexed(bookId: "delete-book")
+        XCTAssertFalse(isStillIndexed)
+    }
+
+    func testReindexReplacesPrevious() async throws {
+        let store = ChunkStore.shared
+
+        let chunks1 = [
+            Chunk(bookId: "reindex-book", chapterId: "ch1", text: "Original content version one.", blockIds: ["b1"], startOffset: 0, endOffset: 29, ordinal: 0),
+        ]
+
+        try await store.indexBook(chunks: chunks1, bookId: "reindex-book")
+
+        let chunks2 = [
+            Chunk(bookId: "reindex-book", chapterId: "ch1", text: "New content version two.", blockIds: ["b2"], startOffset: 0, endOffset: 24, ordinal: 0),
+        ]
+
+        try await store.indexBook(chunks: chunks2, bookId: "reindex-book")
+
+        // Should only have the new content
+        let results = try await store.getChunks(bookId: "reindex-book")
+        XCTAssertEqual(results.count, 1)
+        XCTAssertTrue(results.first?.text.contains("version two") ?? false)
+    }
+}
+
+// MARK: - VectorStore Tests
+
+final class VectorStoreTests: XCTestCase {
+    let testBookId = "vector-test-book-\(UUID().uuidString)"
+
+    override func tearDown() async throws {
+        // Clean up test index
+        try? await VectorStore.shared.deleteBook(bookId: testBookId)
+    }
+
+    func testBuildAndSearchIndex() async throws {
+        let store = VectorStore.shared
+
+        // Create test chunks
+        let chunks = [
+            Chunk(bookId: testBookId, chapterId: "ch1", text: "The quick brown fox", blockIds: ["b1"], startOffset: 0, endOffset: 19, ordinal: 0),
+            Chunk(bookId: testBookId, chapterId: "ch1", text: "jumps over the lazy dog", blockIds: ["b2"], startOffset: 20, endOffset: 43, ordinal: 1),
+            Chunk(bookId: testBookId, chapterId: "ch2", text: "A completely different sentence", blockIds: ["b3"], startOffset: 0, endOffset: 31, ordinal: 0),
+        ]
+
+        // Create mock embeddings (384-dim normalized vectors)
+        let embeddings = chunks.map { _ in createMockEmbedding() }
+
+        // Build index
+        try await store.buildIndex(bookId: testBookId, chunks: chunks, embeddings: embeddings)
+
+        // Verify indexed
+        let isIndexed = await store.isIndexed(bookId: testBookId)
+        XCTAssertTrue(isIndexed)
+
+        // Search with first embedding (should return itself as top match)
+        let results = try await store.search(bookId: testBookId, queryEmbedding: embeddings[0], k: 3)
+
+        XCTAssertEqual(results.count, 3)
+        // First result should be the chunk whose embedding we used as query
+        XCTAssertEqual(results[0].chunkId, chunks[0].id)
+        XCTAssertGreaterThan(results[0].score, 0.99) // Should be ~1.0 for exact match
+    }
+
+    func testDeleteIndex() async throws {
+        let store = VectorStore.shared
+        let deleteBookId = "delete-vector-\(UUID().uuidString)"
+
+        // Create and index a chunk
+        let chunks = [
+            Chunk(bookId: deleteBookId, chapterId: "ch1", text: "Test content", blockIds: ["b1"], startOffset: 0, endOffset: 12, ordinal: 0),
+        ]
+        let embeddings = [createMockEmbedding()]
+
+        try await store.buildIndex(bookId: deleteBookId, chunks: chunks, embeddings: embeddings)
+
+        // Verify indexed
+        var isIndexed = await store.isIndexed(bookId: deleteBookId)
+        XCTAssertTrue(isIndexed)
+
+        // Delete
+        try await store.deleteBook(bookId: deleteBookId)
+
+        // Verify deleted
+        isIndexed = await store.isIndexed(bookId: deleteBookId)
+        XCTAssertFalse(isIndexed)
+    }
+
+    func testMismatchedCountsThrows() async throws {
+        let store = VectorStore.shared
+        let mismatchBookId = "mismatch-\(UUID().uuidString)"
+
+        let chunks = [
+            Chunk(bookId: mismatchBookId, chapterId: "ch1", text: "Chunk 1", blockIds: ["b1"], startOffset: 0, endOffset: 7, ordinal: 0),
+            Chunk(bookId: mismatchBookId, chapterId: "ch1", text: "Chunk 2", blockIds: ["b2"], startOffset: 8, endOffset: 15, ordinal: 1),
+        ]
+
+        // Only one embedding for two chunks
+        let embeddings = [createMockEmbedding()]
+
+        do {
+            try await store.buildIndex(bookId: mismatchBookId, chunks: chunks, embeddings: embeddings)
+            XCTFail("Expected error for mismatched counts")
+        } catch let error as VectorStoreError {
+            if case .mismatchedCounts(let chunks, let embeddings) = error {
+                XCTAssertEqual(chunks, 2)
+                XCTAssertEqual(embeddings, 1)
+            } else {
+                XCTFail("Expected mismatchedCounts error")
+            }
+        }
+    }
+
+    func testInvalidDimensionThrows() async throws {
+        let store = VectorStore.shared
+        let dimBookId = "dim-\(UUID().uuidString)"
+
+        let chunks = [
+            Chunk(bookId: dimBookId, chapterId: "ch1", text: "Test", blockIds: ["b1"], startOffset: 0, endOffset: 4, ordinal: 0),
+        ]
+
+        // Wrong dimension (128 instead of 384)
+        let wrongDimEmbedding = (0..<128).map { _ in Float.random(in: -1...1) }
+
+        do {
+            try await store.buildIndex(bookId: dimBookId, chunks: chunks, embeddings: [wrongDimEmbedding])
+            XCTFail("Expected error for invalid dimension")
+        } catch let error as VectorStoreError {
+            if case .invalidDimension(let expected, let actual) = error {
+                XCTAssertEqual(expected, 384)
+                XCTAssertEqual(actual, 128)
+            } else {
+                XCTFail("Expected invalidDimension error")
+            }
+        }
+    }
+
+    func testSearchInvalidDimensionThrows() async throws {
+        let store = VectorStore.shared
+
+        // Create index first
+        let chunks = [
+            Chunk(bookId: testBookId, chapterId: "ch1", text: "Test", blockIds: ["b1"], startOffset: 0, endOffset: 4, ordinal: 0),
+        ]
+        let embeddings = [createMockEmbedding()]
+        try await store.buildIndex(bookId: testBookId, chunks: chunks, embeddings: embeddings)
+
+        // Search with wrong dimension
+        let wrongDimQuery = (0..<128).map { _ in Float.random(in: -1...1) }
+
+        do {
+            _ = try await store.search(bookId: testBookId, queryEmbedding: wrongDimQuery, k: 1)
+            XCTFail("Expected error for invalid query dimension")
+        } catch let error as VectorStoreError {
+            if case .invalidDimension(let expected, let actual) = error {
+                XCTAssertEqual(expected, 384)
+                XCTAssertEqual(actual, 128)
+            } else {
+                XCTFail("Expected invalidDimension error")
+            }
+        }
+    }
+
+    func testEmptyChunksHandledGracefully() async throws {
+        let store = VectorStore.shared
+        let emptyBookId = "empty-\(UUID().uuidString)"
+
+        // Empty chunks should not throw, just do nothing
+        try await store.buildIndex(bookId: emptyBookId, chunks: [], embeddings: [])
+
+        // Should not be indexed (no index file created for empty)
+        let isIndexed = await store.isIndexed(bookId: emptyBookId)
+        XCTAssertFalse(isIndexed)
+    }
+
+    // MARK: - Helpers
+
+    private func createMockEmbedding() -> [Float] {
+        // Create a random 384-dim vector and L2 normalize it
+        var vector = (0..<384).map { _ in Float.random(in: -1...1) }
+        let norm = sqrt(vector.reduce(0) { $0 + $1 * $1 })
+        vector = vector.map { $0 / norm }
+        return vector
+    }
+}

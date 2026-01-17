@@ -8,6 +8,7 @@ public final class ReaderViewController: UIViewController {
     private static let logger = Log.logger(category: "reader-vc")
     private let viewModel: ReaderViewModel
     private let chapter: Chapter
+    private let bookId: String
     private let bookTitle: String?
     private let bookAuthor: String?
     private var pageRenderer: PageRenderer!
@@ -26,15 +27,17 @@ public final class ReaderViewController: UIViewController {
     // Top bar container
     private var topBarContainer: UIView!
 
-    public init(chapter: Chapter = SampleChapter.make(), bookTitle: String? = nil, bookAuthor: String? = nil) {
+    public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil) {
         self.viewModel = ReaderViewModel(chapter: chapter)
         self.chapter = chapter
+        self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
         super.init(nibName: nil, bundle: nil)
     }
 
-    public init(epubURL: URL, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max) {
+    public init(epubURL: URL, bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max) {
+        self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
         do {
@@ -458,6 +461,7 @@ public final class ReaderViewController: UIViewController {
         // Create book context from current state
         let bookContext = ReaderBookContext(
             chapter: chapter,
+            bookId: bookId,
             bookTitle: bookTitle ?? "Unknown Book",
             bookAuthor: bookAuthor,
             currentSpineItemId: viewModel.currentSpineItemId ?? "",

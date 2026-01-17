@@ -10,6 +10,8 @@ public enum AgentTools {
             getCurrentPositionTool,
             getChapterTextTool,
             searchContentTool,
+            semanticSearchTool,
+            conceptMapLookupTool,
             getCharacterMentionsTool,
             getSurroundingContextTool,
             getBookStructureTool,
@@ -65,6 +67,65 @@ public enum AgentTools {
                         type: "string",
                         description: "Where to search: 'current_chapter' or 'full_book'",
                         enumValues: ["current_chapter", "full_book"]
+                    )
+                ],
+                required: ["query"]
+            )
+        )
+    )
+
+    /// Semantic search for conceptually similar passages
+    static let semanticSearchTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "semantic_search",
+            description: """
+                Search for passages that are conceptually similar to the query, even if they don't contain exact word matches. Use this for:
+                - Abstract or thematic questions ("What themes relate to mortality?")
+                - Finding conceptually related passages ("passages about jealousy")
+                - When exact text search doesn't find relevant results
+                Returns passages ranked by semantic similarity.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "query": PropertySchema(
+                        type: "string",
+                        description: "The concept, theme, or idea to search for"
+                    ),
+                    "scope": PropertySchema(
+                        type: "string",
+                        description: "Where to search: 'current_chapter', 'chapters' (specific chapters), or 'full_book'",
+                        enumValues: ["current_chapter", "chapters", "full_book"]
+                    ),
+                    "chapter_ids": PropertySchema(
+                        type: "array",
+                        description: "Chapter IDs to search (only used when scope is 'chapters')"
+                    ),
+                    "limit": PropertySchema(
+                        type: "integer",
+                        description: "Maximum results to return (default: 10)"
+                    )
+                ],
+                required: ["query"]
+            )
+        )
+    )
+
+    /// Look up the book concept map for routing
+    static let conceptMapLookupTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "book_concept_map_lookup",
+            description: """
+                Look up the book's concept map to find relevant chapters for a query. The concept map contains:
+                - Entities (characters, places, organizations)
+                - Themes (abstract concepts and topics)
+                - Events (significant occurrences)
+                Use this FIRST to scope your search to relevant chapters before using search tools.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "query": PropertySchema(
+                        type: "string",
+                        description: "Entity name, theme, or concept to look up"
                     )
                 ],
                 required: ["query"]
@@ -221,6 +282,10 @@ public struct ToolExecutor {
             return executeGetChapterText(args)
         case "search_content":
             return executeSearchContent(args)
+        case "semantic_search":
+            return await executeSemanticSearch(args)
+        case "book_concept_map_lookup":
+            return await executeConceptMapLookup(args)
         case "get_character_mentions":
             return executeGetCharacterMentions(args)
         case "get_surrounding_context":
@@ -472,6 +537,138 @@ public struct ToolExecutor {
             return "MAP_RESULT:\(result.lat),\(result.lon),\(name)"
         } catch {
             return "MAP_ERROR: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Semantic Search
+
+    private func executeSemanticSearch(_ args: [String: Any]) async -> String {
+        guard let query = args["query"] as? String else {
+            return "Error: query parameter required"
+        }
+
+        let scope = args["scope"] as? String ?? "full_book"
+        let limit = args["limit"] as? Int ?? 10
+        let chapterIds = args["chapter_ids"] as? [String]
+
+        // Check if vector index is available
+        let bookId = context.bookId
+        let vectorStore = VectorStore.shared
+        let embeddingService = EmbeddingService.shared
+
+        // Check if index exists
+        let isIndexed = await vectorStore.isIndexed(bookId: bookId)
+        guard isIndexed else {
+            return "Semantic search not available for this book (no vector index). Use search_content instead."
+        }
+
+        do {
+            // Generate query embedding
+            let queryEmbedding = try await embeddingService.embed(text: query)
+
+            // Determine scope
+            var searchChapterIds: [String]? = nil
+            if scope == "current_chapter" {
+                searchChapterIds = [context.currentSpineItemId]
+            } else if scope == "chapters", let ids = chapterIds {
+                searchChapterIds = ids
+            }
+
+            // Search vector index
+            let results = try await vectorStore.search(
+                bookId: bookId,
+                queryEmbedding: queryEmbedding,
+                k: limit,
+                chapterIds: searchChapterIds
+            )
+
+            if results.isEmpty {
+                return "No semantically similar passages found for '\(query)'"
+            }
+
+            // Fetch chunk text for results
+            var output = "Found \(results.count) semantically similar passage(s) for '\(query)':\n\n"
+
+            for (index, result) in results.enumerated() {
+                // Get chunk text from ChunkStore
+                if let chunk = try? await ChunkStore.shared.getChunk(id: result.chunkId) {
+                    let snippet = String(chunk.text.prefix(300))
+                    let similarity = Int(result.score * 100)
+                    output += "[\(index + 1)] (similarity: \(similarity)%)\n\(snippet)...\n\n"
+                }
+            }
+
+            return output
+        } catch {
+            return "Semantic search failed: \(error.localizedDescription). Try using search_content instead."
+        }
+    }
+
+    // MARK: - Concept Map Lookup
+
+    private func executeConceptMapLookup(_ args: [String: Any]) async -> String {
+        guard let query = args["query"] as? String else {
+            return "Error: query parameter required"
+        }
+
+        let bookId = context.bookId
+
+        do {
+            // Load concept map
+            guard let conceptMap = try await ConceptMapStore.shared.load(bookId: bookId) else {
+                return "Concept map not available for this book. Use search_content to find information."
+            }
+
+            // Perform lookup
+            let result = conceptMap.lookup(query: query)
+
+            if result.isEmpty {
+                return "No matches found in concept map for '\(query)'. Try a broader search term or use search_content."
+            }
+
+            var output = "Concept map matches for '\(query)':\n\n"
+
+            // Report entities
+            if !result.entities.isEmpty {
+                output += "ENTITIES:\n"
+                for entity in result.entities.prefix(5) {
+                    let typeStr = entity.type?.rawValue ?? "unknown"
+                    output += "- \(entity.text) (\(typeStr)): appears in \(entity.chapterIds.count) chapter(s)\n"
+                    output += "  Chapters: \(entity.chapterIds.prefix(5).joined(separator: ", "))\n"
+                }
+                output += "\n"
+            }
+
+            // Report themes
+            if !result.themes.isEmpty {
+                output += "THEMES:\n"
+                for theme in result.themes.prefix(3) {
+                    output += "- \(theme.label)\n"
+                    output += "  Keywords: \(theme.keywords.prefix(5).joined(separator: ", "))\n"
+                    output += "  Chapters: \(theme.chapterIds.prefix(5).joined(separator: ", "))\n"
+                }
+                output += "\n"
+            }
+
+            // Report events
+            if !result.events.isEmpty {
+                output += "EVENTS:\n"
+                for event in result.events.prefix(3) {
+                    output += "- \(event.displayLabel)\n"
+                    output += "  Chapters: \(event.chapterIds.joined(separator: ", "))\n"
+                }
+                output += "\n"
+            }
+
+            // Summary of relevant chapters
+            output += "RELEVANT CHAPTERS: \(result.chapterIds.prefix(10).joined(separator: ", "))"
+            if result.chapterIds.count > 10 {
+                output += " (and \(result.chapterIds.count - 10) more)"
+            }
+
+            return output
+        } catch {
+            return "Concept map lookup failed: \(error.localizedDescription)"
         }
     }
 }

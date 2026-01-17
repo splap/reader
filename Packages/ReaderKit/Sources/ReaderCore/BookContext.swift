@@ -26,6 +26,9 @@ public struct SectionInfo {
 
 /// Protocol for accessing book content during agent tool execution
 public protocol BookContext {
+    /// The book's unique identifier (used for indexing)
+    var bookId: String { get }
+
     /// The book's title
     var bookTitle: String { get }
 
@@ -59,11 +62,13 @@ public protocol BookContext {
 /// Concrete implementation of BookContext using loaded Chapter data
 public final class ReaderBookContext: BookContext {
     private let chapter: Chapter
+    private let _bookId: String
     private let title: String
     private let author: String?
     private var _currentSpineItemId: String
     private var _currentBlockId: String?
 
+    public var bookId: String { _bookId }
     public var bookTitle: String { title }
     public var bookAuthor: String? { author }
     public var currentSpineItemId: String { _currentSpineItemId }
@@ -71,12 +76,14 @@ public final class ReaderBookContext: BookContext {
 
     public init(
         chapter: Chapter,
+        bookId: String,
         bookTitle: String,
         bookAuthor: String? = nil,
         currentSpineItemId: String = "",
         currentBlockId: String? = nil
     ) {
         self.chapter = chapter
+        self._bookId = bookId
         self.title = bookTitle
         self.author = bookAuthor
         self._currentSpineItemId = currentSpineItemId.isEmpty

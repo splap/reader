@@ -46,6 +46,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let chapter = UITestChapter.makePositionTestChapter(pageCount: 120)
             let readerVC = ReaderViewController(
                 chapter: chapter,
+                bookId: "ui-test-position",
                 bookTitle: chapter.title,
                 bookAuthor: "UI Test"
             )
@@ -56,6 +57,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
             let readerVC = ReaderViewController(
                 epubURL: fileURL,
+                bookId: book.id.uuidString,
                 bookTitle: book.title,
                 bookAuthor: book.author
             )
@@ -68,6 +70,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
             let readerVC = ReaderViewController(
                 epubURL: fileURL,
+                bookId: book.id.uuidString,
                 bookTitle: book.title,
                 bookAuthor: book.author
             )

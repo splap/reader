@@ -91,6 +91,7 @@ public final class LibraryViewController: UITableViewController {
         let fileURL = BookLibraryService.shared.getFileURL(for: book)
         let readerVC = ReaderViewController(
             epubURL: fileURL,
+            bookId: book.id.uuidString,
             bookTitle: book.title,
             bookAuthor: book.author
         )
