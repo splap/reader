@@ -424,6 +424,158 @@ public final class BookLibraryService {
 
     // MARK: - Indexing
 
+    /// Progress information for book indexing
+    public struct IndexingProgress {
+        public let stage: IndexingStage
+        public let message: String
+
+        public enum IndexingStage: String {
+            case loading = "Loading book"
+            case chunking = "Analyzing text"
+            case lexical = "Building search index"
+            case embeddings = "Generating embeddings"
+            case vectorIndex = "Building semantic index"
+            case conceptMap = "Extracting concepts"
+            case complete = "Complete"
+            case failed = "Failed"
+        }
+    }
+
+    /// Checks if a book has been indexed for lexical search
+    public func isLexicalIndexed(bookId: String) async -> Bool {
+        do {
+            return try await ChunkStore.shared.isBookIndexed(bookId: bookId)
+        } catch {
+            Self.logger.error("Failed to check lexical index: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Checks if a book has a vector index for semantic search
+    public func isVectorIndexed(bookId: String) async -> Bool {
+        await VectorStore.shared.isIndexed(bookId: bookId)
+    }
+
+    /// Checks if a book has all required indexes
+    public func isFullyIndexed(bookId: String) async -> Bool {
+        let hasLexical = await isLexicalIndexed(bookId: bookId)
+        let hasVector = await isVectorIndexed(bookId: bookId)
+        return hasLexical && hasVector
+    }
+
+    /// Indexes a book with progress updates. Call this when opening a book that hasn't been indexed.
+    /// - Parameters:
+    ///   - book: The book to index
+    ///   - progressHandler: Called with progress updates during indexing
+    /// - Returns: true if indexing succeeded, false otherwise
+    @MainActor
+    public func ensureIndexed(
+        book: Book,
+        progressHandler: @escaping (IndexingProgress) -> Void
+    ) async -> Bool {
+        let bookId = book.id.uuidString
+
+        // Check if already indexed
+        let hasLexical = await isLexicalIndexed(bookId: bookId)
+        let hasVector = await isVectorIndexed(bookId: bookId)
+
+        if hasLexical && hasVector {
+            Self.logger.info("Book already fully indexed: \(book.title, privacy: .public)")
+            progressHandler(IndexingProgress(stage: .complete, message: "Already indexed"))
+            return true
+        }
+
+        Self.logger.info("Starting indexing for book: \(book.title, privacy: .public) (lexical: \(hasLexical), vector: \(hasVector))")
+
+        // Load the book
+        progressHandler(IndexingProgress(stage: .loading, message: "Loading book content..."))
+
+        let fileURL = getFileURL(for: book)
+        let loader = EPUBLoader()
+        let chapter: Chapter
+        do {
+            chapter = try loader.loadChapter(from: fileURL, maxSections: .max)
+            Self.logger.info("Loaded \(chapter.allBlocks.count, privacy: .public) blocks from book")
+        } catch {
+            Self.logger.error("Index failed - EPUB load error: \(error, privacy: .public)")
+            progressHandler(IndexingProgress(stage: .failed, message: "Failed to load book: \(error.localizedDescription)"))
+            return false
+        }
+
+        // Chunk the book
+        progressHandler(IndexingProgress(stage: .chunking, message: "Analyzing text structure..."))
+
+        let chapters = [chapter]
+        let chunks = Chunker.chunkBook(chapters: chapters, bookId: bookId)
+        Self.logger.info("Created \(chunks.count, privacy: .public) chunks from \(chapter.allBlocks.count, privacy: .public) blocks")
+
+        // Build lexical index if needed
+        if !hasLexical {
+            progressHandler(IndexingProgress(stage: .lexical, message: "Building search index (\(chunks.count) chunks)..."))
+
+            do {
+                try await ChunkStore.shared.indexBook(chunks: chunks, bookId: bookId)
+                Self.logger.info("Lexical index complete: \(chunks.count, privacy: .public) chunks indexed")
+            } catch {
+                Self.logger.error("Lexical index failed: \(error, privacy: .public)")
+                progressHandler(IndexingProgress(stage: .failed, message: "Failed to build search index"))
+                return false
+            }
+        }
+
+        // Build vector index if needed
+        if !hasVector {
+            progressHandler(IndexingProgress(stage: .embeddings, message: "Generating embeddings..."))
+
+            do {
+                let embeddingService = EmbeddingService.shared
+
+                // Check if embedding model is available
+                let modelAvailable = try await embeddingService.loadModel()
+                if !modelAvailable {
+                    Self.logger.warning("Embedding model not available, skipping vector index")
+                    // This is not a fatal error - lexical search still works
+                } else {
+                    // Generate embeddings with progress logging
+                    let texts = chunks.map(\.text)
+                    Self.logger.info("Generating embeddings for \(texts.count, privacy: .public) chunks...")
+
+                    let embeddings = try await embeddingService.embedBatch(texts: texts)
+
+                    progressHandler(IndexingProgress(stage: .vectorIndex, message: "Building semantic index..."))
+
+                    // Build HNSW index
+                    try await VectorStore.shared.buildIndex(bookId: bookId, chunks: chunks, embeddings: embeddings)
+
+                    Self.logger.info("Vector index complete: \(embeddings.count, privacy: .public) embeddings indexed")
+                }
+            } catch {
+                Self.logger.error("Vector index build failed: \(error.localizedDescription, privacy: .public)")
+                // Don't fail completely - lexical search still works
+            }
+        }
+
+        // Build concept map
+        progressHandler(IndexingProgress(stage: .conceptMap, message: "Extracting concepts..."))
+
+        do {
+            let conceptMap = ConceptMapBuilder.build(
+                bookId: bookId,
+                chapters: chapters,
+                chunkEmbeddings: nil
+            )
+            try await ConceptMapStore.shared.save(map: conceptMap)
+            Self.logger.info("Concept map complete: \(conceptMap.entities.count, privacy: .public) entities, \(conceptMap.themes.count, privacy: .public) themes")
+        } catch {
+            Self.logger.error("Concept map build failed: \(error.localizedDescription, privacy: .public)")
+            // Not fatal
+        }
+
+        progressHandler(IndexingProgress(stage: .complete, message: "Indexing complete"))
+        Self.logger.info("Indexing complete for book: \(book.title, privacy: .public)")
+        return true
+    }
+
     /// Indexes a specific book by title (for testing/debugging)
     /// - Parameter titleContains: Substring to match in book title
     public func indexBookByTitle(_ titleContains: String) {
