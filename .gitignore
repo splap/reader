@@ -25,3 +25,6 @@ xcuserdata/
 .env.local
 *.pem
 *.key
+
+# ML models (generated via scripts/convert_bge_to_coreml.py)
+App/Resources/bge-small-en.mlpackage/
