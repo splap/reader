@@ -7,11 +7,9 @@ An iPadOS EPUB reader with an AI assistant that can search, summarize, and answe
 Select text while reading, ask the AI about it, and get answers grounded in evidence from the book.
 
 **Example interactions:**
-- "Who is this character?" → Agent searches for all mentions, summarizes their role
-- "What happened before this scene?" → Agent retrieves surrounding context
-- "Where is this place?" → Agent looks up Wikipedia, shows a map
-
-The AI doesn't hallucinate about your book—it retrieves evidence first, then answers.
+- "Summarize what just happened in this chapter and how it ties to the main plot."
+- "Is this place real? If so, show it on a map and explain the reference."
+- "Give me the character’s arc: intro, pivotal moment, and latest mention."
 
 ## Agent Tools
 
