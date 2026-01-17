@@ -120,7 +120,7 @@ public actor ReaderAgentService {
 
                     // Track evidence for book questions
                     if routingResult.route == .book || routingResult.route == .ambiguous {
-                        let searchTools = ["search_content", "semantic_search", "get_chapter_text", "book_concept_map_lookup"]
+                        let searchTools = ["lexical_search", "semantic_search", "book_concept_map_lookup"]
                         if searchTools.contains(call.function.name) && !result.contains("No matches") && !result.contains("not found") {
                             toolBudget.recordEvidence(count: 1)
                         }
