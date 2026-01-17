@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// A text chunk representing a group of blocks for search and QA
+/// A text chunk representing a group of blocks for search and chat
 /// Chunks are ~800 tokens with 10% overlap between adjacent chunks
 public struct Chunk: Identifiable, Codable, Equatable {
     /// Stable identifier for this chunk, derived from content hash

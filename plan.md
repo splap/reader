@@ -1,4 +1,4 @@
-# Tool-First Book QA Architecture
+# Tool-First Book Chat Architecture
 
 ## Goal
 
@@ -19,39 +19,43 @@ All preprocessing artifacts are built at book import time in `BookLibraryService
 - `semantic_search` — vector similarity search
 - `book_concept_map_lookup` — entity/theme/event routing
 
-## TODO: Lazy Artifacts
+## Lazy Artifacts ✓ COMPLETE
 
-These are generated on-demand and cached:
+Generated on-demand and cached:
 
-6. **Chapter Summaries** — map-reduce summarization for long chapters
-7. **Book Synopsis** — synthesized from chapter summaries (optional)
+| Artifact | Status | Files |
+|----------|--------|-------|
+| Chapter Summaries | ✓ | `ChapterSummaryService.swift` |
+| Book Synopsis | ✓ | `BookSynopsisService.swift` |
 
-**Tools needed:**
-- `chapter_summary.get(chapter_id)` — lazy + cached
-- `book_synopsis.get()` — lazy + cached
+**Tools implemented** in `AgentTools.swift`:
+- `get_chapter_summary` — lazy generation with map-reduce for long chapters
+- `get_book_synopsis` — synthesized from chapter summaries + concept map
 
-## TODO: Runtime Flow
+## Runtime Flow ✓ COMPLETE
 
-### Router (LLM, constrained output)
+### Router (Heuristic + Concept Map)
 
-For each user question, decide whether to use book tools:
+Implemented in `BookChatRouter.swift`:
 
-**Input:** question, book metadata, tool list
-**Output:** `{ route: NOT_BOOK | BOOK | AMBIGUOUS, confidence: 0-1, suggested_queries: [...] }`
+**Input:** question, book metadata, concept map
+**Output:** `RoutingResult { route: NOT_BOOK | BOOK | AMBIGUOUS, confidence: 0-1, suggestedChapterIds: [...], suggestedQueries: [...] }`
 
 ### Execution
 
-1. **If AMBIGUOUS:** run `book_concept_map_lookup(question)` — strong hits → BOOK, else → NOT_BOOK
+Integrated into `ReaderAgentService.swift`:
+
+1. **If AMBIGUOUS:** System prompt suggests using `book_concept_map_lookup` first
 2. **If BOOK:**
-   - Scope via concept map → candidate `chapter_ids`
-   - Retrieve: `text_search` for concrete queries, `semantic_search` for conceptual
-   - Escalate scope at most once (chapters → whole book)
-   - Optional: `chapter_summary.get()` for narrative context
-   - Answer with citations; if insufficient evidence, say so
-3. **If NOT_BOOK:** answer normally without book tools
+   - Routing provides suggested chapters from concept map
+   - System prompt enforces evidence requirement
+   - Tool budget limits retrieval attempts
+3. **If NOT_BOOK:** System prompt allows direct knowledge answers
 
-## Guardrails
+## Guardrails ✓ COMPLETE
 
-- **Tool budget:** max 8 calls per question
-- **Evidence rule:** no book-specific answers without retrieved evidence
-- **Degradation:** if embeddings unavailable, fall back to lexical-only mode
+Implemented in `BookChatRouter.swift` and `ReaderAgentService.swift`:
+
+- **Tool budget:** max 8 calls per question (enforced in agent loop)
+- **Evidence rule:** system prompt requires evidence for book claims
+- **Degradation:** graceful fallback when embeddings/concept map unavailable

@@ -54,7 +54,7 @@ A reflowable, paged EPUB reader on iPadOS with library management and planned te
 1. **Text Selection + LLM Integration**
    - Implement JavaScript-based text selection in WKWebView
    - Add "Send to LLM" action via message handler
-   - Create modal Q&A interface
+   - Create modal chat interface
    - Return to same position after modal dismissal
 
 2. **Table of Contents**

@@ -1,55 +1,83 @@
 # Reader
 
-A native iPadOS EPUB reader with integrated LLM assistant. Select text in any book and ask questions - the AI can search the book, look up Wikipedia, and display maps inline.
+A native iPadOS EPUB reader with a book-centric chat interface and tool-calling LLM agent. The default renderer is native TextKit pagination (HTML to attributed strings), with an optional HTML WKWebView fallback for fidelity.
 
 ## Demo
 
-Import an EPUB, read with paginated CSS columns, select text and chat:
+Import an EPUB, read with paginated pages, select text and send it to chat:
 
-- Ask "Who is this character?" and the LLM searches the book for mentions
-- Ask "Where is this place?" and see an inline map
-- Ask general questions and get Wikipedia-augmented answers
+- Use the selection menu "Send to LLM" share-to-chat action to open chat with context
+- Ask "Who is this character?" and the agent uses search tools to find mentions
+- Ask "Where is this place?" and the agent can call Wikipedia + map tools for context
+- Ask general questions and the agent can call Wikipedia when helpful
+- Toggle the reader overlay and scrub pages
 
 ## Features
 
 | Feature | Implementation |
 |---------|---------------|
-| EPUB Rendering | WKWebView with CSS multi-column pagination |
-| Text Selection | JavaScript bridge to native selection handling |
+| EPUB Rendering | Native TextKit pagination (default) + HTML WKWebView fallback |
+| Renderer Switching | Reader settings: Native vs HTML |
+| Text Selection | Selection menu includes share-to-chat ("Send to LLM") + JS bridge (web) |
+| Chat Interface | Full-screen chat anchored to the current book + conversation drawer |
 | LLM Integration | OpenRouter API with tool-calling agent loop |
-| Book Search | FTS5 lexical + semantic vector search |
-| Concept Map | Entity/theme routing for scoped retrieval |
-| Wikipedia Lookup | Fetch summaries and images inline |
-| Map Display | MapKit snapshots rendered in chat |
-| Conversation History | Persisted with full execution traces |
-| Reading Position | Auto-saved per book |
+| Book Search | FTS5 lexical + HNSW semantic vector search |
+| Concept Map | Entity/theme/event routing for scoped retrieval |
+| Summaries | Lazy chapter summaries + book synopsis (cached) |
+| Chat Guardrails | Router + tool budget + evidence requirement |
+| Map + Images | MapKit snapshots + inline image rendering |
+| Conversation History | Persisted with execution traces and transcript copy |
+| Reading UI | Tap-to-toggle overlay, page scrubber, max-read extent |
+| Reading Position | Page/block position persistence per book |
 
-## Tool-First Book QA
+## Chat Interface
 
-The reader implements a **tool-first QA architecture**: the LLM starts with minimal context and retrieves what it needs via tools, rather than preloading the entire book.
+The chat UI is built around the current book:
+
+- **Conversation drawer** to switch or start new chats for the same book
+- **Selection-to-chat**: the "Send to LLM" action passes selected text + local context into the chat
+- **Debug transcript**: copy full tool traces from the chat toolbar
+
+## Rendering
+
+The reader supports two renderers that share a common `PageRenderer` protocol:
+
+- **Native (default)**: EPUB HTML is converted into attributed strings (`HTMLToAttributedStringConverter`) and paginated with `TextEngine`, which builds isolated text systems per page. Selection uses the system UITextView edit menu with a "Send to LLM" action.
+- **HTML (optional)**: A WKWebView renders the original HTML/CSS with column pagination and a JavaScript bridge for selection and position tracking.
+
+Renderer choice is stored in `ReaderPreferences` and can be changed in Reader Settings.
+
+## Tool-First Book Chat
+
+The reader implements a tool-first chat architecture: the LLM starts with minimal context and retrieves what it needs via tools.
 
 ### Preprocessing Pipeline
 
-When a book is imported, `BookLibraryService.indexBookSync()` builds three artifacts:
+When a book is imported, `BookLibraryService.indexBookSync()` builds these artifacts in the background:
 
-**1. Chunk Store** — Text split into ~800 token chunks with 10% overlap
-- Files: `Chunk.swift`, `Chunker.swift`, `ChunkStore.swift`
-- Storage: SQLite with FTS5 virtual table for lexical search
-- BM25 ranking, scoped by chapter
+**1. Chunk Store + Lexical Index (FTS5)**
+- Text split into ~800 token chunks with ~10% overlap
+- SQLite FTS5 index with BM25 ranking and chapter scoping
 
-**2. Semantic Vector Index** — Dense embeddings for conceptual search
-- Model: `BAAI/bge-small-en-v1.5` (384-dim, MIT license)
-- Runtime: Core ML with Neural Engine acceleration
-- Index: HNSW via USearch (Swift bindings)
-- Files: `EmbeddingService.swift`, `VectorStore.swift`
-- Conversion: `scripts/convert_bge_to_coreml.py`
+**2. Semantic Vector Index**
+- Embeddings model: `BAAI/bge-small-en-v1.5` (384-dim, Core ML)
+- ANN index: HNSW via USearch
+- If the embedding model is unavailable, semantic indexing is skipped
 
-**3. Book Concept Map** — Lightweight routing metadata
-- Entities: capitalized spans with salience scoring and co-occurrence
-- Themes: hierarchical agglomerative clustering (70/30 semantic/TF-IDF blend)
-- Events: entity pair interactions with chapter coverage
-- Hard caps: ≤500 entities, ≤200 themes, ≤500 events; each links to ≤24 chapters
-- Files: `TFIDFAnalyzer.swift`, `EntityExtractor.swift`, `ThemeClusterer.swift`, `ConceptMap.swift`, `ConceptMapStore.swift`
+**3. Book Concept Map**
+- Entities from high-salience capitalized spans and co-occurrence
+- Themes from TF-IDF keyword vectors + optional chapter embeddings (70/30 blend)
+- Events from entity co-occurrences across chapters
+- Hard caps enforced in `ConceptMap`: entities <= 500, themes <= 200, events <= 500
+
+**Indexing status UI:** There is no in-chat progress indicator yet; indexing runs silently in the background.
+
+### Lazy Artifacts
+
+Generated on demand and cached:
+
+- **Chapter summaries** via map-reduce for long chapters
+- **Book synopsis** synthesized from summaries and/or concept map
 
 ### Agent Tools
 
@@ -57,23 +85,33 @@ Defined in `AgentTools.swift`, executed by `ToolExecutor`:
 
 | Tool | Purpose |
 |------|---------|
-| `search_content` | FTS5 lexical search with BM25 ranking |
-| `semantic_search` | Vector similarity for conceptual queries |
-| `book_concept_map_lookup` | Route queries to relevant chapters |
+| `get_current_position` | Current chapter and progress |
 | `get_chapter_text` | Full chapter content |
-| `get_surrounding_context` | Blocks around a position |
+| `search_content` | FTS5 lexical search |
+| `semantic_search` | Vector similarity search |
+| `book_concept_map_lookup` | Route queries to relevant chapters |
 | `get_character_mentions` | All mentions of an entity |
+| `get_surrounding_context` | Blocks around a position |
 | `get_book_structure` | Table of contents |
+| `get_chapter_summary` | Lazy chapter summary |
+| `get_book_synopsis` | Lazy book synopsis |
 | `wikipedia_lookup` | External knowledge |
 | `show_map` | Inline map display |
 | `render_image` | Inline image display |
 
 ### Runtime Flow
 
-See `plan.md` for the router and execution flow specification. The runtime orchestrates tool calls with:
+The agent orchestrates tool calls with a routing step and guardrails:
+
+1. **Route question** using a heuristic router and concept map hints.
+2. **If ambiguous**, use `book_concept_map_lookup` to decide book vs general.
+3. **If book-related**, retrieve evidence with lexical/semantic search and answer with citations.
+4. **If general**, answer directly (tools optional).
+
+Guardrails enforced in `ReaderAgentService`:
 - Max 8 tool calls per question
-- Single scope escalation (chapters → whole book)
-- Evidence rule: no book answers without retrieved support
+- Evidence requirement for book claims
+- Lexical-only fallback when semantic index is unavailable
 
 ## Architecture
 
@@ -81,36 +119,37 @@ See `plan.md` for the router and execution flow specification. The runtime orche
 Reader/
 ├── App/                        # Thin app shell
 │   └── Resources/
-│       └── bge-small-en.mlpackage  # Embedding model (128MB)
+│       └── bge-small-en.mlpackage  # Embedding model
 ├── Packages/ReaderKit/
 │   └── Sources/
 │       ├── ReaderCore/         # Domain logic (no UIKit)
-│       │   ├── EPUBLoader      # EPUB extraction & parsing
-│       │   ├── Chunker         # Text chunking for search
-│       │   ├── ChunkStore      # FTS5 lexical index
-│       │   ├── EmbeddingService    # Core ML embeddings
-│       │   ├── VectorStore     # HNSW semantic index
-│       │   ├── ConceptMap*     # Entity/theme extraction
-│       │   ├── ReaderAgentService  # LLM agent with tool loop
-│       │   ├── AgentTools      # Tool definitions
-│       │   └── BookContext     # Provides content to tools
+│       │   ├── EPUBLoader
+│       │   ├── HTMLToAttributedString
+│       │   ├── TextEngine
+│       │   ├── Chunker/ChunkStore
+│       │   ├── EmbeddingService / VectorStore
+│       │   ├── ConceptMap* / ConceptMapStore
+│       │   ├── ChapterSummaryService / BookSynopsisService
+│       │   ├── BookChatRouter / ReaderAgentService
+│       │   └── AgentTools / BookContext
 │       └── ReaderUI/           # UIKit view controllers
+│           ├── NativePageViewController
+│           ├── WebPageViewController
+│           ├── ReaderViewController
+│           └── BookChatViewController
 ├── scripts/                    # Reproducible build automation
-│   └── convert_bge_to_coreml.py  # Model conversion
 └── project.yml                 # XcodeGen project definition
 ```
 
-### Design Decisions
+## Design Decisions
 
-**WKWebView over TextKit**: EPUB content is HTML/CSS. Rather than converting to attributed strings, render natively in a web view with CSS column pagination. Trade-off: text selection requires a JavaScript bridge.
+**Native TextKit default, HTML fallback**: Native pagination provides clean layout and selection with predictable performance. HTML WKWebView remains available for fidelity with complex publisher styling.
 
-**SPM Package Architecture**: All feature code lives in `ReaderKit` as a Swift Package. The app target is a thin shell. This enables fast incremental builds and clear dependency boundaries.
+**On-device embeddings**: The 128MB bge-small-en model runs locally via Core ML. No network calls are required for semantic search.
 
-**On-Device Embeddings**: The 128MB bge-small-en model runs entirely on-device via Core ML, using the Neural Engine when available. No network calls for semantic search.
+**Tool-calling agent**: The LLM retrieves evidence via tools and produces a final response only after retrieval.
 
-**Tool-Calling Agent**: The LLM uses a multi-turn tool-calling loop. When the model needs book content, it calls search tools. Results feed back into the conversation until the model produces a final response.
-
-**Execution Traces**: Every LLM response includes a trace of what tools were called, with arguments and results. These traces persist with the conversation for debugging.
+**Execution traces**: Each response stores tool calls and results for debugging and transcript export.
 
 ## Requirements
 
@@ -120,8 +159,6 @@ Reader/
 - OpenRouter API key
 
 ### Model Conversion (one-time)
-
-The embedding model must be converted to Core ML format:
 
 ```bash
 # Convert model (creates App/Resources/bge-small-en.mlpackage)
@@ -159,7 +196,7 @@ Set `OpenRouterAPIKey` in app settings. The LLM model can be changed at runtime.
 
 ### Logging
 
-Centralized OSLog with subsystem `com.splap.reader`:
+Centralized logging via the shared helper:
 
 ```swift
 private static let logger = Log.logger(category: "feature")
@@ -168,8 +205,8 @@ Self.logger.info("Event: \(value, privacy: .public)")
 
 ### Debug Transcript
 
-Tap the doc icon in chat to copy the full LLM transcript - shows exactly what was sent to the model and what came back, including all tool calls.
+Tap the doc icon in chat to copy the full LLM transcript, including tool calls and results.
 
 ### AI-Assisted Development
 
-This project uses Claude Code for development. See `AGENTS.md` for the development workflow, including simulator management, logging standards, and deployment verification practices.
+See `AGENTS.md` for the workflow, simulator management, logging standards, and deployment verification.

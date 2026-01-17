@@ -15,6 +15,8 @@ public enum AgentTools {
             getCharacterMentionsTool,
             getSurroundingContextTool,
             getBookStructureTool,
+            getChapterSummaryTool,
+            getBookSynopsisTool,
             wikipediaLookupTool,
             showMapTool,
             renderImageTool
@@ -98,7 +100,9 @@ public enum AgentTools {
                     ),
                     "chapter_ids": PropertySchema(
                         type: "array",
-                        description: "Chapter IDs to search (only used when scope is 'chapters')"
+                        description: "Chapter IDs to search (only used when scope is 'chapters')",
+                        itemsType: "string",
+                        itemsDescription: "Chapter ID"
                     ),
                     "limit": PropertySchema(
                         type: "integer",
@@ -181,6 +185,43 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_book_structure",
             description: "Get the book's structure including title, author, and list of chapters/sections. Useful for understanding the book's organization.",
+            parameters: JSONSchema(
+                properties: [:],
+                required: []
+            )
+        )
+    )
+
+    /// Get a chapter summary
+    static let getChapterSummaryTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "get_chapter_summary",
+            description: """
+                Get a summary of a specific chapter. Summaries are generated on-demand and cached.
+                Use this to quickly understand what happens in a chapter without reading the full text.
+                Returns: summary, key points, and characters mentioned.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "chapter_id": PropertySchema(
+                        type: "string",
+                        description: "The spine item ID of the chapter to summarize. Use 'current' for the current chapter."
+                    )
+                ],
+                required: ["chapter_id"]
+            )
+        )
+    )
+
+    /// Get the book synopsis
+    static let getBookSynopsisTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "get_book_synopsis",
+            description: """
+                Get a synopsis of the entire book. The synopsis is generated on-demand and cached.
+                Includes: overall plot summary, main characters, and key themes.
+                Best used for high-level questions about the book's content.
+                """,
             parameters: JSONSchema(
                 properties: [:],
                 required: []
@@ -292,6 +333,10 @@ public struct ToolExecutor {
             return executeGetSurroundingContext(args)
         case "get_book_structure":
             return executeGetBookStructure()
+        case "get_chapter_summary":
+            return await executeGetChapterSummary(args)
+        case "get_book_synopsis":
+            return await executeGetBookSynopsis()
         case "wikipedia_lookup":
             return await executeWikipediaLookup(args)
         case "show_map":
@@ -669,6 +714,108 @@ public struct ToolExecutor {
             return output
         } catch {
             return "Concept map lookup failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Chapter Summary
+
+    private func executeGetChapterSummary(_ args: [String: Any]) async -> String {
+        let chapterId = args["chapter_id"] as? String ?? "current"
+
+        let targetId: String
+        if chapterId == "current" {
+            targetId = context.currentSpineItemId
+        } else {
+            targetId = chapterId
+        }
+
+        // Find the chapter
+        guard let section = context.sections.first(where: { $0.spineItemId == targetId }) else {
+            return "Chapter not found: \(targetId)"
+        }
+
+        // Get chapter text
+        guard let chapterText = context.chapterText(spineItemId: targetId) else {
+            return "Could not retrieve chapter text for: \(targetId)"
+        }
+
+        do {
+            let summary = try await ChapterSummaryService.shared.getSummary(
+                bookId: context.bookId,
+                chapterId: targetId,
+                chapterTitle: section.title,
+                chapterText: chapterText
+            )
+
+            var output = "Chapter Summary"
+            if let title = section.title {
+                output += ": \(title)"
+            }
+            output += "\n\n"
+
+            output += summary.summary
+            output += "\n\n"
+
+            if !summary.keyPoints.isEmpty {
+                output += "KEY POINTS:\n"
+                for point in summary.keyPoints {
+                    output += "- \(point)\n"
+                }
+                output += "\n"
+            }
+
+            if !summary.charactersMentioned.isEmpty {
+                output += "CHARACTERS MENTIONED: \(summary.charactersMentioned.joined(separator: ", "))"
+            }
+
+            return output
+        } catch {
+            return "Failed to generate chapter summary: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Book Synopsis
+
+    private func executeGetBookSynopsis() async -> String {
+        do {
+            // Try to load concept map for richer synopsis
+            let conceptMap = try? await ConceptMapStore.shared.load(bookId: context.bookId)
+
+            let synopsis = try await BookSynopsisService.shared.getSynopsis(
+                bookId: context.bookId,
+                bookTitle: context.bookTitle,
+                bookAuthor: context.bookAuthor,
+                chapters: context.sections,
+                conceptMap: conceptMap
+            )
+
+            var output = "Book Synopsis: \(synopsis.bookTitle)"
+            if let author = synopsis.bookAuthor {
+                output += " by \(author)"
+            }
+            output += "\n\n"
+
+            output += synopsis.synopsis
+            output += "\n\n"
+
+            if !synopsis.mainCharacters.isEmpty {
+                output += "MAIN CHARACTERS:\n"
+                for character in synopsis.mainCharacters {
+                    output += "- \(character.name): \(character.description)\n"
+                }
+                output += "\n"
+            }
+
+            if !synopsis.mainThemes.isEmpty {
+                output += "MAIN THEMES:\n"
+                for theme in synopsis.mainThemes {
+                    output += "- \(theme)\n"
+                }
+            }
+
+            return output
+        } catch {
+            return "Failed to generate book synopsis: \(error.localizedDescription)"
         }
     }
 }

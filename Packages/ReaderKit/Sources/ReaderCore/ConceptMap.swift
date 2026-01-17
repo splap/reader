@@ -216,7 +216,8 @@ public struct ConceptMap: Codable, Equatable {
     public func lookupEntities(query: String) -> [Entity] {
         let lowercaseQuery = query.lowercased()
         return entities.filter { entity in
-            entity.text.lowercased().contains(lowercaseQuery)
+            let entityText = entity.text.lowercased()
+            return entityText.contains(lowercaseQuery) || lowercaseQuery.contains(entityText)
         }.sorted { $0.salience > $1.salience }
     }
 
@@ -224,8 +225,14 @@ public struct ConceptMap: Codable, Equatable {
     public func lookupThemes(query: String) -> [Theme] {
         let lowercaseQuery = query.lowercased()
         return themes.filter { theme in
-            theme.label.lowercased().contains(lowercaseQuery) ||
-            theme.keywords.contains { $0.lowercased().contains(lowercaseQuery) }
+            let label = theme.label.lowercased()
+            if label.contains(lowercaseQuery) || lowercaseQuery.contains(label) {
+                return true
+            }
+            return theme.keywords.contains { keyword in
+                let loweredKeyword = keyword.lowercased()
+                return loweredKeyword.contains(lowercaseQuery) || lowercaseQuery.contains(loweredKeyword)
+            }
         }
     }
 
@@ -233,8 +240,14 @@ public struct ConceptMap: Codable, Equatable {
     public func lookupEvents(query: String) -> [BookEvent] {
         let lowercaseQuery = query.lowercased()
         return events.filter { event in
-            event.displayLabel.lowercased().contains(lowercaseQuery) ||
-            event.participants.contains { $0.lowercased().contains(lowercaseQuery) }
+            let displayLabel = event.displayLabel.lowercased()
+            if displayLabel.contains(lowercaseQuery) || lowercaseQuery.contains(displayLabel) {
+                return true
+            }
+            return event.participants.contains { participant in
+                let loweredParticipant = participant.lowercased()
+                return loweredParticipant.contains(lowercaseQuery) || lowercaseQuery.contains(loweredParticipant)
+            }
         }
     }
 

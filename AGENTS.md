@@ -136,11 +136,10 @@ xcrun simctl spawn booted log show --style compact --debug --predicate 'subsyste
 
 ## CRITICAL: Logging Standards
 
-**USE LOGGER ONLY** - Never use NSLog, print(), or log the same event multiple times.
+**USE LOGGER ONLY** - Never use NSLog, print(), or log the same event multiple times. Use the shared logger helper.
 
 ```swift
-import OSLog
-private static let logger = Logger(subsystem: "com.splap.reader", category: "feature-name")
+private static let logger = Log.logger(category: "feature-name")
 ```
 
 **Log Levels:**

@@ -4,8 +4,13 @@ import Foundation
 
 /// Agent service that handles LLM conversations with tool calling
 public actor ReaderAgentService {
+    private static let logger = Log.logger(category: "ReaderAgentService")
+
     /// Maximum number of tool-calling rounds to prevent infinite loops
     private let maxToolRounds = 10
+
+    /// Router for question classification
+    private let router = BookChatRouter()
 
     public init() {}
 
@@ -31,11 +36,26 @@ public actor ReaderAgentService {
             throw OpenRouterError.missingAPIKey
         }
 
-        // Build system prompt with book context
-        let systemPrompt = buildSystemPrompt(context: context, selectionContext: selectionContext, selectionBlockId: selectionBlockId)
+        // Step 1: Route the question
+        let conceptMap = try? await ConceptMapStore.shared.load(bookId: context.bookId)
+        let routingResult = await router.route(
+            question: message,
+            bookTitle: context.bookTitle,
+            bookAuthor: context.bookAuthor,
+            conceptMap: conceptMap
+        )
+
+        Self.logger.debug("Routed question: \(routingResult.route.rawValue, privacy: .public) (confidence: \(routingResult.confidence, privacy: .public))")
+
+        // Step 2: Build system prompt with routing context
+        let systemPrompt = buildSystemPrompt(
+            context: context,
+            selectionContext: selectionContext,
+            selectionBlockId: selectionBlockId,
+            routingResult: routingResult
+        )
 
         // Capture book context for trace
-        // Use selection position if available, otherwise fall back to current reading position
         let traceBookContext = buildTraceBookContext(
             context: context,
             selectionContext: selectionContext,
@@ -48,6 +68,9 @@ public actor ReaderAgentService {
 
         // Tool executor for this context
         let executor = ToolExecutor(context: context)
+
+        // Initialize tool budget for guardrails
+        var toolBudget = ExecutionGuardrails.ToolBudget()
 
         // Track tool calls made during this conversation
         var toolCallsMade: [String] = []
@@ -62,7 +85,8 @@ public actor ReaderAgentService {
             let response = try await callOpenRouter(
                 systemPrompt: systemPrompt,
                 history: history,
-                apiKey: apiKey
+                apiKey: apiKey,
+                routingResult: routingResult
             )
 
             // Check for tool calls
@@ -74,14 +98,33 @@ public actor ReaderAgentService {
                     toolCalls: toolCalls
                 ))
 
-                // Execute each tool and add results
+                // Execute each tool (respecting budget) and add results
                 for call in toolCalls {
+                    // Check tool budget
+                    guard toolBudget.useToolCall() else {
+                        Self.logger.warning("Tool budget exhausted, skipping: \(call.function.name, privacy: .public)")
+                        history.append(AgentMessage(
+                            role: .tool,
+                            content: "Tool budget exceeded. Maximum \(ExecutionGuardrails.maxToolCalls) tool calls per question.",
+                            toolCallId: call.id
+                        ))
+                        continue
+                    }
+
                     toolCallsMade.append(call.function.name)
 
                     // Capture timing and result
                     let startTime = Date()
                     let result = await executor.execute(call)
                     let executionTime = Date().timeIntervalSince(startTime)
+
+                    // Track evidence for book questions
+                    if routingResult.route == .book || routingResult.route == .ambiguous {
+                        let searchTools = ["search_content", "semantic_search", "get_chapter_text", "book_concept_map_lookup"]
+                        if searchTools.contains(call.function.name) && !result.contains("No matches") && !result.contains("not found") {
+                            toolBudget.recordEvidence(count: 1)
+                        }
+                    }
 
                     // Record tool execution for trace
                     toolExecutions.append(ToolExecution(
@@ -107,7 +150,14 @@ public actor ReaderAgentService {
 
             // No tool calls - we have a final response
             if let content = response.content {
-                history.append(AgentMessage(role: .assistant, content: content))
+                // Evidence check for book questions
+                var finalContent = content
+                if routingResult.route == .book && !toolBudget.hasEvidence && toolCallsMade.isEmpty {
+                    Self.logger.debug("No evidence retrieved for book question")
+                    // Don't block the response, but the model should handle this in its prompt
+                }
+
+                history.append(AgentMessage(role: .assistant, content: finalContent))
 
                 // Build execution trace
                 let trace = AgentExecutionTrace(
@@ -117,7 +167,7 @@ public actor ReaderAgentService {
                 )
 
                 return (
-                    response: AgentResponse(content: content, toolCallsMade: toolCallsMade, executionTrace: trace),
+                    response: AgentResponse(content: finalContent, toolCallsMade: toolCallsMade, executionTrace: trace),
                     updatedHistory: history
                 )
             } else {
@@ -130,16 +180,67 @@ public actor ReaderAgentService {
 
     // MARK: - System Prompt
 
-    private func buildSystemPrompt(context: BookContext, selectionContext: String?, selectionBlockId: String?) -> String {
+    private func buildSystemPrompt(
+        context: BookContext,
+        selectionContext: String?,
+        selectionBlockId: String?,
+        routingResult: RoutingResult? = nil
+    ) -> String {
         var prompt = """
         You are a helpful assistant. The user is currently reading a book and may ask questions about it, \
         but they may also ask general knowledge questions unrelated to the book.
+        """
 
-        For questions about the book, you have tools to search and read content. Use them when needed.
-        For general questions, answer directly from your knowledge.
+        // Add routing-specific guidance
+        if let routing = routingResult {
+            switch routing.route {
+            case .book:
+                prompt += """
+
+
+                ROUTING: This question appears to be about the book (confidence: \(Int(routing.confidence * 100))%).
+                Use the search tools to find relevant passages before answering.
+                IMPORTANT: Do not make claims about the book without retrieving evidence first.
+                If you cannot find relevant information, say so rather than guessing.
+                """
+
+                if !routing.suggestedChapterIds.isEmpty {
+                    prompt += "\nSuggested chapters to search: \(routing.suggestedChapterIds.prefix(5).joined(separator: ", "))"
+                }
+
+            case .notBook:
+                prompt += """
+
+
+                ROUTING: This question appears to be general knowledge, not about the book.
+                Answer directly from your knowledge. You may still use tools if helpful.
+                """
+
+            case .ambiguous:
+                prompt += """
+
+
+                ROUTING: It's unclear if this question is about the book or general knowledge.
+                Consider using book_concept_map_lookup first to check if the topic appears in the book.
+                If the topic is in the book, search for relevant passages. Otherwise, answer from general knowledge.
+                """
+            }
+        } else {
+            prompt += """
+
+
+            For questions about the book, you have tools to search and read content. Use them when needed.
+            For general questions, answer directly from your knowledge.
+            """
+        }
+
+        prompt += """
+
 
         Don't assume every question is about the book - use your judgment.
         Be concise and direct. When quoting from the book, be accurate.
+
+        TOOL BUDGET: You have a maximum of \(ExecutionGuardrails.maxToolCalls) tool calls per question. Use them wisely.
 
         IMAGE DISPLAY: When you have an image URL (e.g., from Wikipedia) and showing it would help answer \
         the user's question (like "what does X look like?"), include it in your response using this format: \
@@ -279,7 +380,8 @@ public actor ReaderAgentService {
     private func callOpenRouter(
         systemPrompt: String,
         history: [AgentMessage],
-        apiKey: String
+        apiKey: String,
+        routingResult: RoutingResult? = nil
     ) async throws -> LLMResponse {
         let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
         var request = URLRequest(url: url)
@@ -296,7 +398,8 @@ public actor ReaderAgentService {
             messages.append(msg.toDictionary())
         }
 
-        // Build tools array
+        // Build tools array - for NOT_BOOK routing, we can optionally exclude book tools
+        // but we keep all tools available for flexibility
         let tools = AgentTools.allTools.map { $0.toDictionary() }
 
         let body: [String: Any] = [

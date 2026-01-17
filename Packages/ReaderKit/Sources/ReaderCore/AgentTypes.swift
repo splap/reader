@@ -168,11 +168,24 @@ public struct PropertySchema {
     public let type: String
     public let description: String
     public let enumValues: [String]?
+    public let itemsType: String?
+    public let itemsDescription: String?
+    public let itemsEnumValues: [String]?
 
-    public init(type: String, description: String, enumValues: [String]? = nil) {
+    public init(
+        type: String,
+        description: String,
+        enumValues: [String]? = nil,
+        itemsType: String? = nil,
+        itemsDescription: String? = nil,
+        itemsEnumValues: [String]? = nil
+    ) {
         self.type = type
         self.description = description
         self.enumValues = enumValues
+        self.itemsType = itemsType
+        self.itemsDescription = itemsDescription
+        self.itemsEnumValues = itemsEnumValues
     }
 
     func toDictionary() -> [String: Any] {
@@ -182,6 +195,16 @@ public struct PropertySchema {
         ]
         if let enumValues = enumValues {
             dict["enum"] = enumValues
+        }
+        if let itemsType = itemsType {
+            var itemsDict: [String: Any] = ["type": itemsType]
+            if let itemsDescription = itemsDescription {
+                itemsDict["description"] = itemsDescription
+            }
+            if let itemsEnumValues = itemsEnumValues {
+                itemsDict["enum"] = itemsEnumValues
+            }
+            dict["items"] = itemsDict
         }
         return dict
     }
