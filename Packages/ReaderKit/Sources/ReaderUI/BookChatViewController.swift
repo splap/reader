@@ -534,16 +534,9 @@ public final class BookChatViewController: UIViewController {
                     // Update history
                     self.conversationHistory = result.updatedHistory
 
-                    // Add tool usage note if tools were called
-                    var displayContent = result.response.content
-                    if !result.response.toolCallsMade.isEmpty {
-                        let toolsUsed = result.response.toolCallsMade.joined(separator: ", ")
-                        displayContent = "[Used: \(toolsUsed)]\n\n\(result.response.content)"
-                    }
-
                     // Create message with trace if available (collapsed by default)
                     let hasTrace = result.response.executionTrace != nil
-                    let message = ChatMessage(role: .assistant, content: displayContent, isCollapsed: hasTrace, hasTrace: hasTrace)
+                    let message = ChatMessage(role: .assistant, content: result.response.content, isCollapsed: hasTrace, hasTrace: hasTrace)
 
                     // Store trace if available
                     if let trace = result.response.executionTrace {

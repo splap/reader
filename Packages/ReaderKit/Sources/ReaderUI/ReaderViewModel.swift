@@ -3,11 +3,6 @@ import ReaderCore
 import UIKit
 import OSLog
 
-struct LLMPayload: Identifiable {
-    let id = UUID()
-    let selection: SelectionPayload
-}
-
 final class ReaderViewModel: ObservableObject {
     private static let logger = Log.logger(category: "paging")
 
@@ -33,7 +28,6 @@ final class ReaderViewModel: ObservableObject {
     @Published var maxReadPageIndex: Int = 0  // Furthest page user has reached
     @Published var fontScale: CGFloat = FontScaleManager.shared.fontScale
     @Published var settingsPresented: Bool = false
-    @Published var llmPayload: LLMPayload?
 
     // Block-based position tracking
     @Published var currentBlockId: String?

@@ -238,7 +238,7 @@ public actor ReaderAgentService {
 
 
         Don't assume every question is about the book - use your judgment.
-        Be concise and direct. When quoting from the book, be accurate.
+        When quoting from the book, be accurate.
 
         TOOL BUDGET: You have a maximum of \(ExecutionGuardrails.maxToolCalls) tool calls per question. Use them wisely.
 

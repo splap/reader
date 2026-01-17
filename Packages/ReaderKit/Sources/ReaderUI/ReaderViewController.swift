@@ -423,14 +423,6 @@ public final class ReaderViewController: UIViewController {
             }
             .store(in: &cancellables)
 
-        // Observe LLM payload
-        viewModel.$llmPayload
-            .compactMap { $0 }
-            .sink { [weak self] payload in
-                self?.presentLLMModal(with: payload)
-            }
-            .store(in: &cancellables)
-
         // Observe settings presented
         viewModel.$settingsPresented
             .filter { $0 }
@@ -484,28 +476,6 @@ public final class ReaderViewController: UIViewController {
 
     @objc private func navigateToNextPage() {
         pageRenderer.navigateToNextPage()
-    }
-
-    private func presentLLMModal(with payload: LLMPayload) {
-        let modalVC = LLMModalViewController(selection: payload.selection)
-        let navController = UINavigationController(rootViewController: modalVC)
-
-        // Configure sheet presentation - nearly full screen
-        if let sheet = navController.sheetPresentationController {
-            // Custom detent for 95% height
-            let customDetent = UISheetPresentationController.Detent.custom { context in
-                return context.maximumDetentValue * 0.95
-            }
-            sheet.detents = [customDetent]
-            sheet.prefersGrabberVisible = true
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
-            sheet.largestUndimmedDetentIdentifier = nil // Dim background
-            sheet.preferredCornerRadius = 16
-        }
-
-        present(navController, animated: true) {
-            self.viewModel.llmPayload = nil
-        }
     }
 
     private static func parseUITestTargetPage() -> Int? {
