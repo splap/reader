@@ -26,6 +26,7 @@ if [ "$USE_SIMULATOR" = "1" ]; then
 
   if [ -n "$DEVICE_UDID" ]; then
     echo "Using already-booted simulator: $DEVICE_UDID"
+    echo "$DEVICE_UDID" > "$ROOT_DIR/simulator-uuid"
   else
     # No simulator booted, find and boot iOS 26 iPad Pro 11-inch M4
     DEVICE_UDID=$(python3 - <<'PY'
@@ -57,6 +58,7 @@ PY
     echo "Booting simulator: $DEVICE_UDID"
     xcrun simctl boot "$DEVICE_UDID" || true
     xcrun simctl bootstatus "$DEVICE_UDID" -b
+    echo "$DEVICE_UDID" > "$ROOT_DIR/simulator-uuid"
   fi
 else
   echo "Running on physical iPad..."

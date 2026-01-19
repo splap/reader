@@ -82,7 +82,7 @@ public final class ReaderSettingsViewController: UITableViewController {
 
     public override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == 2 {
-            return "Native uses iOS text rendering for cleaner layout. HTML preserves original formatting. Changes apply when reopening the book."
+            return "Native uses iOS text rendering for cleaner layout. HTML preserves original formatting."
         }
         if section == 3 {
             return "Your API key is stored securely on device and only used to call the LLM when you select text."
