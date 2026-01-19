@@ -136,12 +136,56 @@ public final class HTMLToAttributedStringConverter {
 
     private func convertBlockToAttributed(_ block: Block) -> NSAttributedString {
         // Parse HTML content with inline formatting support
-        return parseBlockHTML(block)
+        let attributed = parseBlockHTML(block)
+
+        // Apply block-specific paragraph style
+        let mutable = NSMutableAttributedString(attributedString: attributed)
+        let paragraphStyle = paragraphStyleForBlockType(block.type)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        mutable.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
+
+        return mutable
+    }
+
+    /// Returns appropriate paragraph style for a given block type
+    private func paragraphStyleForBlockType(_ type: BlockType) -> NSMutableParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 4
+
+        switch type {
+        case .heading1, .heading2, .heading3, .heading4, .heading5, .heading6:
+            // Headers get spacing after them
+            style.paragraphSpacing = 16
+        case .paragraph:
+            // Paragraphs get first-line indent for book-like appearance
+            style.firstLineHeadIndent = 20
+            style.paragraphSpacingBefore = 8
+        case .blockquote:
+            style.firstLineHeadIndent = 20
+            style.headIndent = 20
+            style.tailIndent = -20
+        default:
+            break
+        }
+
+        return style
     }
 
     /// Parses block HTML content and returns an attributed string with inline formatting preserved
     private func parseBlockHTML(_ block: Block) -> NSAttributedString {
-        let baseAttributes = attributesForBlockType(block.type)
+        var baseAttributes = attributesForBlockType(block.type)
+
+        // Check for CSS classes on the block element itself
+        let blockClasses = extractBlockClasses(from: block.htmlContent)
+        applyBlockClassStyles(classes: blockClasses, to: &baseAttributes)
+
+        // Apply italic to section labels like "Foreword:", "Prologue:", etc.
+        if isSectionLabel(block.textContent) {
+            if let font = baseAttributes[.font] as? UIFont {
+                baseAttributes[.font] = addItalicTrait(to: font)
+            }
+        }
+
         let result = NSMutableAttributedString()
 
         // Extract inner HTML content (content between opening and closing tags)
@@ -156,6 +200,62 @@ public final class HTMLToAttributedStringConverter {
         }
 
         return result
+    }
+
+    /// Extracts CSS classes from the opening tag of block HTML
+    private func extractBlockClasses(from html: String) -> String {
+        // Pattern to match class attribute in the opening tag
+        let pattern = #"^<[a-z0-9]+[^>]*class\s*=\s*["']([^"']+)["']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let range = Range(match.range(at: 1), in: html) else {
+            return ""
+        }
+        return String(html[range])
+    }
+
+    /// Applies styling based on CSS class names on the block element
+    private func applyBlockClassStyles(classes: String, to attributes: inout [NSAttributedString.Key: Any]) {
+        guard !classes.isEmpty else { return }
+        guard let baseFont = attributes[.font] as? UIFont else { return }
+
+        let classLower = classes.lowercased()
+
+        // Common patterns for italic styling in EPUBs
+        // Many EPUBs use numbered calibre classes (calibre1, calibre2, etc.) for various styles
+        if classLower.contains("italic") ||
+           classLower.contains("em") ||
+           classLower.contains("emphasis") ||
+           classLower.range(of: #"calibre\d+"#, options: .regularExpression) != nil {
+            attributes[.font] = addItalicTrait(to: baseFont)
+        }
+
+        // Common patterns for bold styling
+        if classLower.contains("bold") ||
+           classLower.contains("strong") {
+            if let font = attributes[.font] as? UIFont {
+                attributes[.font] = addBoldTrait(to: font)
+            }
+        }
+    }
+
+    /// Checks if text content looks like a section label (e.g., "Foreword:", "Prologue:")
+    private func isSectionLabel(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sectionKeywords = [
+            "foreword", "prologue", "epilogue", "introduction",
+            "preface", "acknowledgments", "dedication", "afterword",
+            "chapter", "part", "book", "appendix"
+        ]
+        let lowerText = trimmed.lowercased()
+        // Check if it's a short text that starts with a section keyword
+        // and possibly ends with a colon or is very short
+        for keyword in sectionKeywords {
+            if lowerText.hasPrefix(keyword) && trimmed.count < 50 {
+                return true
+            }
+        }
+        return false
     }
 
     /// Returns base attributes for a given block type
@@ -380,6 +480,17 @@ public final class HTMLToAttributedStringConverter {
             attributes[.font] = baseFont.withSize(baseFont.pointSize * 0.75)
             attributes[.baselineOffset] = baseFont.pointSize * 0.3
 
+        case "span":
+            // Check class attribute for styling hints
+            let classValue = extractClassAttribute(from: tagAttrs).lowercased()
+            if classValue.contains("italic") || classValue.contains("calibre") {
+                // Many EPUBs use calibre-generated class names for italic
+                attributes[.font] = addItalicTrait(to: baseFont)
+            }
+            if classValue.contains("bold") {
+                attributes[.font] = addBoldTrait(to: baseFont)
+            }
+
         default:
             break
         }
@@ -417,6 +528,17 @@ public final class HTMLToAttributedStringConverter {
         }
         let urlString = String(attributes[range])
         return URL(string: urlString)
+    }
+
+    /// Extracts class attribute value from tag attributes
+    private func extractClassAttribute(from attributes: String) -> String {
+        let pattern = #"class\s*=\s*["']([^"']+)["']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: attributes, range: NSRange(attributes.startIndex..., in: attributes)),
+              let range = Range(match.range(at: 1), in: attributes) else {
+            return ""
+        }
+        return String(attributes[range])
     }
 
     /// Strips HTML tags from a string, preserving line breaks
@@ -541,13 +663,9 @@ public final class HTMLToAttributedStringConverter {
     }
 
     private func applyParagraphStyle(to attributed: NSMutableAttributedString) {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
-        // Don't use paragraphSpacing - it applies to every \n including <br> line breaks
-        // The \n\n between blocks provides visual separation
-
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        attributed.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
+        // Paragraph styles are now applied per-block in convertBlockToAttributed
+        // This method is kept for any additional global adjustments if needed
+        // No-op since each block already has its own paragraph style
     }
 
 }
