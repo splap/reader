@@ -28,3 +28,6 @@ xcuserdata/
 
 # ML models (generated via scripts/convert_bge_to_coreml.py)
 App/Resources/bge-small-en.mlpackage/
+
+# Simulator session tracking
+simulator-uuid

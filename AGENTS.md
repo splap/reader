@@ -3,7 +3,95 @@ Core principle
 Make the project boring and deterministic.
 If a human can build/test it with one command, agents will succeed. Otherwise, they will fail unpredictably.
 
-when you've made a change, run the app yourself so i see the result.
+when you've made a change, run the app yourself so i see the result:
+    use scripts/run to build and deploy the app
+
+- Always use scripts/run script when you want to compile and run the code on the simulator. 
+- Only use physical device when explicitly requested by the user
+
+## CRITICAL: scripts/run behavior
+
+`scripts/run` NEVER EXITS - it tails logs forever after launching the app.
+
+**CORRECT usage:**
+```bash
+# Use run_in_background parameter - this is the ONLY correct way
+./scripts/run   # with run_in_background: true
+```
+
+**WRONG - these will block forever:**
+```bash
+./scripts/run                      # blocks forever
+./scripts/run 2>&1 | head -200     # blocks forever
+./scripts/run &                    # won't capture build errors
+sleep 30 && tail output.txt        # pointless waiting
+```
+
+After running with run_in_background, DO NOT poll the output or wait. The app will launch and you're done. Move on immediately.
+
+**IMPORTANT**: always use iOS 26 simulator (iPad Pro 11-inch M4), and Never boot a new simulator if one is already running. 
+
+whenever you start a simulator, write a file ~/simulator-uuid that contains the uuid of the simulator you started
+
+before you start a simulator, check for ~/simulator-uuid file and if it's running thats our simulator.
+use "xcrun simctl list devices -j " to see if its running
+
+### Throughout Session - Always Use Tracked Simulator
+
+For ALL subsequent operations (loading books, running tests, installing app):
+
+```bash
+# Read the session simulator UDID
+SIMULATOR_UDID=$(cat simulator-uuid 2>/dev/null)
+
+# Use it for operations
+xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data
+```
+
+
+## CRITICAL: Logging Standards
+
+**USE LOGGER ONLY** - Never use NSLog, print(), or log the same event multiple times. Use the shared logger helper.
+
+```swift
+private static let logger = Log.logger(category: "feature-name")
+```
+
+this ensures the correct bundle id for the logs: com.splap.reader
+
+**Log Levels:**
+- `.debug` - Verbose details (only with `--debug` flag)
+- `.info` - Important milestones (visible by default)
+- `.error` - Failures
+
+## Debugging and Reading Logs
+
+### Subsystem
+**ALWAYS use `com.splap.reader`** - this is the bundle ID. 
+
+### For Simulator (Primary)
+
+# Stream logs (info and above)
+xcrun simctl spawn "$SIMULATOR_UDID" log stream \
+  --style compact \
+  --predicate 'subsystem == "com.splap.reader"'
+
+# Stream logs including .debug
+xcrun simctl spawn "$SIMULATOR_UDID" log stream \
+  --style compact \
+  --debug \
+  --predicate 'subsystem == "com.splap.reader"'
+
+# Show recent logs (last 5 minutes)
+xcrun simctl spawn "$SIMULATOR_UDID" log show \
+  --style compact \
+  --debug \
+  --predicate 'subsystem == "com.splap.reader"' \
+  --last 5m
+
+
+
+
 
 ## CRITICAL: Python via UV Only
 
@@ -20,61 +108,6 @@ uv run --with transformers --with torch --with coremltools python scripts/conver
 
 `uv` handles virtual environments and dependencies automatically. No need to create venvs or install packages globally.
 
-## CRITICAL: Default to iOS Simulator
-
-**ALWAYS USE THE iOS 26 SIMULATOR BY DEFAULT** - Unless explicitly instructed otherwise, all development, testing, and debugging should happen on the iOS 26 simulator (iPad Pro 11-inch M4).
-
-- Always use scripts/run script when you want to compile and run the code on the simulator. 
-- Only use physical device when explicitly requested by the user
-- The simulator is faster, more reliable, and easier to automate
-
-## Simulator Management (CRITICAL)
-
-**ONE SIMULATOR PER GIT WORKTREE** - We name our simulator sessions for their worktree and ensure a given worktree alwyas uses the same simulator
-- if we are not in a git worktree, the worktree name is "none", use that to know wht simulator to use when not in git worktree
-
-### Session Start - Use Running Simulator or Boot One
-
-At the start of a coding session, check if simulator is already running. If so, use it. Only boot a new one if the one you expect to use isn't running.
-
-```bash
-# First, check if any simulator is already booted
-SIMULATOR_UDID=$(xcrun simctl list devices | grep "(Booted)" | head -1 | \
-  grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}")
-
-if [ -n "$SIMULATOR_UDID" ]; then
-    echo "Using already-running simulator: $SIMULATOR_UDID"
-else
-    # No simulator running, boot the iOS 26 iPad
-    xcrun simctl boot "iPad Pro 11-inch (M4)" 2>/dev/null || true
-    SIMULATOR_UDID=$(xcrun simctl list devices | grep "(Booted)" | head -1 | \
-      grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}")
-    echo "Booted new simulator: $SIMULATOR_UDID"
-fi
-
-echo "$SIMULATOR_UDID" > /tmp/reader-simulator-session.txt
-```
-
-**IMPORTANT**: Never boot a simulator if one is already running. This prevents duplicate simulators on different iOS versions.
-
-### Throughout Session - Always Use Tracked Simulator
-
-For ALL subsequent operations (loading books, running tests, installing app):
-
-```bash
-# Read the session simulator UDID
-SIMULATOR_UDID=$(cat /tmp/reader-simulator-session.txt 2>/dev/null)
-
-# Use it for operations
-xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data
-```
-
-### Why This Matters
-
-- Running tests creates new app containers, so UDID stays same but container path changes
-- Each test run may clear app state, so books need to be in the RIGHT container
-- Multiple simulators = confusion about which one has books, which is running tests
-- **NEVER** query for simulator UDID more than once per session unless explicitly needed
 
 ## Test Books Location
 
@@ -83,7 +116,7 @@ Test epub files location: Set `TEST_BOOKS_DIR` environment variable to your epub
 To load test books into the SESSION simulator:
 ```bash
 # Get session simulator
-SIMULATOR_UDID=$(cat /tmp/reader-simulator-session.txt)
+SIMULATOR_UDID=$(cat simulator-uuid 2>/dev/null)
 
 # Get current app container (may change between test runs)
 APP_CONTAINER=$(xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data)
@@ -101,72 +134,7 @@ cp "$TEST_BOOKS_DIR"/*.epub "$BOOKS_DIR/"
 
 Additional test books can be loaded via `TEST_BOOKS_DIR` environment variable.
 
-## CRITICAL: Deployment Verification
 
-**Code is NOT deployed until you verify it's running.** A successful build does NOT mean the code is deployed.
-
-### Required Verification Steps
-
-1. **Add a temporary verification log** when adding new code paths:
-```swift
-Self.logger.warning("DEPLOY_VERIFY: MyNewFeature initialized")
-```
-Use `.warning` level - it always shows in logs. `.debug` and `.info` may be filtered.
-
-2. **Build, install, and launch**:
-```bash
-./scripts/build
-xcrun simctl install booted .build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app
-xcrun simctl terminate booted com.splap.reader 2>/dev/null || true
-xcrun simctl launch booted com.splap.reader
-```
-
-3. **Verify the log appears**:
-```bash
-xcrun simctl spawn booted log show --style compact --debug --predicate 'subsystem == "com.splap.reader"' --last 1m | grep DEPLOY_VERIFY
-```
-
-4. **Remove verification log** after confirming deployment works.
-
-### If No Logs Appear
-- **Check subsystem**: Must be `com.splap.reader` (the bundle ID), NOT `com.example.reader`
-- **Check log level**: Use `.warning` not `.info` or `.debug`
-- **Trigger the code path**: Some code only runs when you open a book, tap a button, etc.
-- **Verify binary updated**: Check timestamp with `ls -la .build/DerivedData/Build/Products/Debug-iphonesimulator/ReaderApp.app/ReaderApp`
-
-## CRITICAL: Logging Standards
-
-**USE LOGGER ONLY** - Never use NSLog, print(), or log the same event multiple times. Use the shared logger helper.
-
-```swift
-private static let logger = Log.logger(category: "feature-name")
-```
-
-**Log Levels:**
-- `.debug` - Verbose details (only with `--debug` flag)
-- `.info` - Important milestones (visible by default)
-- `.error` - Failures
-
-Always use `privacy: .public` to avoid redaction: `Self.logger.info("Title: \(title, privacy: .public)")`
-
-**Physical device only:** Use `writeDebugLog()` in addition to Logger when unified logging doesn't stream.
-
-## Debugging and Reading Logs
-
-### Subsystem
-**ALWAYS use `com.splap.reader`** - this is the bundle ID. Never use `com.example.reader`.
-
-### For Simulator (Primary)
-```bash
-# Stream logs (default: info and above)
-xcrun simctl spawn booted log stream --style compact --predicate 'subsystem == "com.splap.reader"'
-
-# Add --debug to see verbose .debug logs
-xcrun simctl spawn booted log stream --style compact --debug --predicate 'subsystem == "com.splap.reader"'
-
-# Show recent logs
-xcrun simctl spawn booted log show --style compact --debug --predicate 'subsystem == "com.splap.reader"' --last 5m
-```
 
 ### For Physical iPad (Only When Required)
 Unified logging (os_log/Logger) doesn't reliably stream to Mac from iOS 26+ devices.
@@ -208,7 +176,6 @@ xcrun devicectl device copy from \
 cat /tmp/debug.log
 ```
 
-**Note:** NSLog() and print() may not appear in logs on newer iOS. Use file logging or os_log/Logger instead.
 
 1. Project structure (most important)
     Prefer Swift Package Manager (SPM) for feature code.
@@ -225,8 +192,7 @@ cat /tmp/debug.log
         ./scripts/lint – SwiftLint / SwiftFormat
         ./scripts/run – builds and runs the app, then tails logs (NEVER EXITS!)
 
-    IMPORTANT: ./scripts/run tails logs indefinitely after launching the app.
-    Always run it in the background: `./scripts/run &` or use run_in_background parameter.
+    See "CRITICAL: scripts/run behavior" section above for correct usage.
 
 3. Headless, explicit builds
     Always use xcodebuild, never Xcode UI.
@@ -240,15 +206,6 @@ cat /tmp/debug.log
     Snapshot tests for SwiftUI where regressions matter.
     Commit Package.resolved and pin formatter/linter versions.
 
-## CRITICAL: UI Feature Verification
-
-**A UI feature is NOT complete until a UI test verifies it works.**
-
-### The Rule
-- "It compiles" is NOT verification
-- "It builds" is NOT verification
-- "I wrote a test" is NOT verification
-- **"The test ran and passed"** IS verification
 
 **NEVER use raw xcodebuild commands. Always use ./scripts/test.**
 
@@ -279,9 +236,3 @@ scrubber.adjust(toNormalizedSliderPosition: 0.5)
 webView.swipeLeft()
 ```
 
-### If Tests Cannot Run
-If UI tests fail to build or run, you must:
-1. Fix the build/run issue first
-2. OR explicitly state: "Feature is UNVERIFIED - UI tests could not be run because [reason]"
-
-**Never claim a feature works without test evidence.**

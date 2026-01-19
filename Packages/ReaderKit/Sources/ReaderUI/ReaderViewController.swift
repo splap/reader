@@ -28,6 +28,10 @@ public final class ReaderViewController: UIViewController {
     private var topBarContainer: UIView!
     private var titleLabel: UILabel!
 
+    // Loading overlay for renderer switch
+    private var loadingOverlay: UIView?
+    private var awaitingRendererReady = false
+
     public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil) {
         self.viewModel = ReaderViewModel(chapter: chapter)
         self.chapter = chapter
@@ -72,6 +76,14 @@ public final class ReaderViewController: UIViewController {
         let showOverlay = CommandLine.arguments.contains("--uitesting-show-overlay")
         // Start with overlay hidden unless UI tests request it visible.
         setOverlayVisible(showOverlay, animated: false)
+
+        // Observe render mode changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(renderModeDidChange(_:)),
+            name: ReaderPreferences.renderModeDidChangeNotification,
+            object: nil
+        )
     }
 
     public override func viewWillAppear(_ animated: Bool) {
@@ -109,8 +121,6 @@ public final class ReaderViewController: UIViewController {
         // Create renderer based on current preference
         let renderer: PageRenderer
         let renderMode = ReaderPreferences.shared.renderMode
-
-        Self.logger.info("Creating renderer with mode: \(renderMode.rawValue, privacy: .public)")
 
         switch renderMode {
         case .native:
@@ -505,6 +515,161 @@ public final class ReaderViewController: UIViewController {
             }
         }
         return nil
+    }
+
+    // MARK: - Render Mode Switching
+
+    @objc private func renderModeDidChange(_ notification: Notification) {
+        guard let newMode = notification.object as? RenderMode else { return }
+        switchRenderer(to: newMode)
+    }
+
+    private func switchRenderer(to mode: RenderMode) {
+
+        // Mark that we're waiting for renderer to be ready
+        awaitingRendererReady = true
+
+        // Show loading overlay
+        showLoadingOverlay(message: "Switching to \(mode.displayName) renderer...")
+
+        // Delay slightly to allow overlay to appear
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.performRendererSwitch(to: mode)
+        }
+    }
+
+    private func performRendererSwitch(to mode: RenderMode) {
+        // Remove old renderer
+        let oldRendererVC = pageRenderer.viewController
+        oldRendererVC.willMove(toParent: nil)
+        oldRendererVC.view.removeFromSuperview()
+        oldRendererVC.removeFromParent()
+
+        // Create new renderer
+        let renderer: PageRenderer
+        switch mode {
+        case .native:
+            renderer = NativePageViewController(
+                htmlSections: chapter.htmlSections,
+                bookId: bookId,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterTitle: chapter.title,
+                fontScale: viewModel.fontScale,
+                initialBlockId: viewModel.currentBlockId
+            )
+
+        case .webView:
+            renderer = WebPageViewController(
+                htmlSections: chapter.htmlSections,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterTitle: chapter.title,
+                fontScale: viewModel.fontScale,
+                initialPageIndex: viewModel.currentPageIndex,
+                initialBlockId: viewModel.currentBlockId
+            )
+        }
+
+        // Configure callbacks
+        renderer.onSendToLLM = { [weak self] selection in
+            self?.openChatWithSelection(selection)
+        }
+        renderer.onPageChanged = { [weak self] newPage, totalPages in
+            self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
+            self?.updateScrubber()
+            self?.maybePerformUITestJump(totalPages: totalPages)
+
+            // Hide loading overlay when renderer reports first page (content is ready)
+            if self?.awaitingRendererReady == true {
+                self?.awaitingRendererReady = false
+                self?.hideLoadingOverlay()
+            }
+        }
+        renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
+            self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
+        }
+
+        self.pageRenderer = renderer
+
+        // Add new renderer
+        let rendererVC = renderer.viewController
+        addChild(rendererVC)
+        view.insertSubview(rendererVC.view, at: 0)
+        rendererVC.view.frame = view.bounds
+        rendererVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        rendererVC.didMove(toParent: self)
+
+        // Ensure overlay elements are on top
+        view.bringSubviewToFront(topBarContainer)
+        view.bringSubviewToFront(scrubberContainer)
+        if let overlay = loadingOverlay {
+            view.bringSubviewToFront(overlay)
+        }
+
+        // Fallback: hide overlay after 10 seconds if callback never fires
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            if self?.awaitingRendererReady == true {
+                self?.awaitingRendererReady = false
+                self?.hideLoadingOverlay()
+            }
+        }
+    }
+
+    private func showLoadingOverlay(message: String) {
+        // Remove existing overlay if any
+        loadingOverlay?.removeFromSuperview()
+
+        let overlay = UIView()
+        overlay.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let spinner = UIActivityIndicatorView(style: .large)
+        spinner.startAnimating()
+
+        let label = UILabel()
+        label.text = message
+        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.textColor = .label
+        label.textAlignment = .center
+
+        stack.addArrangedSubview(spinner)
+        stack.addArrangedSubview(label)
+        overlay.addSubview(stack)
+
+        view.addSubview(overlay)
+        loadingOverlay = overlay
+
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: view.topAnchor),
+            overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor)
+        ])
+
+        overlay.alpha = 0
+        UIView.animate(withDuration: 0.2) {
+            overlay.alpha = 1
+        }
+    }
+
+    private func hideLoadingOverlay() {
+        guard let overlay = loadingOverlay else { return }
+        UIView.animate(withDuration: 0.2, animations: {
+            overlay.alpha = 0
+        }, completion: { _ in
+            overlay.removeFromSuperview()
+            self.loadingOverlay = nil
+        })
     }
 }
 
