@@ -7,7 +7,15 @@
 6.	If OK: stage changes and create a commit with a precise message.
 7.	Push the agent branch update to origin (rebasing rewrites history, so use the safe force push):
     •	git push --force-with-lease origin HEAD
+8.	Switch to main and merge the agent branch into it:
+    •	git checkout main
+    •	git pull origin main
+    •	git merge <agent-branch>
+    •	git push origin main
+9.	Switch back to the agent branch:
+    •	git checkout <agent-branch>
 
 Rules:
 	•	Never merge main into the agent branch; rebase only.
 	•	Never force-push main.
+	•	Always merge agent branch into main after committing, so other agents can pull the latest.
