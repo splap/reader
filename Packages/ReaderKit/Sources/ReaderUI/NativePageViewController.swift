@@ -276,56 +276,82 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     ) -> ([NSRange], [PageOffset]) {
         guard attributedString.length > 0 else { return ([], []) }
 
-        let textStorage = NSTextStorage(attributedString: attributedString)
-        let layoutManager = NSLayoutManager()
-        layoutManager.allowsNonContiguousLayout = true
-        textStorage.addLayoutManager(layoutManager)
+        // Get section break locations for forcing page breaks
+        let sectionBreaks = Set(attributedContent?.sectionBreakLocations ?? [])
 
         var ranges: [NSRange] = []
         var pageOffsets: [PageOffset] = []
-        var lastGlyphIndex = 0
-        let totalGlyphs = layoutManager.numberOfGlyphs
+        var currentStart = 0
+        let totalLength = attributedString.length
 
         var pageCount = 0
         var batchStart = CFAbsoluteTimeGetCurrent()
 
-        while lastGlyphIndex < totalGlyphs {
-            let container = NSTextContainer(size: pageSize)
-            container.lineFragmentPadding = 0
-            layoutManager.addTextContainer(container)
-            layoutManager.ensureLayout(for: container)
-
-            let glyphRange = layoutManager.glyphRange(for: container)
-
-            if glyphRange.length == 0 {
-                // No more content fits
-                break
+        while currentStart < totalLength {
+            // Determine end boundary for this segment (either next section break or end)
+            var segmentEnd = totalLength
+            for breakLoc in sectionBreaks.sorted() {
+                if breakLoc > currentStart {
+                    segmentEnd = breakLoc
+                    break
+                }
             }
 
-            let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            ranges.append(characterRange)
+            // Calculate pages for this segment
+            let segmentRange = NSRange(location: currentStart, length: segmentEnd - currentStart)
+            let segmentString = attributedString.attributedSubstring(from: segmentRange)
 
-            // Capture block boundary information
-            if let content = attributedContent {
-                let offset = createPageOffset(
-                    pageIndex: pageCount,
-                    characterRange: characterRange,
-                    attributedString: attributedString,
-                    blockRanges: content.blockRanges
+            let textStorage = NSTextStorage(attributedString: segmentString)
+            let layoutManager = NSLayoutManager()
+            layoutManager.allowsNonContiguousLayout = true
+            textStorage.addLayoutManager(layoutManager)
+
+            var segmentOffset = 0
+
+            while segmentOffset < segmentString.length {
+                let container = NSTextContainer(size: pageSize)
+                container.lineFragmentPadding = 0
+                layoutManager.addTextContainer(container)
+                layoutManager.ensureLayout(for: container)
+
+                let glyphRange = layoutManager.glyphRange(for: container)
+                if glyphRange.length == 0 {
+                    break
+                }
+
+                let localCharRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+
+                // Convert to global character range
+                let globalRange = NSRange(
+                    location: currentStart + localCharRange.location,
+                    length: localCharRange.length
                 )
-                pageOffsets.append(offset)
+                ranges.append(globalRange)
+
+                // Capture block boundary information
+                if let content = attributedContent {
+                    let offset = createPageOffset(
+                        pageIndex: pageCount,
+                        characterRange: globalRange,
+                        attributedString: attributedString,
+                        blockRanges: content.blockRanges
+                    )
+                    pageOffsets.append(offset)
+                }
+
+                segmentOffset = NSMaxRange(localCharRange)
+                pageCount += 1
+
+                // Log every 50 pages
+                if pageCount % 50 == 0 {
+                    let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
+                    let msPerPage = (batchTime / 50.0) * 1000
+                    Self.logger.debug("PAGE_TIMING: Pages \(pageCount - 49, privacy: .public)-\(pageCount, privacy: .public), \(msPerPage, privacy: .public)ms/page")
+                    batchStart = CFAbsoluteTimeGetCurrent()
+                }
             }
 
-            lastGlyphIndex = NSMaxRange(glyphRange)
-            pageCount += 1
-
-            // Log every 50 pages to see progress
-            if pageCount % 50 == 0 {
-                let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
-                let msPerPage = (batchTime / 50.0) * 1000
-                Self.logger.debug("PAGE_TIMING: Pages \(pageCount - 49, privacy: .public)-\(pageCount, privacy: .public), \(msPerPage, privacy: .public)ms/page, glyphs: \(lastGlyphIndex, privacy: .public)/\(totalGlyphs, privacy: .public)")
-                batchStart = CFAbsoluteTimeGetCurrent()
-            }
+            currentStart = segmentEnd
         }
 
         return (ranges, pageOffsets)

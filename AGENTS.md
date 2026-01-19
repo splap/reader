@@ -250,15 +250,6 @@ cat /tmp/debug.log
 - "I wrote a test" is NOT verification
 - **"The test ran and passed"** IS verification
 
-### Required Workflow for UI Features
-1. Write the feature code
-2. Write a UI test that exercises the feature (e.g., simulate tap, verify element appears)
-3. **Run the UI test using the script**:
-   - All UI tests: `./scripts/test ui`
-   - Specific test: `./scripts/test scrubber` (add test filters to scripts/test as needed)
-4. If test fails → fix code → run test again
-5. Only mark complete when test passes
-
 **NEVER use raw xcodebuild commands. Always use ./scripts/test.**
 
 ### Available Test Commands

@@ -100,7 +100,7 @@ public struct LayoutConfig: Codable, Equatable, Hashable {
 /// Complete layout information for a chapter under a specific configuration
 public struct ChapterLayout: Codable {
     /// Version number for cache invalidation on format changes
-    public static let formatVersion = 1
+    public static let formatVersion = 6
 
     /// Unique identifier combining book, spine item, and config
     public let layoutKey: String
