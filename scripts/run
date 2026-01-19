@@ -20,45 +20,44 @@ if [ "$USE_SIMULATOR" = "1" ]; then
   APP_BUNDLE_ID="com.splap.reader"
   SDK="iphonesimulator"
 
-  # First check if any simulator is already booted
-  DEVICE_UDID=$(xcrun simctl list devices | grep "(Booted)" | head -1 | \
-    grep -o "[0-9A-F]\{8\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{4\}-[0-9A-F]\{12\}")
+  # Check claim ticket first - don't steal another agent's simulator
+  CLAIM_FILE="$HOME/simulator-uuid"
+  if [ -f "$CLAIM_FILE" ]; then
+    DEVICE_UDID=$(cat "$CLAIM_FILE")
+    STATE=$(xcrun simctl list devices -j | jq -r --arg udid "$DEVICE_UDID" \
+      '.devices | to_entries[] | .value[] | select(.udid == $udid) | .state' | head -1)
+    [ -z "$STATE" ] && STATE="NotFound"
 
-  if [ -n "$DEVICE_UDID" ]; then
-    echo "Using already-booted simulator: $DEVICE_UDID"
-    echo "$DEVICE_UDID" > "$ROOT_DIR/simulator-uuid"
-  else
-    # No simulator booted, find and boot iOS 26 iPad Pro 11-inch M4
-    DEVICE_UDID=$(python3 - <<'PY'
-import json
-import subprocess
-import sys
+    if [ "$STATE" = "Booted" ]; then
+      echo "Using our simulator: $DEVICE_UDID"
+    elif [ "$STATE" = "Shutdown" ]; then
+      echo "Booting our simulator: $DEVICE_UDID"
+      xcrun simctl boot "$DEVICE_UDID" || true
+      xcrun simctl bootstatus "$DEVICE_UDID" -b
+    else
+      echo "Claimed simulator $DEVICE_UDID not found, will create new one"
+      rm "$CLAIM_FILE"
+    fi
+  fi
 
-name = "iPad Pro 11-inch (M4)"
-
-raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
-obj = json.loads(raw)
-# Look for iOS 26 runtime
-for runtime, devices in obj.get("devices", {}).items():
-    if "iOS-26" in runtime or "iOS-18-2" in runtime:
-        for device in devices:
-            if device.get("name") == name:
-                print(device.get("udid", ""))
-                sys.exit(0)
-
-sys.exit(1)
-PY
-)
+  # If no valid claim, boot a new (non-booted) simulator
+  if [ ! -f "$CLAIM_FILE" ]; then
+    DEVICE_UDID=$(xcrun simctl list devices available -j | jq -r '
+      .devices | to_entries[] |
+      select(.key | test("iOS-26|iOS-18-2")) |
+      .value[] |
+      select(.name == "iPad Pro 11-inch (M4)" and .state == "Shutdown") |
+      .udid' | head -1)
 
     if [ -z "$DEVICE_UDID" ]; then
-      echo "Simulator device not found for $DEVICE_NAME with iOS 26." >&2
+      echo "No available (shutdown) simulator for $DEVICE_NAME. All may be in use." >&2
       exit 1
     fi
 
-    echo "Booting simulator: $DEVICE_UDID"
+    echo "Booting new simulator: $DEVICE_UDID"
     xcrun simctl boot "$DEVICE_UDID" || true
     xcrun simctl bootstatus "$DEVICE_UDID" -b
-    echo "$DEVICE_UDID" > "$ROOT_DIR/simulator-uuid"
+    echo "$DEVICE_UDID" > "$CLAIM_FILE"
   fi
 else
   echo "Running on physical iPad..."

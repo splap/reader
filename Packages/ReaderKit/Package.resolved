@@ -1,6 +1,15 @@
 {
-  "originHash" : "a0e990578716d2c7a8348046191f70b498296dc8c2917f695cd3abc229e2db95",
+  "originHash" : "8a01f6cd0c31ce4be8cb31d304802a7d65e6baddbacf9f74abc091f1a7fcdcdb",
   "pins" : [
+    {
+      "identity" : "usearch",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/unum-cloud/usearch.git",
+      "state" : {
+        "revision" : "7306bb446be5f0f0c529ec8acdc57361cef8a8a7",
+        "version" : "2.23.0"
+      }
+    },
     {
       "identity" : "zipfoundation",
       "kind" : "remoteSourceControl",

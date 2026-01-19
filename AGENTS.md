@@ -29,12 +29,11 @@ sleep 30 && tail output.txt        # pointless waiting
 
 After running with run_in_background, DO NOT poll the output or wait. The app will launch and you're done. Move on immediately.
 
-**IMPORTANT**: always use iOS 26 simulator (iPad Pro 11-inch M4), and Never boot a new simulator if one is already running. 
+**IMPORTANT**: Always use iOS 26 simulator (iPad Pro 11-inch M4).
 
-whenever you start a simulator, write a file ~/simulator-uuid that contains the uuid of the simulator you started
+### Simulator Ownership
 
-before you start a simulator, check for ~/simulator-uuid file and if it's running thats our simulator.
-use "xcrun simctl list devices -j " to see if its running
+`~/simulator-uuid` is your claim ticket. Never claim a running simulator you didn't start - another agent may own it. The scripts handle this automatically.
 
 ### Throughout Session - Always Use Tracked Simulator
 
