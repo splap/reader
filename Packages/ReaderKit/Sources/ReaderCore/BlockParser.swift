@@ -6,7 +6,7 @@ public final class BlockParser {
     /// Tags that represent block-level content
     private static let blockTags: Set<String> = [
         "p", "h1", "h2", "h3", "h4", "h5", "h6",
-        "li", "blockquote", "pre"
+        "li", "blockquote", "pre", "div"
     ]
 
     /// Tags that contain images
@@ -26,7 +26,8 @@ public final class BlockParser {
 
         // Use regex to find block-level elements
         // Pattern matches opening tag, content, and closing tag
-        let pattern = #"<(p|h[1-6]|li|blockquote|pre)(\s[^>]*)?>(.+?)</\1>"#
+        // Include div for TOC entries and other block-level content
+        let pattern = #"<(p|h[1-6]|li|blockquote|pre|div)(\s[^>]*)?>(.+?)</\1>"#
 
         guard let regex = try? NSRegularExpression(
             pattern: pattern,
@@ -95,7 +96,8 @@ public final class BlockParser {
         var textBlockRanges: [NSRange] = []
 
         // Pattern matches block elements and captures tag name, attributes, and content
-        let pattern = #"<(p|h[1-6]|li|blockquote|pre)(\s[^>]*)?>(.+?)</\1>"#
+        // Include div for TOC entries and other block-level content
+        let pattern = #"<(p|h[1-6]|li|blockquote|pre|div)(\s[^>]*)?>(.+?)</\1>"#
 
         guard let regex = try? NSRegularExpression(
             pattern: pattern,

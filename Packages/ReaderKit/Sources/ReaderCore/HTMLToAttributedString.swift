@@ -8,6 +8,8 @@ extension NSAttributedString.Key {
     public static let blockId = NSAttributedString.Key("com.splap.reader.blockId")
     /// Spine item ID for chapter identification
     public static let spineItemId = NSAttributedString.Key("com.splap.reader.spineItemId")
+    /// Section break marker - indicates a new spine item starts here (forces page break)
+    public static let sectionBreak = NSAttributedString.Key("com.splap.reader.sectionBreak")
 }
 
 // MARK: - Conversion Result
@@ -26,16 +28,21 @@ public struct AttributedContent {
     /// Full-page images extracted (imagePath, blockId, insertionIndex in block order)
     public let fullPageImages: [(imagePath: String, blockId: String, insertIndex: Int)]
 
+    /// Character locations where section breaks occur (new spine items start)
+    public let sectionBreakLocations: [Int]
+
     public init(
         attributedString: NSAttributedString,
         blockRanges: [String: NSRange],
         blockOrder: [String],
-        fullPageImages: [(imagePath: String, blockId: String, insertIndex: Int)]
+        fullPageImages: [(imagePath: String, blockId: String, insertIndex: Int)],
+        sectionBreakLocations: [Int] = []
     ) {
         self.attributedString = attributedString
         self.blockRanges = blockRanges
         self.blockOrder = blockOrder
         self.fullPageImages = fullPageImages
+        self.sectionBreakLocations = sectionBreakLocations
     }
 }
 
@@ -61,8 +68,18 @@ public final class HTMLToAttributedStringConverter {
         var blockRanges: [String: NSRange] = [:]
         var blockOrder: [String] = []
         var fullPageImages: [(String, String, Int)] = []
+        var sectionBreakLocations: [Int] = []
+        var lastSpineItemId: String?
 
         for section in sections {
+            // Track section transitions for page breaks
+            let isNewSection = lastSpineItemId != nil && lastSpineItemId != section.spineItemId
+            if isNewSection {
+                // Record the location where the new section starts
+                sectionBreakLocations.append(combined.length)
+            }
+            lastSpineItemId = section.spineItemId
+
             for block in section.blocks {
                 // Check if block is an image
                 if block.type == .image {
@@ -78,9 +95,9 @@ public final class HTMLToAttributedStringConverter {
                 // Convert block HTML to attributed string
                 let blockAttributed = convertBlockToAttributed(block)
 
-                // Add paragraph spacing between blocks
+                // Add single newline between blocks - the EPUB's own <br> tags provide spacing
                 if combined.length > 0 {
-                    combined.append(NSAttributedString(string: "\n\n"))
+                    combined.append(NSAttributedString(string: "\n"))
                 }
 
                 let startLocation = combined.length
@@ -110,7 +127,8 @@ public final class HTMLToAttributedStringConverter {
             attributedString: combined,
             blockRanges: blockRanges,
             blockOrder: blockOrder,
-            fullPageImages: fullPageImages
+            fullPageImages: fullPageImages,
+            sectionBreakLocations: sectionBreakLocations
         )
     }
 
@@ -408,6 +426,11 @@ public final class HTMLToAttributedStringConverter {
         result = result.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
         // Remove all other HTML tags
         result = result.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        // Trim whitespace from each line (handles spaces left from collapsed source newlines)
+        result = result.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+        // Don't strip trailing newlines - they represent intentional spacing from <br><br>
         return result
     }
 
@@ -422,17 +445,9 @@ public final class HTMLToAttributedStringConverter {
         result = result.replacingOccurrences(of: "&#39;", with: "'")
         result = result.replacingOccurrences(of: "&apos;", with: "'")
         result = result.replacingOccurrences(of: "&#160;", with: " ")
-        // Collapse multiple spaces (but NOT newlines) into single space
-        result = result.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
-        // Trim leading/trailing whitespace from each line
-        result = result.components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .joined(separator: "\n")
-        // Remove trailing newlines (these come from <br><br> at end of paragraphs)
-        // The paragraph spacing between blocks handles this
-        result = result.replacingOccurrences(of: "\\n+$", with: "", options: .regularExpression)
-        // Also remove leading newlines
-        result = result.replacingOccurrences(of: "^\\n+", with: "", options: .regularExpression)
+        // Collapse ALL whitespace (including literal newlines in HTML source) into single space
+        // Only <br> tags should create actual newlines (handled in stripHTMLTags)
+        result = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return result
     }
 

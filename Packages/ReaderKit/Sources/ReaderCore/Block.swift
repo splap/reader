@@ -30,6 +30,7 @@ public enum BlockType: String, Codable, Equatable {
         case "blockquote": return .blockquote
         case "pre": return .preformatted
         case "img": return .image
+        case "div": return .paragraph  // Treat div as paragraph for TOC entries etc.
         default: return .unknown
         }
     }

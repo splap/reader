@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Load local environment from .env if it exists
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 # Use simulator by default, set USE_SIMULATOR=0 to use physical device
 USE_SIMULATOR="${USE_SIMULATOR:-1}"
 
@@ -92,7 +99,7 @@ echo "Installing app..."
 if [ "$USE_SIMULATOR" = "1" ]; then
   xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
 
-  # Load test books if available (set TEST_BOOKS_DIR to your epub directory)
+  # Load test books if available (set TEST_BOOKS_DIR in .env or environment)
   BOOKS_SOURCE="${TEST_BOOKS_DIR:-}"
   if [ -n "$BOOKS_SOURCE" ] && [ -d "$BOOKS_SOURCE" ]; then
     echo "Loading test books..."
