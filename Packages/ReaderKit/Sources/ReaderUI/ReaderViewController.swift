@@ -26,6 +26,7 @@ public final class ReaderViewController: UIViewController {
 
     // Top bar container
     private var topBarContainer: UIView!
+    private var titleLabel: UILabel!
 
     public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil) {
         self.viewModel = ReaderViewModel(chapter: chapter)
@@ -115,6 +116,7 @@ public final class ReaderViewController: UIViewController {
         case .native:
             renderer = NativePageViewController(
                 htmlSections: chapter.htmlSections,
+                bookId: bookId,
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
@@ -191,10 +193,21 @@ public final class ReaderViewController: UIViewController {
         chatButton.addTarget(self, action: #selector(showChat), for: .touchUpInside)
         chatButton.accessibilityLabel = "Chat"
 
-        // Add buttons to container
+        // Title label - shows book title
+        titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 2
+        titleLabel.text = bookTitle ?? "Reader"
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        // Add buttons and title to container
         topBarContainer.addSubview(backButton)
         topBarContainer.addSubview(settingsButton)
         topBarContainer.addSubview(chatButton)
+        topBarContainer.addSubview(titleLabel)
 
         view.addSubview(topBarContainer)
 
@@ -227,7 +240,12 @@ public final class ReaderViewController: UIViewController {
             chatButton.topAnchor.constraint(equalTo: topBarContainer.topAnchor, constant: 16),
             chatButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -12),
             chatButton.widthAnchor.constraint(equalToConstant: 44),
-            chatButton.heightAnchor.constraint(equalToConstant: 44)
+            chatButton.heightAnchor.constraint(equalToConstant: 44),
+
+            // Title label - centered between back button and chat button
+            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: chatButton.leadingAnchor, constant: -12)
         ])
     }
 
@@ -352,8 +370,9 @@ public final class ReaderViewController: UIViewController {
         let sliderValue = Float(currentPage) / Float(max(1, totalPages - 1))
         scrubberSlider.value = sliderValue
 
-        // Update page label
-        pageLabel.text = "Page \(currentPage + 1) of \(totalPages)"
+        // Update page label (chapter info shown only if it fits)
+        let pageText = "Page \(currentPage + 1) of \(totalPages)"
+        pageLabel.text = pageText
 
         // Update read extent indicator width
         let maxReadFraction = CGFloat(maxReadPage) / CGFloat(max(1, totalPages - 1))
@@ -386,8 +405,7 @@ public final class ReaderViewController: UIViewController {
         viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
         updateScrubber()
 
-        // Update label immediately for responsiveness
-        pageLabel.text = "Page \(targetPage + 1) of \(viewModel.totalPages)"
+        // Note: updateScrubber() already updates the label with chapter info
     }
 
     @objc private func scrubberTouchEnded(_ sender: UISlider) {

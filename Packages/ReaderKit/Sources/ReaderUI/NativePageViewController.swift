@@ -25,6 +25,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     // MARK: - Private Properties
 
     private let htmlSections: [HTMLSection]
+    private let bookId: String
     private let bookTitle: String?
     private let bookAuthor: String?
     private let chapterTitle: String?
@@ -42,10 +43,17 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     private var hasBuiltPages = false
     private var loadingOverlay: UIView?
 
+    /// Cached layout for the current chapter
+    private var cachedLayout: ChapterLayout?
+
+    /// Layout service for cache operations
+    private let layoutService = PageLayoutService.shared
+
     // MARK: - Initialization
 
     public init(
         htmlSections: [HTMLSection],
+        bookId: String,
         bookTitle: String? = nil,
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
@@ -53,6 +61,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         initialBlockId: String? = nil
     ) {
         self.htmlSections = htmlSections
+        self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
         self.chapterTitle = chapterTitle
@@ -134,36 +143,90 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         let htmlSections = self.htmlSections
         let viewBounds = self.view.bounds
         let initialBlockId = self.initialBlockId
+        let bookId = self.bookId
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
+        // Get spine item ID from first section
+        let spineItemId = htmlSections.first?.spineItemId ?? "unknown"
 
-            // Combine image caches from all sections
+        // Build layout config
+        let horizontalPadding: CGFloat = 48
+        let verticalPadding: CGFloat = 48
+        let config = LayoutConfig(
+            fontScale: fontScale,
+            pageWidth: viewBounds.width,
+            pageHeight: viewBounds.height,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding
+        )
+
+        Task {
+            let startTime = CFAbsoluteTimeGetCurrent()
+
+            // Check cache first
+            let cachedLayout = await layoutService.getCachedLayout(
+                bookId: bookId,
+                spineItemId: spineItemId,
+                config: config
+            )
+
+            // Build attributed content (needed for both paths)
             let imageCache = htmlSections.reduce(into: [String: Data]()) { result, section in
                 result.merge(section.imageCache) { _, new in new }
             }
 
             let converter = HTMLToAttributedStringConverter(imageCache: imageCache, fontScale: fontScale)
+            let conversionStart = CFAbsoluteTimeGetCurrent()
             let content = converter.convert(sections: htmlSections)
+            let conversionTime = CFAbsoluteTimeGetCurrent() - conversionStart
 
-            Self.logger.info("Converted \(content.blockOrder.count, privacy: .public) blocks, \(content.fullPageImages.count, privacy: .public) full-page images")
+            Self.logger.info("TIMING: HTML conversion took \(conversionTime, privacy: .public)s for \(content.blockOrder.count, privacy: .public) blocks")
 
-            // Calculate page breaks
-            let horizontalPadding: CGFloat = 48
-            let verticalPadding: CGFloat = 48
-            let pageSize = CGSize(
-                width: viewBounds.width - (horizontalPadding * 2),
-                height: viewBounds.height - (verticalPadding * 2)
-            )
+            let textPageRanges: [NSRange]
 
-            let textPageRanges = self.calculatePageRanges(for: content.attributedString, pageSize: pageSize)
+            if let cached = cachedLayout {
+                // CACHE HIT - use cached page ranges directly
+                Self.logger.info("Cache hit: using cached layout with \(cached.totalPages, privacy: .public) pages")
+                textPageRanges = cached.pageOffsets.map { $0.characterRange }
 
-            Self.logger.info("Calculated \(textPageRanges.count, privacy: .public) text pages")
+                let totalTime = CFAbsoluteTimeGetCurrent() - startTime
+                Self.logger.info("TIMING: Cache hit render took \(totalTime, privacy: .public)s total")
+
+                await MainActor.run {
+                    self.cachedLayout = cached
+                }
+            } else {
+                // CACHE MISS - calculate page ranges
+                Self.logger.info("Cache miss: calculating layout for \(spineItemId, privacy: .public)")
+
+                let pageSize = config.contentSize
+                let layoutStart = CFAbsoluteTimeGetCurrent()
+                let (ranges, pageOffsets) = self.calculatePageRangesWithOffsets(
+                    for: content.attributedString,
+                    pageSize: pageSize,
+                    attributedContent: content
+                )
+                textPageRanges = ranges
+                let layoutTime = CFAbsoluteTimeGetCurrent() - layoutStart
+
+                let totalTime = CFAbsoluteTimeGetCurrent() - startTime
+                Self.logger.info("TIMING: Page layout took \(layoutTime, privacy: .public)s for \(ranges.count, privacy: .public) pages. Total: \(totalTime, privacy: .public)s")
+
+                // Save to cache
+                let layout = ChapterLayout(
+                    bookId: bookId,
+                    spineItemId: spineItemId,
+                    config: config,
+                    pageOffsets: pageOffsets
+                )
+                await layoutService.saveLayout(layout)
+
+                await MainActor.run {
+                    self.cachedLayout = layout
+                }
+            }
 
             // Update UI on main thread
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-
+            await MainActor.run {
                 self.attributedContent = content
 
                 // Build page contents (text pages + image pages interleaved)
@@ -201,16 +264,30 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     }
 
     private func calculatePageRanges(for attributedString: NSAttributedString, pageSize: CGSize) -> [NSRange] {
-        guard attributedString.length > 0 else { return [] }
+        let (ranges, _) = calculatePageRangesWithOffsets(for: attributedString, pageSize: pageSize, attributedContent: nil)
+        return ranges
+    }
+
+    /// Calculates page ranges and captures block boundary information for caching
+    private func calculatePageRangesWithOffsets(
+        for attributedString: NSAttributedString,
+        pageSize: CGSize,
+        attributedContent: AttributedContent?
+    ) -> ([NSRange], [PageOffset]) {
+        guard attributedString.length > 0 else { return ([], []) }
 
         let textStorage = NSTextStorage(attributedString: attributedString)
         let layoutManager = NSLayoutManager()
-        layoutManager.allowsNonContiguousLayout = false
+        layoutManager.allowsNonContiguousLayout = true
         textStorage.addLayoutManager(layoutManager)
 
         var ranges: [NSRange] = []
+        var pageOffsets: [PageOffset] = []
         var lastGlyphIndex = 0
         let totalGlyphs = layoutManager.numberOfGlyphs
+
+        var pageCount = 0
+        var batchStart = CFAbsoluteTimeGetCurrent()
 
         while lastGlyphIndex < totalGlyphs {
             let container = NSTextContainer(size: pageSize)
@@ -228,10 +305,91 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
             ranges.append(characterRange)
 
+            // Capture block boundary information
+            if let content = attributedContent {
+                let offset = createPageOffset(
+                    pageIndex: pageCount,
+                    characterRange: characterRange,
+                    attributedString: attributedString,
+                    blockRanges: content.blockRanges
+                )
+                pageOffsets.append(offset)
+            }
+
             lastGlyphIndex = NSMaxRange(glyphRange)
+            pageCount += 1
+
+            // Log every 50 pages to see progress
+            if pageCount % 50 == 0 {
+                let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
+                let msPerPage = (batchTime / 50.0) * 1000
+                Self.logger.debug("PAGE_TIMING: Pages \(pageCount - 49, privacy: .public)-\(pageCount, privacy: .public), \(msPerPage, privacy: .public)ms/page, glyphs: \(lastGlyphIndex, privacy: .public)/\(totalGlyphs, privacy: .public)")
+                batchStart = CFAbsoluteTimeGetCurrent()
+            }
         }
 
-        return ranges
+        return (ranges, pageOffsets)
+    }
+
+    /// Creates a PageOffset with block boundary information
+    private func createPageOffset(
+        pageIndex: Int,
+        characterRange: NSRange,
+        attributedString: NSAttributedString,
+        blockRanges: [String: NSRange]
+    ) -> PageOffset {
+        var firstBlockId = "unknown"
+        var firstBlockCharOffset = 0
+        var lastBlockId = "unknown"
+        var lastBlockCharOffset = 0
+
+        let pageStart = characterRange.location
+        let pageEnd = NSMaxRange(characterRange)
+
+        // Find first block on this page
+        for (blockId, blockRange) in blockRanges {
+            let blockStart = blockRange.location
+            let blockEnd = NSMaxRange(blockRange)
+
+            // Check if this block contains the page start
+            if blockStart <= pageStart && blockEnd > pageStart {
+                firstBlockId = blockId
+                firstBlockCharOffset = pageStart - blockStart
+            }
+
+            // Check if this block contains the page end
+            if blockStart < pageEnd && blockEnd >= pageEnd {
+                lastBlockId = blockId
+                lastBlockCharOffset = pageEnd - blockStart
+            }
+        }
+
+        // If we didn't find specific blocks, try to find any block that overlaps
+        if firstBlockId == "unknown" || lastBlockId == "unknown" {
+            for (blockId, blockRange) in blockRanges {
+                let blockStart = blockRange.location
+                let blockEnd = NSMaxRange(blockRange)
+
+                // Check for any overlap with this page
+                if blockStart < pageEnd && blockEnd > pageStart {
+                    if firstBlockId == "unknown" {
+                        firstBlockId = blockId
+                        firstBlockCharOffset = max(0, pageStart - blockStart)
+                    }
+                    lastBlockId = blockId
+                    lastBlockCharOffset = min(blockRange.length, pageEnd - blockStart)
+                }
+            }
+        }
+
+        return PageOffset(
+            pageIndex: pageIndex,
+            firstBlockId: firstBlockId,
+            firstBlockCharOffset: firstBlockCharOffset,
+            lastBlockId: lastBlockId,
+            lastBlockCharOffset: lastBlockCharOffset,
+            characterRange: characterRange
+        )
     }
 
     private func createPageViews(for pages: [PageContent], attributedString: NSAttributedString) {
@@ -303,7 +461,9 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         let container = UIView()
         container.backgroundColor = .systemBackground
 
-        if let data = imageCache[path], let image = UIImage(data: data) {
+        // Try to resolve the image path with various formats
+        if let data = resolveImageData(path: path, imageCache: imageCache),
+           let image = UIImage(data: data) {
             let imageView = UIImageView(image: image)
             imageView.contentMode = .scaleAspectFit
             imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -318,6 +478,45 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         }
 
         return container
+    }
+
+    /// Resolves an image path to data, trying various path formats and extensions
+    private func resolveImageData(path: String, imageCache: [String: Data]) -> Data? {
+        // Try exact path first
+        if let data = imageCache[path] {
+            return data
+        }
+
+        // Try just the filename
+        let filename = (path as NSString).lastPathComponent
+        if let data = imageCache[filename] {
+            return data
+        }
+
+        // Try without leading ../ or ./
+        var cleanPath = path
+        while cleanPath.hasPrefix("../") {
+            cleanPath = String(cleanPath.dropFirst(3))
+        }
+        if cleanPath.hasPrefix("./") {
+            cleanPath = String(cleanPath.dropFirst(2))
+        }
+        if let data = imageCache[cleanPath] {
+            return data
+        }
+
+        // Try with common extension variations (.jpg <-> .jpeg)
+        let extensions = [".jpg", ".jpeg", ".png", ".gif"]
+        let baseName = (filename as NSString).deletingPathExtension
+
+        for ext in extensions {
+            let altFilename = baseName + ext
+            if let data = imageCache[altFilename] {
+                return data
+            }
+        }
+
+        return nil
     }
 
     private func findBlockIds(in range: NSRange, attributedString: NSAttributedString) -> [String] {
@@ -353,35 +552,91 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         pageBlockIds.removeAll()
         attributedContent = nil
 
-        // Rebuild on background queue, update UI on main
+        // Rebuild using cache-aware approach
         let fontScale = self.fontScale
         let htmlSections = self.htmlSections
         let viewBounds = self.view.bounds
+        let bookId = self.bookId
+        let spineItemId = htmlSections.first?.spineItemId ?? "unknown"
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
+        let horizontalPadding: CGFloat = 48
+        let verticalPadding: CGFloat = 48
+        let config = LayoutConfig(
+            fontScale: fontScale,
+            pageWidth: viewBounds.width,
+            pageHeight: viewBounds.height,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding
+        )
 
-            // Build attributed content off main thread
+        Task {
+            let startTime = CFAbsoluteTimeGetCurrent()
+
+            // Check cache first
+            let cachedLayout = await layoutService.getCachedLayout(
+                bookId: bookId,
+                spineItemId: spineItemId,
+                config: config
+            )
+
+            // Build attributed content
             let imageCache = htmlSections.reduce(into: [String: Data]()) { result, section in
                 result.merge(section.imageCache) { _, new in new }
             }
 
             let converter = HTMLToAttributedStringConverter(imageCache: imageCache, fontScale: fontScale)
+            let conversionStart = CFAbsoluteTimeGetCurrent()
             let content = converter.convert(sections: htmlSections)
+            let conversionTime = CFAbsoluteTimeGetCurrent() - conversionStart
 
-            // Calculate page ranges off main thread
-            let horizontalPadding: CGFloat = 48
-            let verticalPadding: CGFloat = 48
-            let pageSize = CGSize(
-                width: viewBounds.width - (horizontalPadding * 2),
-                height: viewBounds.height - (verticalPadding * 2)
-            )
-            let textPageRanges = self.calculatePageRanges(for: content.attributedString, pageSize: pageSize)
+            Self.logger.info("TIMING (rebuild): HTML conversion took \(conversionTime, privacy: .public)s")
+
+            let textPageRanges: [NSRange]
+
+            if let cached = cachedLayout {
+                // CACHE HIT
+                Self.logger.info("Cache hit (rebuild): using cached layout with \(cached.totalPages, privacy: .public) pages")
+                textPageRanges = cached.pageOffsets.map { $0.characterRange }
+
+                let totalTime = CFAbsoluteTimeGetCurrent() - startTime
+                Self.logger.info("TIMING (rebuild): Cache hit took \(totalTime, privacy: .public)s total")
+
+                await MainActor.run {
+                    self.cachedLayout = cached
+                }
+            } else {
+                // CACHE MISS - calculate
+                Self.logger.info("Cache miss (rebuild): calculating layout")
+
+                let pageSize = config.contentSize
+                let layoutStart = CFAbsoluteTimeGetCurrent()
+                let (ranges, pageOffsets) = self.calculatePageRangesWithOffsets(
+                    for: content.attributedString,
+                    pageSize: pageSize,
+                    attributedContent: content
+                )
+                textPageRanges = ranges
+                let layoutTime = CFAbsoluteTimeGetCurrent() - layoutStart
+
+                let totalTime = CFAbsoluteTimeGetCurrent() - startTime
+                Self.logger.info("TIMING (rebuild): Page layout took \(layoutTime, privacy: .public)s for \(ranges.count, privacy: .public) pages. Total: \(totalTime, privacy: .public)s")
+
+                // Save to cache
+                let layout = ChapterLayout(
+                    bookId: bookId,
+                    spineItemId: spineItemId,
+                    config: config,
+                    pageOffsets: pageOffsets
+                )
+                await layoutService.saveLayout(layout)
+
+                await MainActor.run {
+                    self.cachedLayout = layout
+                }
+            }
 
             // Update UI on main thread
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-
+            await MainActor.run {
                 self.attributedContent = content
                 self.hasBuiltPages = true
 

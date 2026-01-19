@@ -202,6 +202,7 @@ public actor ReaderAgentService {
                 Use the search tools to find relevant passages before answering.
                 IMPORTANT: Do not make claims about the book without retrieving evidence first.
                 If you cannot find relevant information, say so rather than guessing.
+                When calling get_chapter_summary, always use the chapter id from get_book_structure (id: ...).
                 """
 
                 if !routing.suggestedChapterIds.isEmpty {

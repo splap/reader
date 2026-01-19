@@ -1,125 +1,181 @@
-# Agent Tools Revision Plan
+# Fix: Preserve HTML formatting in attributed strings
 
-## Goal
+## Problem
 
-Revise agent tool definitions to be clear, distinct, and well-described so an LLM knows exactly when to use each tool. In a tool-first architecture, these descriptions are the most important text in the application.
+We're losing HTML formatting at multiple stages:
 
-## Changes
+1. **BlockParser** only recognizes `p`, `h1-h6`, `li`, `blockquote`, `pre` - images, divs, and other content are ignored
+2. **createStyledText()** throws away all HTML, using only `block.textContent` (plain text)
+3. Inline formatting (`<b>`, `<i>`, `<em>`, `<a>`, etc.) is completely lost
 
-### Tools to Remove
+Example: The Hitchhiker's Guide cover uses `<div><svg><image xlink:href="..."></svg></div>` which is never parsed into a block, and even if it were, the image path wouldn't be extracted.
 
-1. **`get_chapter_text`** — Token bomb. Returns entire chapter raw text which is rarely useful and expensive. The model should use targeted searches instead.
+## Design Principles
 
-2. **`get_character_mentions`** — Redundant. Implementation is identical to `search_content` (same `context.searchBook` call). If we want character-specific behavior later, it should leverage concept map entity data.
+- **Blocks remain the fundamental unit** - Block IDs are used throughout for position tracking, navigation, search results, etc. This doesn't change.
+- **Better rendering of block content** - Parse `block.htmlContent` properly instead of using plain text
+- **Extensible pattern matching** - Easy to add support for new HTML patterns without major refactoring
+- **Performance matters** - Avoid WebKit's slow NSAttributedString HTML init; use lightweight parsing
 
-### Tools to Rename
+## Proposed Changes
 
-1. **`search_content` → `lexical_search`** — Current name is vague. "Lexical" makes clear this is exact/fuzzy word matching, distinct from semantic search.
+### Step 1: Expand BlockParser to recognize more content types
 
-### Description Rewrites
+**File:** `BlockParser.swift`
 
-All descriptions should:
-- Tell the model WHEN to use the tool (use cases)
-- Tell the model WHAT it returns
-- Distinguish from similar tools
-- Omit implementation details (caching, on-demand generation)
+Add detection for:
+- `<img>` tags (standalone images)
+- `<svg>` containing `<image>` elements
+- `<div>` elements that contain meaningful content (images, formatted text)
+- `<figure>` and `<figcaption>` elements
 
-#### `get_current_position`
-```
-Get the reader's current position: chapter name, progress percentage, and block location.
-Use this to understand where the reader is in the book before answering context-dependent questions.
-```
+```swift
+// Add to blockTags or handle separately
+private static let imageTags: Set<String> = ["img", "svg", "figure"]
 
-#### `lexical_search` (was `search_content`)
-```
-Search for exact word or phrase matches in the book text. Uses full-text indexing with BM25 ranking.
-Use this for:
-- Finding specific names, terms, or phrases
-- Locating exact quotes
-- Counting occurrences of a word
-Does NOT find conceptual matches — use semantic_search for that.
-Returns: matching passages with surrounding context.
-```
+// New method to find image blocks
+private func findImageBlocks(in html: String, spineItemId: String, startingOrdinal: Int) -> [Block] {
+    var blocks: [Block] = []
 
-#### `semantic_search`
-```
-Search for passages by meaning, even without exact word matches. Uses vector embeddings to find conceptually similar text.
-Use this for:
-- Abstract questions ("passages about betrayal")
-- Thematic queries ("where does the book discuss mortality?")
-- When lexical_search returns no results but the concept should exist
-Returns: passages ranked by semantic similarity with relevance scores.
-```
+    // Pattern for <img src="...">
+    let imgPattern = #"<img[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>"#
 
-#### `book_concept_map_lookup`
-```
-Look up the book's concept map to find which chapters discuss a topic. The concept map contains pre-extracted:
-- Entities (characters, places, organizations)
-- Themes (abstract concepts)
-- Events (significant plot points)
-Use this FIRST to scope searches to relevant chapters, saving tool budget.
-Returns: matching entities/themes/events with their chapter locations.
+    // Pattern for <svg>...<image xlink:href="...">...</svg>
+    let svgPattern = #"<svg[^>]*>[\s\S]*?<image[^>]*xlink:href\s*=\s*["']([^"']+)["'][^>]*>[\s\S]*?</svg>"#
+
+    // Pattern for <div> containing only image content
+    let divImagePattern = #"<div[^>]*>\s*(<img[^>]*>|<svg[^>]*>[\s\S]*?</svg>)\s*</div>"#
+
+    // ... match and create blocks with type .image
+}
 ```
 
-#### `get_surrounding_context`
-```
-Get text blocks before and after a specific position. Use this for positional expansion:
-- "What happens next?" — expand forward from current position
-- "What led to this?" — expand backward from current position
-- Understanding context around a user's selection
-NOT for finding things — use lexical_search or semantic_search for that.
+### Step 2: Create lightweight HTML → AttributedString parser
+
+**File:** `HTMLToAttributedString.swift`
+
+Replace `createStyledText()` with `parseBlockHTML()` that actually parses the HTML:
+
+```swift
+private func parseBlockHTML(_ block: Block) -> NSAttributedString {
+    let html = block.htmlContent
+    let result = NSMutableAttributedString()
+
+    // Base attributes from block type
+    var baseAttrs = attributesForBlockType(block.type)
+
+    // Parse inline elements
+    // This is a simplified recursive descent - real implementation would be more robust
+    parseInlineContent(html, into: result, baseAttributes: baseAttrs)
+
+    return result
+}
+
+private func parseInlineContent(_ html: String, into result: NSMutableAttributedString, baseAttributes: [NSAttributedString.Key: Any]) {
+    // Handle these inline patterns:
+    // <b>, <strong> → add .font with bold trait
+    // <i>, <em> → add .font with italic trait
+    // <a href="..."> → add .link attribute
+    // <img src="..."> → add NSTextAttachment
+    // <span class="..."> → map known classes to attributes
+    // Plain text → append with base attributes
+}
 ```
 
-#### `get_book_structure`
-```
-Get the book's table of contents: title, author, and all chapter names with IDs.
-Use this to:
-- Answer "how many chapters?" or "what are the chapter names?"
-- Get chapter IDs for scoped searches
-- Understand the book's organization
+### Step 3: Extract image paths from multiple formats
+
+**File:** `HTMLToAttributedString.swift`
+
+Update `extractImagePath()` to handle all image formats:
+
+```swift
+private func extractImagePath(from html: String) -> String? {
+    // Standard img src
+    if let path = matchFirst(#"<img[^>]*src\s*=\s*["']([^"']+)["']"#, in: html) {
+        return path
+    }
+
+    // SVG xlink:href
+    if let path = matchFirst(#"xlink:href\s*=\s*["']([^"']+)["']"#, in: html) {
+        return path
+    }
+
+    // SVG href (modern syntax without xlink prefix)
+    if let path = matchFirst(#"<image[^>]*href\s*=\s*["']([^"']+)["']"#, in: html) {
+        return path
+    }
+
+    return nil
+}
 ```
 
-#### `get_chapter_summary`
-```
-Get a summary of a specific chapter including key plot points and characters mentioned.
-Use for questions like "what happens in chapter 3?" or to understand a chapter without searching through it.
-Returns: narrative summary, key points, characters mentioned.
-```
+### Step 4: Support inline images via NSTextAttachment
 
-#### `get_book_synopsis`
-```
-Get a high-level synopsis of the entire book including main characters and themes.
-Use for broad questions like "what is this book about?" or "who are the main characters?"
-NOT for specific plot details — use chapter summaries or searches for those.
-Returns: plot overview, main characters with descriptions, key themes.
-```
+For images that appear inline (not full-page), embed them in the attributed string:
 
-#### `wikipedia_lookup`
-*(Keep as-is — already excellent)*
+```swift
+private func createImageAttachment(path: String) -> NSTextAttachment? {
+    guard let imageData = imageCache[path],
+          let image = UIImage(data: imageData) else {
+        return nil
+    }
 
-#### `show_map`
-```
-Display an inline map for a real-world location.
-Use when the user asks "where is X?" or wants to see a place on a map.
-Only works for real places — not fictional locations from the book.
-```
+    let attachment = NSTextAttachment()
+    attachment.image = image
 
-#### `render_image`
-```
-Display an image inline in chat.
-Use when the user asks what something looks like and you have an image URL (typically from wikipedia_lookup).
-Use sparingly — only when a visual genuinely helps answer the question.
-```
+    // Scale to fit text line height or max width
+    let maxWidth: CGFloat = 300
+    let scale = min(1.0, maxWidth / image.size.width)
+    attachment.bounds = CGRect(
+        x: 0, y: 0,
+        width: image.size.width * scale,
+        height: image.size.height * scale
+    )
 
-## Implementation Steps
-
-1. Remove `get_chapter_text` tool definition and executor case
-2. Remove `get_character_mentions` tool definition and executor case
-3. Rename `search_content` to `lexical_search` (definition, executor case, any references)
-4. Update all tool descriptions per above
-5. Update `allTools` array to reflect removals
-6. Run tests to ensure nothing breaks
+    return attachment
+}
+```
 
 ## Files to Modify
 
-- `Packages/ReaderKit/Sources/ReaderCore/AgentTools.swift` — All changes here
+1. **`BlockParser.swift`**
+   - Add `findImageBlocks()` method
+   - Call it from `parse()` and `parseWithAnnotatedHTML()`
+   - Expand pattern matching for divs/figures with content
+
+2. **`HTMLToAttributedString.swift`**
+   - Replace `createStyledText()` with `parseBlockHTML()`
+   - Add inline formatting support (bold, italic, links)
+   - Update `extractImagePath()` for SVG/xlink
+   - Add `createImageAttachment()` for inline images
+
+3. **`Block.swift`** (if needed)
+   - Consider adding more BlockTypes: `.figure`, `.divImage`, etc.
+   - Or keep `.image` and let the HTML content distinguish subtypes
+
+4. **`EPUBLoader.swift`** (verify)
+   - Ensure images referenced by `xlink:href` are cached
+
+## Implementation Order
+
+1. First: Update `extractImagePath()` to handle `xlink:href` (quick win)
+2. Second: Expand `BlockParser` to find image blocks in divs/svgs
+3. Third: Implement `parseBlockHTML()` with inline formatting
+4. Fourth: Add NSTextAttachment support for inline images
+
+## Testing
+
+1. Hitchhiker's Guide - cover image displays
+2. Books with `<b>`, `<i>`, `<em>` - formatting preserved
+3. Books with inline images - images appear in text flow
+4. Performance - ensure parsing isn't significantly slower
+5. Existing functionality - block IDs, position tracking still work
+
+## Future Extensions
+
+This architecture makes it easy to add:
+- `<table>` rendering
+- `<code>` with syntax highlighting
+- Custom CSS class → style mappings
+- `<sup>`, `<sub>` for footnotes
+- `<ruby>` for annotations (common in Asian language books)

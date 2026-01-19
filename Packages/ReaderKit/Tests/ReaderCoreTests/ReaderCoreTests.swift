@@ -151,6 +151,20 @@ final class ReaderCoreTests: XCTestCase {
         XCTAssertTrue(sanitized.contains("text-align: left"), "Left alignment should be preserved")
     }
 
+    func testResolveChapterIdMatchesLabelsAndIndex() {
+        let sections = [
+            SectionInfo(spineItemId: "s1", title: "Chapter I", ncxLabel: "I", blockCount: 10),
+            SectionInfo(spineItemId: "s2", title: "Chapter II", ncxLabel: "II", blockCount: 12)
+        ]
+        let context = StubBookContext(currentSpineItemId: "s1", sections: sections)
+
+        XCTAssertEqual(ToolExecutor.resolveChapterId("current", in: context), "s1")
+        XCTAssertEqual(ToolExecutor.resolveChapterId("s2", in: context), "s2")
+        XCTAssertNil(ToolExecutor.resolveChapterId("II", in: context))
+        XCTAssertNil(ToolExecutor.resolveChapterId("chapter ii", in: context))
+        XCTAssertNil(ToolExecutor.resolveChapterId("2", in: context))
+    }
+
     private func makeChapter() -> Chapter {
         let text = String(repeating: "Lorem ipsum dolor sit amet. ", count: 400)
         let attributes: [NSAttributedString.Key: Any] = [
@@ -222,6 +236,31 @@ final class ReaderCoreTests: XCTestCase {
             let start = Int(position)
             let end = min(start + Int(size), data.count)
             return data[start..<end]
+        }
+    }
+
+    private struct StubBookContext: BookContext {
+        var bookId: String = "book1"
+        var bookTitle: String = "Test Book"
+        var bookAuthor: String? = nil
+        var currentSpineItemId: String
+        var currentBlockId: String? = nil
+        var sections: [SectionInfo]
+
+        func chapterText(spineItemId: String) -> String? {
+            nil
+        }
+
+        func searchChapter(query: String) -> [SearchResult] {
+            []
+        }
+
+        func searchBook(query: String) -> [SearchResult] {
+            []
+        }
+
+        func blocksAround(blockId: String, count: Int) -> [Block] {
+            []
         }
     }
 }

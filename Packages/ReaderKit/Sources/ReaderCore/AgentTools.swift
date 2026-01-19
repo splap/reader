@@ -116,7 +116,10 @@ public enum AgentTools {
                 - Entities (characters, places, organizations)
                 - Themes (abstract concepts)
                 - Events (significant plot points)
-                Use this FIRST to scope searches to relevant chapters, saving tool budget.
+                Use this tool, 
+                    ONLY when you need a chapter list to narrow a subsequent semantic_search or get_chapter_summary, 
+                    AND your query is a single concept term (1–2 words) likely to be an entity/theme/event label.
+                If the query is a quote, a long phrase, or a specific 3+ word name, prefer lexical_search first.
                 Returns: matching entities/themes/events with their chapter locations.
                 """,
             parameters: JSONSchema(
@@ -189,7 +192,7 @@ public enum AgentTools {
                 properties: [
                     "chapter_id": PropertySchema(
                         type: "string",
-                        description: "The chapter ID to summarize. Use 'current' for the current chapter."
+                        description: "The chapter ID to summarize (from get_book_structure). Use 'current' for the current chapter."
                     )
                 ],
                 required: ["chapter_id"]
@@ -426,7 +429,7 @@ public struct ToolExecutor {
         for (index, section) in context.sections.enumerated() {
             let label = section.displayLabel
             let marker = section.spineItemId == context.currentSpineItemId ? " [current]" : ""
-            output += "\(index + 1). \(label)\(marker)\n"
+            output += "\(index + 1). \(label) (id: \(section.spineItemId))\(marker)\n"
         }
 
         return output
@@ -656,11 +659,8 @@ public struct ToolExecutor {
     private func executeGetChapterSummary(_ args: [String: Any]) async -> String {
         let chapterId = args["chapter_id"] as? String ?? "current"
 
-        let targetId: String
-        if chapterId == "current" {
-            targetId = context.currentSpineItemId
-        } else {
-            targetId = chapterId
+        guard let targetId = Self.resolveChapterId(chapterId, in: context) else {
+            return "Unknown chapter_id '\(chapterId)'. Use get_book_structure and pass the id field."
         }
 
         // Find the chapter
@@ -706,6 +706,17 @@ public struct ToolExecutor {
         } catch {
             return "Failed to generate chapter summary: \(error.localizedDescription)"
         }
+    }
+
+    static func resolveChapterId(_ chapterId: String, in context: BookContext) -> String? {
+        if chapterId == "current" {
+            return context.currentSpineItemId
+        }
+
+        if context.sections.contains(where: { $0.spineItemId == chapterId }) {
+            return chapterId
+        }
+        return nil
     }
 
     // MARK: - Book Synopsis
