@@ -36,12 +36,12 @@ public actor PageLayoutStore {
         let result = sqlite3_open(dbPath.path, &db)
         guard result == SQLITE_OK else {
             let error = String(cString: sqlite3_errmsg(db))
-            Self.logger.error("Failed to open database: \(error, privacy: .public)")
+            Self.logger.error("Failed to open database: \(error)")
             throw PageLayoutStoreError.databaseError("Failed to open: \(error)")
         }
 
         try createTables()
-        Self.logger.info("PageLayoutStore opened at \(self.dbPath.path, privacy: .public)")
+        Self.logger.info("PageLayoutStore opened at \(self.dbPath.path)")
     }
 
     /// Closes the database
@@ -90,7 +90,7 @@ public actor PageLayoutStore {
         if result != SQLITE_OK {
             let error = errMsg.map { String(cString: $0) } ?? "Unknown error"
             sqlite3_free(errMsg)
-            Self.logger.error("SQL error: \(error, privacy: .public)")
+            Self.logger.error("SQL error: \(error)")
             throw PageLayoutStoreError.databaseError(error)
         }
     }
@@ -128,7 +128,7 @@ public actor PageLayoutStore {
 
             // Check version compatibility
             guard version == ChapterLayout.formatVersion else {
-                Self.logger.info("Layout version mismatch: stored=\(version, privacy: .public), current=\(ChapterLayout.formatVersion, privacy: .public)")
+                Self.logger.info("Layout version mismatch: stored=\(version), current=\(ChapterLayout.formatVersion)")
                 return nil
             }
 
@@ -197,7 +197,7 @@ public actor PageLayoutStore {
             throw PageLayoutStoreError.databaseError("Insert failed: \(error)")
         }
 
-        Self.logger.info("Saved layout for \(layout.spineItemId, privacy: .public) with \(layout.pageOffsets.count, privacy: .public) pages")
+        Self.logger.info("Saved layout for \(layout.spineItemId) with \(layout.pageOffsets.count) pages")
     }
 
     /// Checks if a layout exists in the cache
@@ -247,7 +247,7 @@ public actor PageLayoutStore {
             throw PageLayoutStoreError.databaseError("Delete failed: \(error)")
         }
 
-        Self.logger.info("Deleted layouts for book \(bookId, privacy: .public)")
+        Self.logger.info("Deleted layouts for book \(bookId)")
     }
 
     /// Deletes a specific layout

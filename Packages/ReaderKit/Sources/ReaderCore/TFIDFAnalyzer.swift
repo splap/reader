@@ -58,7 +58,7 @@ public struct TFIDFAnalyzer {
             return AnalysisResult(keywordsByChapter: [:], globalIDF: [:], chapterCount: 0)
         }
 
-        logger.info("Analyzing \(chapters.count, privacy: .public) chapters for TF-IDF keywords")
+        logger.info("Analyzing \(chapters.count) chapters for TF-IDF keywords")
 
         // Step 1: Tokenize each chapter and compute term frequencies
         var chapterTermFreqs: [String: [String: Int]] = [:]
@@ -113,7 +113,7 @@ public struct TFIDFAnalyzer {
             keywordsByChapter[chapter.id] = Array(keywords.prefix(maxKeywordsPerChapter))
         }
 
-        logger.info("TF-IDF analysis complete: \(idf.count, privacy: .public) unique terms")
+        logger.info("TF-IDF analysis complete: \(idf.count) unique terms")
 
         return AnalysisResult(
             keywordsByChapter: keywordsByChapter,

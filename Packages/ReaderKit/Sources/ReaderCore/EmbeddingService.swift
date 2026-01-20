@@ -69,7 +69,7 @@ public actor EmbeddingService {
             Self.logger.info("Loaded embedding model successfully")
             return true
         } catch {
-            Self.logger.error("Failed to load embedding model: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to load embedding model: \(error.localizedDescription)")
             modelLoadFailed = true
             throw EmbeddingError.modelLoadFailed(error.localizedDescription)
         }
@@ -83,9 +83,9 @@ public actor EmbeddingService {
         }
 
         // Compile the mlpackage
-        Self.logger.info("Compiling model at \(url.path, privacy: .public)")
+        Self.logger.info("Compiling model at \(url.path)")
         let compiledURL = try await MLModel.compileModel(at: url)
-        Self.logger.info("Model compiled to \(compiledURL.path, privacy: .public)")
+        Self.logger.info("Model compiled to \(compiledURL.path)")
         return compiledURL
     }
 
@@ -128,7 +128,7 @@ public actor EmbeddingService {
             throw EmbeddingError.modelNotAvailable
         }
 
-        Self.logger.info("Generating embeddings for \(texts.count, privacy: .public) texts")
+        Self.logger.info("Generating embeddings for \(texts.count) texts")
 
         // Pre-tokenize all texts in parallel
         let tokenizedInputs: [(inputIds: [Int32], attentionMask: [Int32])] = await withTaskGroup(of: (Int, (inputIds: [Int32], attentionMask: [Int32])).self) { group in
@@ -195,11 +195,11 @@ public actor EmbeddingService {
                 // Progress logging for large batches
                 let completed = results.filter { !$0.isEmpty }.count
                 if texts.count > 100 && completed % 100 == 0 && completed > 0 {
-                    Self.logger.debug("Embedded \(completed, privacy: .public)/\(texts.count, privacy: .public) texts")
+                    Self.logger.debug("Embedded \(completed)/\(texts.count) texts")
                 }
             }
 
-            Self.logger.info("Generated \(results.count, privacy: .public) embeddings")
+            Self.logger.info("Generated \(results.count) embeddings")
             return results
         }
     }

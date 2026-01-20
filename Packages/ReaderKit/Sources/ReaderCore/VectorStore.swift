@@ -47,7 +47,7 @@ public actor VectorStore {
         }
 
         guard !chunks.isEmpty else {
-            Self.logger.info("No chunks to index for book \(bookId, privacy: .public)")
+            Self.logger.info("No chunks to index for book \(bookId)")
             return
         }
 
@@ -56,7 +56,7 @@ public actor VectorStore {
             throw VectorStoreError.invalidDimension(expected: Int(Self.dimension), actual: firstEmbedding.count)
         }
 
-        Self.logger.info("Building vector index for book \(bookId, privacy: .public) with \(chunks.count, privacy: .public) chunks")
+        Self.logger.info("Building vector index for book \(bookId) with \(chunks.count) chunks")
 
         // Create index with HNSW parameters
         let index = try USearchIndex.make(
@@ -95,7 +95,7 @@ public actor VectorStore {
         chunkIdMappings[bookId] = idMapping
         positionToChunkId[bookId] = reverseMapping
 
-        Self.logger.info("Successfully built vector index for book \(bookId, privacy: .public)")
+        Self.logger.info("Successfully built vector index for book \(bookId)")
     }
 
     // MARK: - Search
@@ -168,7 +168,7 @@ public actor VectorStore {
         try? FileManager.default.removeItem(at: indexPath)
         try? FileManager.default.removeItem(at: mappingPath)
 
-        Self.logger.info("Deleted vector index for book \(bookId, privacy: .public)")
+        Self.logger.info("Deleted vector index for book \(bookId)")
     }
 
     /// Clears all cached indices from memory (indices remain on disk)
@@ -211,7 +211,7 @@ public actor VectorStore {
         try index.load(path: path.path)
         loadedIndices[bookId] = index
 
-        Self.logger.debug("Loaded vector index for book \(bookId, privacy: .public)")
+        Self.logger.debug("Loaded vector index for book \(bookId)")
         return index
     }
 

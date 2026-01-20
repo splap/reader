@@ -80,7 +80,7 @@ public actor ChapterSummaryStore {
             cache[cacheKey] = summary
             return summary
         } catch {
-            Self.logger.error("Failed to load chapter summary: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to load chapter summary: \(error.localizedDescription)")
             return nil
         }
     }
@@ -103,7 +103,7 @@ public actor ChapterSummaryStore {
         let data = try encoder.encode(summary)
         try data.write(to: path)
 
-        Self.logger.debug("Saved summary for chapter \(summary.chapterId, privacy: .public)")
+        Self.logger.debug("Saved summary for chapter \(summary.chapterId)")
     }
 
     /// Checks if a summary exists for a chapter
@@ -124,7 +124,7 @@ public actor ChapterSummaryStore {
         let bookDir = storeDirectory.appendingPathComponent(bookId, isDirectory: true)
         try? FileManager.default.removeItem(at: bookDir)
 
-        Self.logger.info("Deleted summaries for book \(bookId, privacy: .public)")
+        Self.logger.info("Deleted summaries for book \(bookId)")
     }
 
     /// Lists all chapter IDs with summaries for a book
@@ -178,11 +178,11 @@ public actor ChapterSummaryService {
     ) async throws -> ChapterSummary {
         // Check cache first
         if let cached = await ChapterSummaryStore.shared.get(bookId: bookId, chapterId: chapterId) {
-            Self.logger.debug("Cache hit for chapter \(chapterId, privacy: .public)")
+            Self.logger.debug("Cache hit for chapter \(chapterId)")
             return cached
         }
 
-        Self.logger.info("Generating summary for chapter \(chapterId, privacy: .public)")
+        Self.logger.info("Generating summary for chapter \(chapterId)")
 
         // Generate summary using map-reduce for long chapters
         let summary = try await generateSummary(
@@ -268,7 +268,7 @@ public actor ChapterSummaryService {
             throw OpenRouterError.missingAPIKey
         }
 
-        Self.logger.debug("Using map-reduce for \(tokenCount, privacy: .public) tokens")
+        Self.logger.debug("Using map-reduce for \(tokenCount) tokens")
 
         // Split into chunks
         let chunks = splitIntoChunks(text: text, maxTokens: maxChunkTokens)
@@ -276,7 +276,7 @@ public actor ChapterSummaryService {
         // Map: Summarize each chunk
         var chunkSummaries: [String] = []
         for (index, chunk) in chunks.enumerated() {
-            Self.logger.debug("Summarizing chunk \(index + 1, privacy: .public)/\(chunks.count, privacy: .public)")
+            Self.logger.debug("Summarizing chunk \(index + 1)/\(chunks.count)")
 
             let chunkPrompt = """
             Summarize this section of a chapter. Focus on:

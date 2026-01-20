@@ -60,7 +60,7 @@ public actor BookChatRouter {
         let heuristicResult = applyHeuristics(question: question, bookTitle: bookTitle, bookAuthor: bookAuthor)
 
         if heuristicResult.confidence >= 0.85 {
-            Self.logger.debug("High-confidence heuristic: \(heuristicResult.route.rawValue, privacy: .public)")
+            Self.logger.debug("High-confidence heuristic: \(heuristicResult.route.rawValue)")
             return heuristicResult
         }
 
@@ -69,7 +69,7 @@ public actor BookChatRouter {
             let conceptMapResult = resolveWithConceptMap(question: question, conceptMap: conceptMap)
 
             if conceptMapResult.confidence > heuristicResult.confidence {
-                Self.logger.debug("Concept map resolved to: \(conceptMapResult.route.rawValue, privacy: .public)")
+                Self.logger.debug("Concept map resolved to: \(conceptMapResult.route.rawValue)")
                 return conceptMapResult
             }
         }

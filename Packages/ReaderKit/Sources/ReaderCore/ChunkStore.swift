@@ -36,12 +36,12 @@ public actor ChunkStore {
         let result = sqlite3_open(dbPath.path, &db)
         guard result == SQLITE_OK else {
             let error = String(cString: sqlite3_errmsg(db))
-            Self.logger.error("Failed to open database: \(error, privacy: .public)")
+            Self.logger.error("Failed to open database: \(error)")
             throw ChunkStoreError.databaseError("Failed to open: \(error)")
         }
 
         try createTables()
-        Self.logger.info("ChunkStore opened at \(self.dbPath.path, privacy: .public)")
+        Self.logger.info("ChunkStore opened at \(self.dbPath.path)")
     }
 
     /// Closes the database
@@ -119,7 +119,7 @@ public actor ChunkStore {
         if result != SQLITE_OK {
             let error = errMsg.map { String(cString: $0) } ?? "Unknown error"
             sqlite3_free(errMsg)
-            Self.logger.error("SQL error: \(error, privacy: .public)")
+            Self.logger.error("SQL error: \(error)")
             throw ChunkStoreError.databaseError(error)
         }
     }
@@ -135,7 +135,7 @@ public actor ChunkStore {
             try open()
         }
 
-        Self.logger.info("Indexing \(chunks.count, privacy: .public) chunks for book \(bookId, privacy: .public)")
+        Self.logger.info("Indexing \(chunks.count) chunks for book \(bookId)")
 
         // Delete existing chunks for this book
         try deleteBook(bookId: bookId)
@@ -179,7 +179,7 @@ public actor ChunkStore {
             }
 
             try execute("COMMIT;")
-            Self.logger.info("Successfully indexed \(chunks.count, privacy: .public) chunks")
+            Self.logger.info("Successfully indexed \(chunks.count) chunks")
         } catch {
             try? execute("ROLLBACK;")
             throw error
@@ -205,7 +205,7 @@ public actor ChunkStore {
             throw ChunkStoreError.databaseError("Delete failed: \(error)")
         }
 
-        Self.logger.info("Deleted chunks for book \(bookId, privacy: .public)")
+        Self.logger.info("Deleted chunks for book \(bookId)")
     }
 
     // MARK: - Search
@@ -282,7 +282,7 @@ public actor ChunkStore {
             }
         }
 
-        Self.logger.debug("Search for '\(query, privacy: .public)' returned \(matches.count, privacy: .public) results")
+        Self.logger.debug("Search for '\(query)' returned \(matches.count) results")
         return matches
     }
 

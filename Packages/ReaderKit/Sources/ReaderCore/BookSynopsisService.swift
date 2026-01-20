@@ -87,7 +87,7 @@ public actor BookSynopsisStore {
             cache[bookId] = synopsis
             return synopsis
         } catch {
-            Self.logger.error("Failed to load book synopsis: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to load book synopsis: \(error.localizedDescription)")
             return nil
         }
     }
@@ -105,7 +105,7 @@ public actor BookSynopsisStore {
         let data = try encoder.encode(synopsis)
         try data.write(to: path)
 
-        Self.logger.debug("Saved synopsis for book \(synopsis.bookId, privacy: .public)")
+        Self.logger.debug("Saved synopsis for book \(synopsis.bookId)")
     }
 
     /// Checks if a synopsis exists for a book
@@ -123,7 +123,7 @@ public actor BookSynopsisStore {
         let path = synopsisPath(bookId: bookId)
         try? FileManager.default.removeItem(at: path)
 
-        Self.logger.info("Deleted synopsis for book \(bookId, privacy: .public)")
+        Self.logger.info("Deleted synopsis for book \(bookId)")
     }
 
     private func synopsisPath(bookId: String) -> URL {
@@ -160,11 +160,11 @@ public actor BookSynopsisService {
     ) async throws -> BookSynopsis {
         // Check cache first
         if let cached = await BookSynopsisStore.shared.get(bookId: bookId) {
-            Self.logger.debug("Cache hit for book synopsis \(bookId, privacy: .public)")
+            Self.logger.debug("Cache hit for book synopsis \(bookId)")
             return cached
         }
 
-        Self.logger.info("Generating synopsis for book \(bookId, privacy: .public)")
+        Self.logger.info("Generating synopsis for book \(bookId)")
 
         // Generate synopsis
         let synopsis = try await generateSynopsis(

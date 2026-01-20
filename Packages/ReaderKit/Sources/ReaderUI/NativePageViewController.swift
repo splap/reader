@@ -179,24 +179,24 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             let content = converter.convert(sections: htmlSections)
             let conversionTime = CFAbsoluteTimeGetCurrent() - conversionStart
 
-            Self.logger.info("TIMING: HTML conversion took \(conversionTime, privacy: .public)s for \(content.blockOrder.count, privacy: .public) blocks")
+            Self.logger.info("TIMING: HTML conversion took \(conversionTime)s for \(content.blockOrder.count) blocks")
 
             let textPageRanges: [NSRange]
 
             if let cached = cachedLayout {
                 // CACHE HIT - use cached page ranges directly
-                Self.logger.info("Cache hit: using cached layout with \(cached.totalPages, privacy: .public) pages")
+                Self.logger.info("Cache hit: using cached layout with \(cached.totalPages) pages")
                 textPageRanges = cached.pageOffsets.map { $0.characterRange }
 
                 let totalTime = CFAbsoluteTimeGetCurrent() - startTime
-                Self.logger.info("TIMING: Cache hit render took \(totalTime, privacy: .public)s total")
+                Self.logger.info("TIMING: Cache hit render took \(totalTime)s total")
 
                 await MainActor.run {
                     self.cachedLayout = cached
                 }
             } else {
                 // CACHE MISS - calculate page ranges
-                Self.logger.info("Cache miss: calculating layout for \(spineItemId, privacy: .public)")
+                Self.logger.info("Cache miss: calculating layout for \(spineItemId)")
 
                 let pageSize = config.contentSize
                 let layoutStart = CFAbsoluteTimeGetCurrent()
@@ -209,7 +209,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 let layoutTime = CFAbsoluteTimeGetCurrent() - layoutStart
 
                 let totalTime = CFAbsoluteTimeGetCurrent() - startTime
-                Self.logger.info("TIMING: Page layout took \(layoutTime, privacy: .public)s for \(ranges.count, privacy: .public) pages. Total: \(totalTime, privacy: .public)s")
+                Self.logger.info("TIMING: Page layout took \(layoutTime)s for \(ranges.count) pages. Total: \(totalTime)s")
 
                 // Save to cache
                 let layout = ChapterLayout(
@@ -249,7 +249,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
                 // Restore position
                 if let blockId = initialBlockId {
-                    Self.logger.info("Restoring to block: \(blockId, privacy: .public)")
+                    Self.logger.info("Restoring to block: \(blockId)")
                     self.navigateToBlock(blockId, animated: false)
                 }
 
@@ -346,7 +346,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 if pageCount % 50 == 0 {
                     let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
                     let msPerPage = (batchTime / 50.0) * 1000
-                    Self.logger.debug("PAGE_TIMING: Pages \(pageCount - 49, privacy: .public)-\(pageCount, privacy: .public), \(msPerPage, privacy: .public)ms/page")
+                    Self.logger.debug("PAGE_TIMING: Pages \(pageCount - 49)-\(pageCount), \(msPerPage)ms/page")
                     batchStart = CFAbsoluteTimeGetCurrent()
                 }
             }
@@ -463,7 +463,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         scrollView.contentSize = CGSize(width: pageWidth * CGFloat(pages.count), height: pageHeight)
         totalPages = pages.count
 
-        Self.logger.info("Created \(self.totalPages, privacy: .public) page views")
+        Self.logger.info("Created \(self.totalPages) page views")
     }
 
     private func createTextView(for range: NSRange, in fullText: NSAttributedString, padding: UIEdgeInsets) -> UITextView {
@@ -563,7 +563,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     }
 
     private func rebuildPagesAsync() {
-        Self.logger.info("Rebuilding pages with new font scale: \(self.fontScale, privacy: .public)")
+        Self.logger.info("Rebuilding pages with new font scale: \(self.fontScale)")
 
         // Save current position
         let savedBlockId = pageBlockIds.indices.contains(currentPageIndex) ? pageBlockIds[currentPageIndex].first : nil
@@ -615,17 +615,17 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             let content = converter.convert(sections: htmlSections)
             let conversionTime = CFAbsoluteTimeGetCurrent() - conversionStart
 
-            Self.logger.info("TIMING (rebuild): HTML conversion took \(conversionTime, privacy: .public)s")
+            Self.logger.info("TIMING (rebuild): HTML conversion took \(conversionTime)s")
 
             let textPageRanges: [NSRange]
 
             if let cached = cachedLayout {
                 // CACHE HIT
-                Self.logger.info("Cache hit (rebuild): using cached layout with \(cached.totalPages, privacy: .public) pages")
+                Self.logger.info("Cache hit (rebuild): using cached layout with \(cached.totalPages) pages")
                 textPageRanges = cached.pageOffsets.map { $0.characterRange }
 
                 let totalTime = CFAbsoluteTimeGetCurrent() - startTime
-                Self.logger.info("TIMING (rebuild): Cache hit took \(totalTime, privacy: .public)s total")
+                Self.logger.info("TIMING (rebuild): Cache hit took \(totalTime)s total")
 
                 await MainActor.run {
                     self.cachedLayout = cached
@@ -645,7 +645,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 let layoutTime = CFAbsoluteTimeGetCurrent() - layoutStart
 
                 let totalTime = CFAbsoluteTimeGetCurrent() - startTime
-                Self.logger.info("TIMING (rebuild): Page layout took \(layoutTime, privacy: .public)s for \(ranges.count, privacy: .public) pages. Total: \(totalTime, privacy: .public)s")
+                Self.logger.info("TIMING (rebuild): Page layout took \(layoutTime)s for \(ranges.count) pages. Total: \(totalTime)s")
 
                 // Save to cache
                 let layout = ChapterLayout(
@@ -766,12 +766,12 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         // Find page containing this block
         for (index, blockIds) in pageBlockIds.enumerated() {
             if blockIds.contains(blockId) {
-                Self.logger.info("Found block \(blockId, privacy: .public) on page \(index, privacy: .public)")
+                Self.logger.info("Found block \(blockId) on page \(index)")
                 navigateToPage(index, animated: animated)
                 return
             }
         }
-        Self.logger.warning("Block \(blockId, privacy: .public) not found in any page")
+        Self.logger.warning("Block \(blockId) not found in any page")
     }
 
     public func queryFirstVisibleBlock(completion: @escaping (String?, String?) -> Void) {

@@ -71,7 +71,7 @@ public final class TextEngine {
         tempLayoutManager.allowsNonContiguousLayout = false
         tempStorage.addLayoutManager(tempLayoutManager)
 
-        Self.logger.info("📐 Calculating page ranges for \(tempStorage.length, privacy: .public) characters")
+        Self.logger.info("📐 Calculating page ranges for \(tempStorage.length) characters")
 
         var pageRanges: [NSRange] = []
         var lastRange = NSRange(location: 0, length: 0)
@@ -90,7 +90,7 @@ public final class TextEngine {
             }
 
             pageRanges.append(characterRange)
-            Self.logger.info("📐 Page \(pageRanges.count - 1, privacy: .public) range: \(characterRange.location, privacy: .public)+\(characterRange.length, privacy: .public)")
+            Self.logger.info("📐 Page \(pageRanges.count - 1) range: \(characterRange.location)+\(characterRange.length)")
 
             lastRange = characterRange
         }
@@ -128,7 +128,7 @@ public final class TextEngine {
         }
 
         let result = PaginationResult(pages: pages)
-        Self.logger.info("✅ Created \(pages.count, privacy: .public) pages with ISOLATED text systems")
+        Self.logger.info("✅ Created \(pages.count) pages with ISOLATED text systems")
 
         cache[key] = result
         return result

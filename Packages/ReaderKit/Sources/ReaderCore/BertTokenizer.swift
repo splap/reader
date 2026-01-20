@@ -82,7 +82,7 @@ public final class BertTokenizer {
         self.maxLength = json["model_max_length"] as? Int ?? 512
         self.doLowerCase = json["do_lower_case"] as? Bool ?? true
 
-        Self.logger.info("Loaded tokenizer with \(self.vocab.count, privacy: .public) tokens")
+        Self.logger.info("Loaded tokenizer with \(self.vocab.count) tokens")
     }
 
     /// Tokenize text into token IDs with attention mask

@@ -24,11 +24,11 @@ public actor PageLayoutService {
         do {
             let layout = try await store.loadLayout(bookId: bookId, spineItemId: spineItemId, config: config)
             if layout != nil {
-                Self.logger.debug("Cache hit: layout for \(spineItemId, privacy: .public)")
+                Self.logger.debug("Cache hit: layout for \(spineItemId)")
             }
             return layout
         } catch {
-            Self.logger.error("Failed to load layout: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to load layout: \(error.localizedDescription)")
             return nil
         }
     }
@@ -37,9 +37,9 @@ public actor PageLayoutService {
     public func saveLayout(_ layout: ChapterLayout) async {
         do {
             try await store.saveLayout(layout)
-            Self.logger.debug("Cache save: layout for \(layout.spineItemId, privacy: .public) with \(layout.totalPages, privacy: .public) pages")
+            Self.logger.debug("Cache save: layout for \(layout.spineItemId) with \(layout.totalPages) pages")
         } catch {
-            Self.logger.error("Failed to save layout: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to save layout: \(error.localizedDescription)")
         }
     }
 
@@ -60,9 +60,9 @@ public actor PageLayoutService {
     public func invalidateBook(bookId: String) async {
         do {
             try await store.deleteLayouts(bookId: bookId)
-            Self.logger.info("Cache invalidate: all layouts for book \(bookId, privacy: .public)")
+            Self.logger.info("Cache invalidate: all layouts for book \(bookId)")
         } catch {
-            Self.logger.error("Failed to invalidate layouts: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to invalidate layouts: \(error.localizedDescription)")
         }
     }
 
