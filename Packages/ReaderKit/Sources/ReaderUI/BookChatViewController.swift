@@ -297,8 +297,10 @@ public final class BookChatViewController: UIViewController {
 
     private func createModelMenu() -> UIMenu {
         let actions = OpenRouterConfig.availableModels.map { model in
-            UIAction(
-                title: model.name,
+            let priceStr = String(format: "$%.2f/M", model.inputCost)
+            let title = "\(model.name) (\(priceStr))"
+            return UIAction(
+                title: title,
                 state: model.id == OpenRouterConfig.model ? .on : .off
             ) { [weak self] _ in
                 OpenRouterConfig.model = model.id
@@ -399,6 +401,7 @@ public final class BookChatViewController: UIViewController {
             transcript += " by \(author)"
         }
         transcript += "\nGenerated: \(Date())\n"
+        transcript += "Messages: \(messages.count), Traces: \(messageTraces.count)\n"
         transcript += "========================\n\n"
 
         // Render unified timeline from all message traces
@@ -412,7 +415,23 @@ public final class BookChatViewController: UIViewController {
             }
         }
 
+        transcript += "\n=== END (\(stepIndex) steps) ===\n"
         return transcript
+    }
+
+    private func logTranscript() {
+        let transcript = buildDebugTranscript()
+        // Split into chunks to avoid OSLog truncation (~800 char limit per message)
+        let chunkSize = 800
+        var offset = transcript.startIndex
+        var chunkNum = 1
+        while offset < transcript.endIndex {
+            let end = transcript.index(offset, offsetBy: chunkSize, limitedBy: transcript.endIndex) ?? transcript.endIndex
+            let chunk = String(transcript[offset..<end])
+            Self.logger.info("TRACE[\(chunkNum, privacy: .public)]: \(chunk, privacy: .public)")
+            offset = end
+            chunkNum += 1
+        }
     }
 
     private func formatTimelineStep(_ step: TimelineStep, index: Int) -> String {
@@ -597,6 +616,10 @@ public final class BookChatViewController: UIViewController {
                     }
 
                     messages.append(message)
+
+                    // Log debug transcript in chunks (OSLog truncates long messages)
+                    self.logTranscript()
+
                     tableView.reloadData()
                     scrollToBottom()
                     setLoading(false)
