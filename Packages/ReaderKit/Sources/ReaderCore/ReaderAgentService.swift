@@ -75,6 +75,7 @@ public actor ReaderAgentService {
         // Track tool calls made during this conversation
         var toolCallsMade: [String] = []
         var toolExecutions: [ToolExecution] = []
+        var timeline: [TimelineStep] = [.user(message)]  // Start timeline with user message
 
         // Agent loop: keep calling until no more tool calls
         var rounds = 0
@@ -82,15 +83,28 @@ public actor ReaderAgentService {
             rounds += 1
 
             // Make API request
+            let llmStartTime = Date()
             let response = try await callOpenRouter(
                 systemPrompt: systemPrompt,
                 history: history,
                 apiKey: apiKey,
                 routingResult: routingResult
             )
+            let llmDuration = Date().timeIntervalSince(llmStartTime)
+            Self.logger.info("LLM call completed in \(String(format: "%.2f", llmDuration), privacy: .public)s (model: \(OpenRouterConfig.model, privacy: .public))")
 
             // Check for tool calls
             if let toolCalls = response.toolCalls, !toolCalls.isEmpty {
+                // Record LLM call that requested tools
+                let llmExec = LLMExecution(
+                    model: OpenRouterConfig.model,
+                    executionTime: llmDuration,
+                    inputTokens: response.inputTokens,
+                    outputTokens: response.outputTokens,
+                    requestedTools: toolCalls.map { $0.function.name }
+                )
+                timeline.append(.llm(llmExec))
+
                 // Add assistant message with tool calls to history
                 history.append(AgentMessage(
                     role: .assistant,
@@ -106,7 +120,8 @@ public actor ReaderAgentService {
                         history.append(AgentMessage(
                             role: .tool,
                             content: "Tool budget exceeded. Maximum \(ExecutionGuardrails.maxToolCalls) tool calls per question.",
-                            toolCallId: call.id
+                            toolCallId: call.id,
+                            functionName: call.function.name
                         ))
                         continue
                     }
@@ -117,6 +132,7 @@ public actor ReaderAgentService {
                     let startTime = Date()
                     let result = await executor.execute(call)
                     let executionTime = Date().timeIntervalSince(startTime)
+                    Self.logger.info("Tool call \(call.function.name, privacy: .public) completed in \(String(format: "%.2f", executionTime), privacy: .public)s")
 
                     // Track evidence for book questions
                     if routingResult.route == .book || routingResult.route == .ambiguous {
@@ -126,8 +142,8 @@ public actor ReaderAgentService {
                         }
                     }
 
-                    // Record tool execution for trace
-                    toolExecutions.append(ToolExecution(
+                    // Record tool execution for trace and timeline
+                    let toolExec = ToolExecution(
                         toolCallId: call.id,
                         functionName: call.function.name,
                         arguments: call.function.arguments,
@@ -135,12 +151,15 @@ public actor ReaderAgentService {
                         executionTime: executionTime,
                         success: true,
                         error: nil
-                    ))
+                    )
+                    toolExecutions.append(toolExec)
+                    timeline.append(.tool(toolExec))
 
                     history.append(AgentMessage(
                         role: .tool,
                         content: result,
-                        toolCallId: call.id
+                        toolCallId: call.id,
+                        functionName: call.function.name
                     ))
                 }
 
@@ -150,19 +169,32 @@ public actor ReaderAgentService {
 
             // No tool calls - we have a final response
             if let content = response.content {
+                // Record final LLM call
+                let llmExec = LLMExecution(
+                    model: OpenRouterConfig.model,
+                    executionTime: llmDuration,
+                    inputTokens: response.inputTokens,
+                    outputTokens: response.outputTokens,
+                    requestedTools: nil
+                )
+                timeline.append(.llm(llmExec))
+
                 // Evidence check for book questions
-                var finalContent = content
+                let finalContent = content
                 if routingResult.route == .book && !toolBudget.hasEvidence && toolCallsMade.isEmpty {
                     Self.logger.debug("No evidence retrieved for book question")
-                    // Don't block the response, but the model should handle this in its prompt
                 }
 
                 history.append(AgentMessage(role: .assistant, content: finalContent))
+
+                // Add assistant response to timeline
+                timeline.append(.assistant(finalContent))
 
                 // Build execution trace
                 let trace = AgentExecutionTrace(
                     bookContext: traceBookContext,
                     toolExecutions: toolExecutions,
+                    timeline: timeline,
                     timestamp: Date()
                 )
 
@@ -443,7 +475,15 @@ public actor ReaderAgentService {
             toolCalls = toolCallsArray.compactMap { parseToolCall($0) }
         }
 
-        return LLMResponse(content: content, toolCalls: toolCalls)
+        // Parse token usage
+        var inputTokens: Int?
+        var outputTokens: Int?
+        if let usage = json["usage"] as? [String: Any] {
+            inputTokens = usage["prompt_tokens"] as? Int
+            outputTokens = usage["completion_tokens"] as? Int
+        }
+
+        return LLMResponse(content: content, toolCalls: toolCalls, inputTokens: inputTokens, outputTokens: outputTokens)
     }
 
     private func parseToolCall(_ dict: [String: Any]) -> ToolCall? {
@@ -468,6 +508,8 @@ public actor ReaderAgentService {
 private struct LLMResponse {
     let content: String?
     let toolCalls: [ToolCall]?
+    let inputTokens: Int?
+    let outputTokens: Int?
 }
 
 // MARK: - Errors
