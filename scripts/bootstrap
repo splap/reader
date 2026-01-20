@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Install mint if needed
 if ! command -v mint >/dev/null 2>&1; then
   if command -v brew >/dev/null 2>&1; then
     brew install mint
@@ -11,6 +12,14 @@ if ! command -v mint >/dev/null 2>&1; then
     echo "mint not found and Homebrew is missing. Install Mint and retry." >&2
     exit 1
   fi
+fi
+
+# Generate embedding model if missing (required for semantic search)
+ML_MODEL_PATH="$ROOT_DIR/App/Resources/bge-small-en.mlpackage"
+if [ ! -d "$ML_MODEL_PATH" ]; then
+  echo "Embedding model not found, generating..."
+  uv run --with transformers --with torch --with coremltools \
+    python "$ROOT_DIR/scripts/convert_bge_to_coreml.py"
 fi
 
 mint bootstrap
