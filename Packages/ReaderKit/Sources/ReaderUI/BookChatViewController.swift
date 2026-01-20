@@ -442,11 +442,17 @@ public final class BookChatViewController: UIViewController {
             // Compact args on one line
             let argsPreview = exec.arguments.replacingOccurrences(of: "\n", with: " ")
             line += "    args: \(argsPreview)\n"
-            // Truncated result
-            let resultPreview = exec.result.count > 150
-                ? String(exec.result.prefix(150)).replacingOccurrences(of: "\n", with: " ") + "..."
-                : exec.result.replacingOccurrences(of: "\n", with: " ")
-            line += "    result: \(resultPreview)\n"
+            // Result with word wrap preserved (indent continuation lines)
+            // 4000 chars to show all semantic search results (10 results × ~350 chars each)
+            let maxResultLen = 4000
+            let resultText = exec.result.count > maxResultLen
+                ? String(exec.result.prefix(maxResultLen)) + "..."
+                : exec.result
+            // Indent each line of the result for readability
+            let indentedResult = resultText
+                .components(separatedBy: "\n")
+                .joined(separator: "\n            ")
+            line += "    result: \(indentedResult)\n"
             return line + "\n"
 
         case .assistant(let content):
