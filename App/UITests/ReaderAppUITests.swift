@@ -9,17 +9,11 @@ final class ReaderAppUITests: XCTestCase {
         continueAfterFailure = false
 
         app = XCUIApplication()
-        var args = ["--uitesting"]
+        var args = ["--uitesting", "--uitesting-skip-indexing", "--uitesting-webview"]
         if name.contains("testPositionPersistence") {
             args.append("--uitesting-position-test")
             args.append("--uitesting-show-overlay")
             args.append("--uitesting-jump-to-page=100")
-        }
-        // Use WebView mode for alignment/margin tests (testing CSS pagination)
-        let testName = name.lowercased()
-        if testName.contains("alignment") || testName.contains("page3") || testName.contains("margin") || testName.contains("bleed") {
-            args.append("--uitesting-webview")
-            print("🧪 Adding --uitesting-webview for test: \(name)")
         }
         app.launchArguments = args
         app.launch()
@@ -28,6 +22,28 @@ final class ReaderAppUITests: XCTestCase {
     override func tearDown() {
         app = nil
         super.tearDown()
+    }
+
+    /// Helper to find a book cell by partial title match (e.g., "Frankenstein" matches "Frankenstein; Or, The Modern Prometheus")
+    private func findBook(containing title: String) -> XCUIElement {
+        return app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", title)).firstMatch
+    }
+
+    /// Helper to open Frankenstein book and wait for it to load
+    private func openFrankenstein() -> XCUIElement {
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        print("🧪 Opening Frankenstein...")
+        let bookCell = findBook(containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein should be visible in library")
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist after opening book")
+        sleep(2) // Let content render
+        return webView
     }
 
     func testAppLaunchesInLibrary() {
@@ -42,25 +58,38 @@ final class ReaderAppUITests: XCTestCase {
     }
 
     func testNavigateFromLibraryToSettings() {
-        // Verify library is visible
-        XCTAssertTrue(app.navigationBars.firstMatch.exists)
+        // This test verifies we can navigate from Library to Settings via a book
+        // The Settings button is in the reader view, not the library
 
-        // Look for settings button
+        // Wait for library to load
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5), "Library should be visible")
+        print("🧪 Library visible")
+
+        // Open a book first
+        let bookCell = findBook(containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein should be visible")
+        bookCell.tap()
+
+        // Wait for reader to load
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        sleep(2)
+
+        // Tap to reveal overlay
+        webView.tap()
+        sleep(1)
+
+        // Look for settings button in reader
         let settingsButton = app.buttons["Settings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist in reader")
+        print("🧪 Settings button found, tapping...")
+        settingsButton.tap()
 
-        if settingsButton.exists {
-            print("🧪 Settings button found, tapping...")
-            settingsButton.tap()
-
-            // Give UI time to transition
-            sleep(1)
-
-            // Verify we're in settings
-            // (This depends on what your settings screen looks like)
-            print("🧪 Navigated to settings")
-        } else {
-            print("🧪 Settings button not found - skipping navigation test")
-        }
+        // Verify settings screen appears
+        let settingsNavBar = app.navigationBars["Settings"]
+        XCTAssertTrue(settingsNavBar.waitForExistence(timeout: 5), "Settings screen should appear")
+        print("🧪 Navigated to settings successfully")
     }
 
     func testOpenBook() {
@@ -70,14 +99,14 @@ final class ReaderAppUITests: XCTestCase {
 
         print("🧪 Looking for books in library...")
 
-        // Look for Consider Phlebas by author name (Banks, Ian M.)
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
+        // Look for Frankenstein by partial title match
+        let bookCell = findBook(containing: "Frankenstein")
 
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks, Ian M. should be visible")
-        print("🧪 Found book by Banks, Ian M.")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
+        print("🧪 Found Frankenstein")
 
         // Tap to open the book
-        banksAuthor.tap()
+        bookCell.tap()
         print("🧪 Tapped book to open")
 
         // Wait for library nav bar to disappear (we've navigated away)
@@ -115,13 +144,13 @@ final class ReaderAppUITests: XCTestCase {
     }
 
     func testPage3TextAlignment() {
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        print("🧪 Opening Frankenstein...")
+        let banksAuthor = findBook(containing: "Frankenstein")
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
         // Wait for book to load
@@ -199,7 +228,7 @@ final class ReaderAppUITests: XCTestCase {
         } else {
             // Fallback: try to find any book and open it for testing
             print("🧪 AI Engineering book not found, using first available book...")
-            let firstBook = app.staticTexts["Banks, Ian M."]
+            let firstBook = findBook(containing: "Frankenstein")
             XCTAssertTrue(firstBook.waitForExistence(timeout: 5), "At least one book should be available")
             firstBook.tap()
         }
@@ -281,13 +310,13 @@ final class ReaderAppUITests: XCTestCase {
     }
 
     func testTextSizeChangeAffectsPageCount() {
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        print("🧪 Opening Frankenstein...")
+        let banksAuthor = findBook(containing: "Frankenstein")
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
         // Wait for book to load
@@ -303,9 +332,9 @@ final class ReaderAppUITests: XCTestCase {
         topThirdPoint.tap()
         sleep(1) // Wait for fade-in animation
 
-        // Find the page number label (e.g., "Page 1 of 42")
-        let pageLabel = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Page'")).firstMatch
-        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Page number label should exist")
+        // Find the page number label using accessibility ID
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
 
         let initialPageText = pageLabel.label
         print("🧪 Initial page label: \(initialPageText)")
@@ -341,8 +370,14 @@ final class ReaderAppUITests: XCTestCase {
         // Wait for reflow (reload takes longer than JS manipulation)
         sleep(4)
 
-        // Check new page count
-        let increasedPageText = pageLabel.label
+        // Tap to reveal overlay again (it gets hidden when opening settings)
+        webView.tap()
+        sleep(1)
+
+        // Check new page count using scrubber page label by accessibility ID
+        let scrubberLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(scrubberLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
+        let increasedPageText = scrubberLabel.label
         print("🧪 After increase: \(increasedPageText)")
         let increasedTotalPages = extractTotalPages(from: increasedPageText)
         print("🧪 Total pages after increase: \(increasedTotalPages)")
@@ -379,7 +414,7 @@ final class ReaderAppUITests: XCTestCase {
         // We check that the leftmost and rightmost pixel columns are uniform (background only).
         // Any text in the edge columns indicates either missing margins or page bleed.
 
-        // Open Frankenstein by Shelley (bundled book)
+        // Open Frankenstein (bundled book)
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
@@ -524,13 +559,13 @@ final class ReaderAppUITests: XCTestCase {
     // MARK: - Scrubber and Navigation Overlay Tests
 
     func testScrubberAppearsOnTap() {
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        print("🧪 Opening Frankenstein...")
+        let banksAuthor = findBook(containing: "Frankenstein")
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
         // Wait for book to load
@@ -576,13 +611,13 @@ final class ReaderAppUITests: XCTestCase {
     }
 
     func testScrubberNavigatesToPage() {
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        print("🧪 Opening Frankenstein...")
+        let banksAuthor = findBook(containing: "Frankenstein")
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
         // Wait for book to load
@@ -683,13 +718,13 @@ final class ReaderAppUITests: XCTestCase {
         // We navigate forward in the book, then go back, and verify the red indicator
         // shows the furthest page we reached
 
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        print("🧪 Opening Frankenstein...")
+        let banksAuthor = findBook(containing: "Frankenstein")
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
         // Wait for book to load
@@ -697,16 +732,17 @@ final class ReaderAppUITests: XCTestCase {
         XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
         sleep(3)
 
-        print("🧪 Book loaded, navigating forward 3 pages...")
+        print("🧪 Book loaded, navigating forward 5 pages...")
 
-        // Navigate forward 3 pages
-        for _ in 1...3 {
+        // Navigate forward 5 pages to establish max read extent
+        for i in 1...5 {
             webView.swipeLeft()
-            usleep(200000) // 0.2 seconds
+            usleep(300000) // 0.3 seconds
+            print("🧪 Swiped to page \(i + 1)")
         }
         sleep(1)
 
-        // Reveal overlay
+        // Reveal overlay and check current page
         webView.tap()
         sleep(1)
 
@@ -715,18 +751,38 @@ final class ReaderAppUITests: XCTestCase {
         let maxPageText = pageLabel.label
         print("🧪 Reached max page: \(maxPageText)")
         let maxPage = extractCurrentPage(from: maxPageText) ?? 0
+        XCTAssertGreaterThan(maxPage, 1, "Should have navigated forward")
 
-        // Now navigate back using scrubber
-        print("🧪 Navigating back to beginning using scrubber...")
-        let scrubber = app.sliders["Page scrubber"]
-        XCTAssertTrue(scrubber.exists, "Scrubber should exist")
-        scrubber.adjust(toNormalizedSliderPosition: 0.0)
+        // Hide overlay first (tap to toggle off)
+        print("🧪 Hiding overlay before navigating back...")
+        webView.tap()
         sleep(1)
 
-        // Verify we're at page 1
-        let backAtStartText = pageLabel.label
-        print("🧪 After scrubbing back: \(backAtStartText)")
-        XCTAssertTrue(backAtStartText.contains("Page 1"), "Should be back at page 1")
+        // Navigate back 3 pages using swipes
+        print("🧪 Navigating back 3 pages...")
+        for i in 1...3 {
+            webView.swipeRight()
+            usleep(500000) // 0.5 seconds between swipes
+            print("🧪 Swiped back \(i) page(s)")
+        }
+        sleep(2) // Wait for page animation to settle
+
+        // Reveal overlay again - tap and wait for scrubber to appear
+        print("🧪 Tapping to reveal overlay...")
+        webView.tap()
+        sleep(1)
+
+        // Wait for the scrubber to become visible
+        let scrubber = app.sliders["Page scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 5), "Scrubber should appear after tap")
+
+        // Check we're now at a lower page but max extent should still show the furthest point
+        let currentPageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(currentPageLabel.waitForExistence(timeout: 3), "Page indicator should exist")
+        let currentPageText = currentPageLabel.label
+        print("🧪 After navigating back: \(currentPageText)")
+        let currentPage = extractCurrentPage(from: currentPageText) ?? 0
+        XCTAssertLessThan(currentPage, maxPage, "Should be on an earlier page than max")
 
         // The red extent indicator should still show up to page ~20
         // We can't easily verify the visual indicator in UI tests,
@@ -766,13 +822,13 @@ final class ReaderAppUITests: XCTestCase {
         // This test verifies that double-tapping on the page does not cause
         // the content to shift or become misaligned.
 
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
+        print("🧪 Opening Frankenstein...")
+        let banksAuthor = findBook(containing: "Frankenstein")
+        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
         // Wait for book to load

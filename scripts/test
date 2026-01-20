@@ -79,8 +79,14 @@ case "$TEST_TYPE" in
   doubletap)
     run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
     ;;
+  settings)
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testNavigateFromLibraryToSettings"
+    ;;
+  maxread)
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testMaxReadExtentIndicator"
+    ;;
   *)
-    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap]" >&2
+    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap|settings|maxread]" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2

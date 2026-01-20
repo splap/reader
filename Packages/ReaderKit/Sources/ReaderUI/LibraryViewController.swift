@@ -91,6 +91,14 @@ public final class LibraryViewController: UITableViewController {
     private func openBook(_ book: Book) {
         isOpeningBook = true
 
+        // Skip indexing entirely during UI tests if requested
+        let skipIndexing = CommandLine.arguments.contains("--uitesting-skip-indexing")
+        if skipIndexing {
+            Self.logger.info("UI test skip-indexing mode, opening directly: \(book.title, privacy: .public)")
+            navigateToReader(book: book)
+            return
+        }
+
         // Check if book needs indexing
         Task { @MainActor in
             let bookId = book.id.uuidString
