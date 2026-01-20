@@ -18,10 +18,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let isUITesting = CommandLine.arguments.contains("--uitesting")
         let keepUIState = CommandLine.arguments.contains("--uitesting-keep-state")
         let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
+        let useWebView = CommandLine.arguments.contains("--uitesting-webview")
         if isUITesting && !keepUIState {
             NSLog("🧪 UI Testing mode detected - clearing app state")
             UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
             UserDefaults.standard.synchronize()
+        }
+
+        // Set render mode for UI testing
+        if useWebView {
+            ReaderPreferences.shared.renderMode = .webView
         }
 
         // Copy bundled books on first launch, then scan for all test books

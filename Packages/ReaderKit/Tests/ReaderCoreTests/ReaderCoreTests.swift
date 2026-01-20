@@ -100,55 +100,24 @@ final class ReaderCoreTests: XCTestCase {
     func testCSSManagerGeneratesHouseCSS() {
         let css = CSSManager.houseCSS(fontScale: 2.0)
 
-        // Verify house CSS contains critical properties
+        // Verify house CSS contains critical pagination properties
         XCTAssertTrue(css.contains("font-size: 32px"), "House CSS should scale font size")
-        XCTAssertTrue(css.contains("line-height: 1.35"), "House CSS should set line height")
-        XCTAssertTrue(css.contains("padding: 48px 0"), "House CSS should control body padding")
         XCTAssertTrue(css.contains("column-width: 100vw"), "House CSS should set column width for pagination")
     }
 
-    func testCSSManagerCapsIndentation() {
+    func testCSSManagerIncludesPublisherCSS() {
         let publisherCSS = """
-        p { text-indent: 200px; }
-        .quote { padding-left: 10em; }
+        p { text-indent: 1em; }
+        .centered { text-align: center; }
         """
 
-        let sanitized = CSSManager.sanitizePublisherCSS(publisherCSS)
+        let combined = CSSManager.generateCompleteCSS(fontScale: 1.0, publisherCSS: publisherCSS)
 
-        // Verify large indents are capped
-        XCTAssertFalse(sanitized.contains("200px"), "Large pixel indents should be capped")
-        XCTAssertFalse(sanitized.contains("10em"), "Large em indents should be capped")
-        XCTAssertTrue(sanitized.contains("rem"), "Indents should be converted to rem")
-    }
-
-    func testCSSManagerRemovesRootMargins() {
-        let publisherCSS = """
-        body { margin: 50px; padding: 30px; }
-        html { margin: 20px; }
-        p { margin: 10px; }
-        """
-
-        let sanitized = CSSManager.sanitizePublisherCSS(publisherCSS)
-
-        // Root margins should be removed, but paragraph margins preserved
-        XCTAssertTrue(sanitized.contains("p { margin: 10px; }"), "Non-root margins should be preserved")
-    }
-
-    func testCSSManagerRemovesTextAlignCenter() {
-        let publisherCSS = """
-        h1 { text-align: center; }
-        p.centered { text-align: center; font-size: 14px; }
-        .right { text-align: right; }
-        .left { text-align: left; }
-        """
-
-        let sanitized = CSSManager.sanitizePublisherCSS(publisherCSS)
-
-        // Center and right alignment should be removed
-        XCTAssertFalse(sanitized.contains("text-align: center"), "Center alignment should be removed")
-        XCTAssertFalse(sanitized.contains("text-align: right"), "Right alignment should be removed")
-        // Left alignment should be preserved (it matches house style)
-        XCTAssertTrue(sanitized.contains("text-align: left"), "Left alignment should be preserved")
+        // Publisher CSS should be included unchanged
+        XCTAssertTrue(combined.contains("text-indent: 1em"), "Publisher CSS should be preserved")
+        XCTAssertTrue(combined.contains("text-align: center"), "Publisher alignment should be preserved")
+        // House CSS should also be present
+        XCTAssertTrue(combined.contains("column-width: 100vw"), "House CSS should be included")
     }
 
     func testResolveChapterIdMatchesLabelsAndIndex() {

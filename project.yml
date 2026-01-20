@@ -65,6 +65,16 @@ targets:
       - package: ReaderKit
         product: ReaderCore
 
+  ReaderAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    info:
+      path: App/Tests/Info.plist
+    sources:
+      - path: App/UITests
+    dependencies:
+      - target: ReaderApp
+
 schemes:
   ReaderApp:
     build:
@@ -75,3 +85,4 @@ schemes:
         - ReaderAppTests
         - ReaderCoreUnitTests
         - ReaderUISnapshotTests
+        - ReaderAppUITests
