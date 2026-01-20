@@ -216,6 +216,7 @@ private final class BookTableViewCell: UITableViewCell {
 
     func configure(with book: Book) {
         textLabel?.text = book.title
+        accessibilityLabel = book.title
 
         if let lastOpened = book.lastOpenedDate {
             let formatter = RelativeDateTimeFormatter()

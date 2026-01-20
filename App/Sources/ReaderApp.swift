@@ -19,10 +19,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let keepUIState = CommandLine.arguments.contains("--uitesting-keep-state")
         let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
         let useWebView = CommandLine.arguments.contains("--uitesting-webview")
-        if isUITesting && !keepUIState {
+        let cleanAllData = CommandLine.arguments.contains("--uitesting-clean-all-data")
+
+        if isUITesting && cleanAllData {
+            NSLog("🧪 UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
+            clearAllAppData()
+        } else if isUITesting && !keepUIState {
             NSLog("🧪 UI Testing mode detected - clearing app state")
-            UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
-            UserDefaults.standard.synchronize()
+            clearAppStateForTesting()
         }
 
         // Set render mode for UI testing
@@ -119,6 +123,82 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
     }
 
+    // MARK: - Test Helpers (Data Clearing)
+
+    /// Clears UserDefaults and Books directory together to keep them in sync
+    /// Used by regular --uitesting to avoid orphaned book copies
+    private func clearAppStateForTesting() {
+        let fileManager = FileManager.default
+
+        // Clear UserDefaults
+        UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+        UserDefaults.standard.synchronize()
+
+        // Also clear Books directory to stay in sync (prevents orphaned copies)
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let booksDir = appSupport.appendingPathComponent("Books")
+            if fileManager.fileExists(atPath: booksDir.path) {
+                try? fileManager.removeItem(at: booksDir)
+                NSLog("🧪 Cleared Books directory")
+            }
+        }
+    }
+
+    /// Clears all app data including Application Support (vectors, chunks, concepts) and UserDefaults
+    /// Used for integration tests that need a completely clean state
+    private func clearAllAppData() {
+        let fileManager = FileManager.default
+
+        // Clear UserDefaults
+        UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+        UserDefaults.standard.synchronize()
+        NSLog("🧪 Cleared UserDefaults")
+
+        // Clear Application Support directory contents
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let readerDir = appSupport.appendingPathComponent("com.splap.reader")
+            let booksDir = appSupport.appendingPathComponent("Books")
+
+            // Clear vectors directory
+            let vectorsDir = readerDir.appendingPathComponent("vectors")
+            if fileManager.fileExists(atPath: vectorsDir.path) {
+                try? fileManager.removeItem(at: vectorsDir)
+                NSLog("🧪 Cleared vectors directory")
+            }
+
+            // Clear chunks database
+            let chunksDB = readerDir.appendingPathComponent("chunks.sqlite")
+            if fileManager.fileExists(atPath: chunksDB.path) {
+                try? fileManager.removeItem(at: chunksDB)
+                NSLog("🧪 Cleared chunks database")
+            }
+
+            // Clear concept maps
+            let conceptsDir = readerDir.appendingPathComponent("concepts")
+            if fileManager.fileExists(atPath: conceptsDir.path) {
+                try? fileManager.removeItem(at: conceptsDir)
+                NSLog("🧪 Cleared concepts directory")
+            }
+
+            // Clear imported books
+            if fileManager.fileExists(atPath: booksDir.path) {
+                try? fileManager.removeItem(at: booksDir)
+                NSLog("🧪 Cleared Books directory")
+            }
+        }
+
+        // Clear Documents/TestBooks to force re-import
+        if let documentsDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let testBooksDir = documentsDir.appendingPathComponent("TestBooks")
+            if fileManager.fileExists(atPath: testBooksDir.path) {
+                try? fileManager.removeItem(at: testBooksDir)
+                NSLog("🧪 Cleared TestBooks directory")
+            }
+        }
+
+        NSLog("🧪 All app data cleared successfully")
+    }
+
     // MARK: - Bundled Books
 
     private func copyBundledBooksIfNeeded() {
@@ -132,11 +212,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         try? FileManager.default.createDirectory(at: testBooksURL, withIntermediateDirectories: true)
 
         for bookName in bundledBooks {
+            // Resources are flattened in the bundle
             if let bundleURL = Bundle.main.url(forResource: bookName, withExtension: "epub") {
                 let destURL = testBooksURL.appendingPathComponent("\(bookName).epub")
                 if !FileManager.default.fileExists(atPath: destURL.path) {
                     try? FileManager.default.copyItem(at: bundleURL, to: destURL)
+                    NSLog("📚 Copied bundled book: \(bookName)")
                 }
+            } else {
+                NSLog("⚠️ Bundled book not found: \(bookName)")
             }
         }
 

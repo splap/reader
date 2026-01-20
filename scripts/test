@@ -6,9 +6,15 @@ cd "$ROOT_DIR"
 
 PROJECT="Reader.xcodeproj"
 CONFIGURATION="Debug"
-# Use iOS 26 simulator by ID to avoid ambiguity with multiple matching devices
-DESTINATION="platform=iOS Simulator,id=7B7DD2A9-1AFA-4767-8543-9C874EBAA682"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
+
+# Use simulator-uuid if available, otherwise fall back to name-based destination
+if [ -f "$ROOT_DIR/simulator-uuid" ]; then
+  UDID=$(cat "$ROOT_DIR/simulator-uuid")
+  DESTINATION="platform=iOS Simulator,id=$UDID"
+else
+  DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=26.0.1,arch=arm64"
+fi
 EXTRA_BUILD_SETTINGS=""
 
 # Parse test type argument: unit (default), ui, all, or perf
@@ -54,33 +60,36 @@ case "$TEST_TYPE" in
     run_tests "ReaderApp"
     ;;
   ui)
-    run_tests "ReaderApp" "ReaderAppUITests"
+    run_tests "ReaderAppUITests"
     ;;
   all)
     run_tests "ReaderApp"
     echo ""
-    run_tests "ReaderApp" "ReaderAppUITests"
+    run_tests "ReaderAppUITests"
     ;;
   perf)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testTextResizeReflowPerformance"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextResizeReflowPerformance"
     ;;
   textsize)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
     ;;
   alignment)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testMarginAndPageBleed"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testMarginAndPageBleed"
     ;;
   scrubber)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testScrubberAppearsOnTap"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testScrubberAppearsOnTap"
     ;;
   position)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
     ;;
   doubletap)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
+    ;;
+  vectorindex)
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testVectorIndexBuildingOnBookOpen"
     ;;
   *)
-    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap]" >&2
+    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap|vectorindex]" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2
@@ -90,6 +99,7 @@ case "$TEST_TYPE" in
     echo "  scrubber: Run scrubber overlay toggle test" >&2
     echo "  position: Run position persistence test" >&2
     echo "  doubletap: Run double-tap alignment test" >&2
+    echo "  vectorindex: Run vector index building integration test" >&2
     exit 1
     ;;
 esac

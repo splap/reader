@@ -85,4 +85,12 @@ schemes:
         - ReaderAppTests
         - ReaderCoreUnitTests
         - ReaderUISnapshotTests
+
+  ReaderAppUITests:
+    build:
+      targets:
+        ReaderApp: all
+        ReaderAppUITests: [test]
+    test:
+      targets:
         - ReaderAppUITests
