@@ -102,7 +102,7 @@ final class ReaderCoreTests: XCTestCase {
 
         // Verify house CSS contains critical pagination properties
         XCTAssertTrue(css.contains("font-size: 32px"), "House CSS should scale font size")
-        XCTAssertTrue(css.contains("column-width: 100vw"), "House CSS should set column width for pagination")
+        XCTAssertTrue(css.contains("column-width: calc(100vw - 48px)"), "House CSS should set column width for pagination")
     }
 
     func testCSSManagerIncludesPublisherCSS() {
@@ -117,7 +117,7 @@ final class ReaderCoreTests: XCTestCase {
         XCTAssertTrue(combined.contains("text-indent: 1em"), "Publisher CSS should be preserved")
         XCTAssertTrue(combined.contains("text-align: center"), "Publisher alignment should be preserved")
         // House CSS should also be present
-        XCTAssertTrue(combined.contains("column-width: 100vw"), "House CSS should be included")
+        XCTAssertTrue(combined.contains("column-width: calc(100vw - 48px)"), "House CSS should be included")
     }
 
     func testResolveChapterIdMatchesLabelsAndIndex() {
