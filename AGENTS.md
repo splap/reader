@@ -205,17 +205,37 @@ cat /tmp/debug.log
     Commit Package.resolved and pin formatter/linter versions.
 
 
+## CRITICAL: Testing
+
+**Testing is essential, but running all tests takes forever.** When developing features:
+1. Find an existing test that covers the feature area, or write a new focused test
+2. Run that specific test while iterating
+3. Run the full unit test suite before considering work complete
+
 **NEVER use raw xcodebuild commands. Always use ./scripts/test.**
 
-### Available Test Commands
+### Running Tests
 ```bash
-./scripts/test           # Unit tests (default)
-./scripts/test ui        # All UI tests
-./scripts/test scrubber  # Scrubber overlay toggle test
-./scripts/test position  # Position persistence test
-./scripts/test alignment # Page alignment test
-./scripts/test all       # All tests (unit + UI)
+./scripts/test                        # All unit tests (default)
+./scripts/test ui                     # All UI tests
+./scripts/test all                    # Everything (slow!)
+./scripts/test --list                 # List all available tests
+
+# Run a specific test by name (auto-detects bundle/class):
+./scripts/test testBuildAndSearchIndex
+./scripts/test VectorStoreTests       # Run all tests in a class
+
+# UI tests require ui: prefix:
+./scripts/test ui:testPositionPersistence
+./scripts/test ui:testScrubberAppearsOnTap
 ```
+
+### Test-Driven Development
+When working on a feature:
+1. Run `./scripts/test --list` to see existing tests
+2. Find a relevant test or write a new one
+3. Iterate with `./scripts/test <testName>` until it passes
+4. Run `./scripts/test` (all unit tests) before finishing
 
 ### UI Test Patterns
 UI tests can simulate all user interactions:

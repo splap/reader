@@ -67,47 +67,100 @@ case "$TEST_TYPE" in
     echo ""
     run_tests "ReaderAppUITests"
     ;;
-  perf)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextResizeReflowPerformance"
-    ;;
-  textsize)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
-    ;;
-  alignment)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testMarginAndPageBleed"
-    ;;
-  scrubber)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testScrubberAppearsOnTap"
-    ;;
-  position)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
-    ;;
-  doubletap)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
-    ;;
-  vectorindex)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testVectorIndexBuildingOnBookOpen"
-    ;;
-  settings)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testNavigateFromLibraryToSettings"
-    ;;
-  maxread)
-    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testMaxReadExtentIndicator"
-    ;;
-  *)
-    echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap|vectorindex|settings|maxread]" >&2
+  help|-h|--help)
+    echo "Usage: $0 [unit|ui|all|--list|<test-pattern>|ui:<test-pattern>]" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2
-    echo "  perf: Run text resize reflow performance test" >&2
-    echo "  textsize: Run text size change page count test" >&2
-    echo "  alignment: Run margin and page bleed test" >&2
-    echo "  scrubber: Run scrubber overlay toggle test" >&2
-    echo "  position: Run position persistence test" >&2
-    echo "  doubletap: Run double-tap alignment test" >&2
-    echo "  vectorindex: Run vector index building integration test" >&2
-    echo "  settings: Run settings navigation test" >&2
-    echo "  maxread: Run max read extent indicator test" >&2
-    exit 1
+    echo "  --list: List all available tests" >&2
+    echo "  <test-pattern>: Run matching unit test (e.g., testPositionStoreRoundTrip, VectorStoreTests)" >&2
+    echo "  ui:<test-pattern>: Run matching UI test (e.g., ui:testScrubberAppearsOnTap)" >&2
+    exit 0
+    ;;
+  --list|list)
+    echo "Unit tests:"
+    grep -rh "func test[A-Za-z0-9_]*" \
+      "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderCoreTests" \
+      "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderUITests" \
+      "$ROOT_DIR/App/Tests" 2>/dev/null \
+      | grep -o "func test[A-Za-z0-9_]*" \
+      | sed 's/func /  /' \
+      | sort -u
+
+    echo ""
+    echo "UI tests (use ui: prefix):"
+    grep -rh "func test[A-Za-z0-9_]*" "$ROOT_DIR/App/UITests" 2>/dev/null \
+      | grep -o "func test[A-Za-z0-9_]*" \
+      | sed 's/func /  ui:/' \
+      | sort -u
+    exit 0
+    ;;
+  ui:*)
+    # UI test with prefix syntax: ui:testFoo
+    TEST_NAME="${TEST_TYPE#ui:}"
+    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/$TEST_NAME"
+    ;;
+  *)
+    # Default: treat as unit test pattern
+    # Search for matching test in unit test directories
+    PATTERN="$TEST_TYPE"
+
+    # Check if it looks like a UI test
+    if grep -rq "func $PATTERN\|class $PATTERN" "$ROOT_DIR/App/UITests" 2>/dev/null; then
+      echo "Note: '$PATTERN' looks like a UI test. Use 'ui:$PATTERN' to run it." >&2
+      exit 1
+    fi
+
+    # Search unit test directories for the pattern
+    UNIT_TEST_DIRS=(
+      "Packages/ReaderKit/Tests/ReaderCoreTests:ReaderCoreUnitTests"
+      "Packages/ReaderKit/Tests/ReaderUITests:ReaderUISnapshotTests"
+      "App/Tests:ReaderAppTests"
+    )
+
+    FOUND_BUNDLE=""
+    FOUND_CLASS=""
+
+    for entry in "${UNIT_TEST_DIRS[@]}"; do
+      DIR="${entry%:*}"
+      BUNDLE="${entry#*:}"
+
+      # Look for test method: func testFoo
+      MATCH=$(grep -rl "func $PATTERN" "$ROOT_DIR/$DIR" 2>/dev/null | head -1 || true)
+      if [ -n "$MATCH" ]; then
+        FOUND_BUNDLE="$BUNDLE"
+        # Find line number of test, then find the class it belongs to
+        TEST_LINE=$(grep -n "func $PATTERN" "$MATCH" | head -1 | cut -d: -f1)
+        # Find the most recent class declaration before this line
+        FOUND_CLASS=$(head -n "$TEST_LINE" "$MATCH" | grep -o "class [A-Za-z0-9_]*" | tail -1 | cut -d' ' -f2)
+        break
+      fi
+
+      # Look for test class: class FooTests
+      MATCH=$(grep -rl "class $PATTERN" "$ROOT_DIR/$DIR" 2>/dev/null | head -1 || true)
+      if [ -n "$MATCH" ]; then
+        FOUND_BUNDLE="$BUNDLE"
+        FOUND_CLASS="$PATTERN"
+        PATTERN=""  # Running whole class, not a specific test
+        break
+      fi
+    done
+
+    if [ -z "$FOUND_BUNDLE" ]; then
+      echo "Error: Could not find test matching '$TEST_TYPE'" >&2
+      echo "Searched in: ReaderCoreTests, ReaderUITests, AppTests" >&2
+      exit 1
+    fi
+
+    if [ -n "$PATTERN" ]; then
+      # Specific test method
+      TEST_FILTER="$FOUND_BUNDLE/$FOUND_CLASS/$PATTERN"
+    else
+      # Whole test class
+      TEST_FILTER="$FOUND_BUNDLE/$FOUND_CLASS"
+    fi
+
+    echo "Found: $TEST_FILTER"
+    run_tests "ReaderApp" "$TEST_FILTER"
     ;;
 esac
