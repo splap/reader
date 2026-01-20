@@ -4,14 +4,16 @@ Make the project boring and deterministic.
 If a human can build/test it with one command, agents will succeed. Otherwise, they will fail unpredictably.
 
 when you've made a change, run the app yourself so i see the result:
-    use scripts/run to build and deploy the app
 
-- Always use scripts/run script when you want to compile and run the code on the simulator. 
-- Only use physical device when explicitly requested by the user
+# USE SCRIPTS WHENEVER POSSIBLE
+- scripts/build to build the app
+- scripts/lint to lint the app
+- scripts/run to deploy the app
+
 
 ## CRITICAL: scripts/run behavior
 
-`scripts/run` NEVER EXITS - it tails logs forever after launching the app.
+`scripts/run` NEVER EXITS - it tails logs forever after launching the app
 
 **CORRECT usage:**
 ```bash
@@ -33,18 +35,15 @@ After running with run_in_background, DO NOT poll the output or wait. The app wi
 
 ### Simulator Ownership
 
-`simulator-uuid` (in the project directory) is your claim ticket. Never claim a running simulator you didn't start - another agent may own it. The scripts handle this automatically.
+`simulator-uuid` (in the project directory) is your claim ticket. Never claim a running simulator you didn't start - another agent may own it. The scripts handle this automatically. Never start a simulator yourself, use scripts/run to start a simulator
 
-### Throughout Session - Always Use Tracked Simulator
-
-For ALL subsequent operations (loading books, running tests, installing app):
-
+### Simulator Logs
 ```bash
 # Read the session simulator UDID
 SIMULATOR_UDID=$(cat simulator-uuid 2>/dev/null)
 
-# Use it for operations
-xcrun simctl get_app_container "$SIMULATOR_UDID" com.splap.reader data
+# use simulator-uuid to tail simulator logs
+xcrun simctl spawn "$(cat simulator-uuid)" log stream --style compact --predicate 'subsystem == "com.splap.reader"' 
 ```
 
 
