@@ -10,15 +10,7 @@ public final class ReaderSettingsViewController: UITableViewController {
     private let fontScaleSteps: [CGFloat] = [1.0, 1.2, 1.4, 1.6, 1.8]
 
     private var apiKey: String = UserDefaults.standard.string(forKey: "OpenRouterAPIKey") ?? ""
-    private var selectedModel: String = UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "google/gemini-2.0-flash-exp:free"
-
-    private let models = [
-        ("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash (Free, Default)"),
-        ("x-ai/grok-4.1-fast", "xAI: Grok 4.1 Fast"),
-        ("google/gemini-2.5-flash-lite", "Google: Gemini 2.5 Flash Lite"),
-        ("anthropic/claude-3-haiku", "Anthropic: Claude 3 Haiku"),
-        ("openai/gpt-4.1-nano", "OpenAI: GPT-4.1 Nano")
-    ]
+    private var selectedModel: String = OpenRouterConfig.model
 
     public init(fontScale: CGFloat, onFontScaleChanged: @escaping (CGFloat) -> Void) {
         self.fontScale = fontScale
@@ -221,7 +213,7 @@ public final class ReaderSettingsViewController: UITableViewController {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
         cell.textLabel?.text = "Model"
         cell.textLabel?.font = fontManager.bodyFont
-        cell.detailTextLabel?.text = models.first(where: { $0.0 == selectedModel })?.1 ?? selectedModel
+        cell.detailTextLabel?.text = OpenRouterConfig.availableModels.first(where: { $0.id == selectedModel })?.name ?? selectedModel
         cell.detailTextLabel?.font = fontManager.bodyFont
         cell.accessoryType = .disclosureIndicator
         return cell
@@ -303,7 +295,7 @@ public final class ReaderSettingsViewController: UITableViewController {
     private func showModelPicker() {
         let alert = UIAlertController(title: "Select Model", message: nil, preferredStyle: .actionSheet)
 
-        for (modelId, modelName) in models {
+        for (modelId, modelName) in OpenRouterConfig.availableModels {
             let action = UIAlertAction(title: modelName, style: .default) { [weak self] _ in
                 self?.selectedModel = modelId
                 UserDefaults.standard.set(modelId, forKey: "OpenRouterModel")

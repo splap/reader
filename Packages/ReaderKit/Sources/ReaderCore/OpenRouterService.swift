@@ -5,12 +5,7 @@ public enum OpenRouterConfig {
     /// Available models for selection
     public static let availableModels: [(id: String, name: String)] = [
         ("openai/gpt-4.1-nano", "GPT-4.1 Nano"),
-        ("openai/gpt-4.1-mini", "GPT-4.1 Mini"),
-        ("openai/gpt-4.1", "GPT-4.1"),
-        ("anthropic/claude-3.5-haiku", "Claude 3.5 Haiku"),
-        ("anthropic/claude-sonnet-4", "Claude Sonnet 4"),
-        ("google/gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
-        ("google/gemini-2.5-pro", "Gemini 2.5 Pro")
+        ("x-ai/grok-4.1-fast", "Grok 4.1 Fast")
     ]
 
     /// Get the selected model from UserDefaults (set via Settings UI)
