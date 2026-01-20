@@ -34,18 +34,28 @@ public actor EmbeddingService {
     // MARK: - Model Loading
 
     /// Loads the embedding model if not already loaded
+    /// - Parameter modelURL: Optional URL to load model from (for testing). If nil, searches Bundle.main.
     /// - Returns: True if model is available, false otherwise
     @discardableResult
-    public func loadModel() async throws -> Bool {
+    public func loadModel(from modelURL: URL? = nil) async throws -> Bool {
         if model != nil { return true }
         if modelLoadFailed { return false }
 
         do {
+            // If explicit URL provided, use it directly
+            if let url = modelURL {
+                let loadURL = try await compileIfNeeded(url: url)
+                model = try await MLModel.load(contentsOf: loadURL, configuration: modelConfig)
+                Self.logger.info("Loaded embedding model from provided URL")
+                return true
+            }
+
             // Look for the model in the app bundle
-            guard let modelURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlmodelc") else {
+            guard let compiledURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlmodelc") else {
                 // Try .mlpackage format
                 if let packageURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlpackage") {
-                    model = try await MLModel.load(contentsOf: packageURL, configuration: modelConfig)
+                    let loadURL = try await compileIfNeeded(url: packageURL)
+                    model = try await MLModel.load(contentsOf: loadURL, configuration: modelConfig)
                     Self.logger.info("Loaded embedding model from mlpackage")
                     return true
                 }
@@ -55,7 +65,7 @@ public actor EmbeddingService {
                 return false
             }
 
-            model = try await MLModel.load(contentsOf: modelURL, configuration: modelConfig)
+            model = try await MLModel.load(contentsOf: compiledURL, configuration: modelConfig)
             Self.logger.info("Loaded embedding model successfully")
             return true
         } catch {
@@ -65,7 +75,27 @@ public actor EmbeddingService {
         }
     }
 
-    /// Checks if the embedding model is available
+    /// Compiles an mlpackage to mlmodelc if needed
+    private func compileIfNeeded(url: URL) async throws -> URL {
+        // If already compiled, return as-is
+        if url.pathExtension == "mlmodelc" {
+            return url
+        }
+
+        // Compile the mlpackage
+        Self.logger.info("Compiling model at \(url.path, privacy: .public)")
+        let compiledURL = try await MLModel.compileModel(at: url)
+        Self.logger.info("Model compiled to \(compiledURL.path, privacy: .public)")
+        return compiledURL
+    }
+
+    /// Resets the model state (for testing)
+    public func reset() {
+        model = nil
+        modelLoadFailed = false
+    }
+
+    /// Checks if the embedding model is available (must be called from actor context)
     public func isAvailable() -> Bool {
         model != nil
     }
@@ -87,48 +117,180 @@ public actor EmbeddingService {
         return try await generateEmbedding(for: processedText)
     }
 
-    /// Generates embeddings for multiple texts efficiently
+    /// Generates embeddings for multiple texts efficiently using concurrent processing
     /// - Parameter texts: The texts to embed
     /// - Returns: Array of 384-dimensional embedding vectors
     public func embedBatch(texts: [String]) async throws -> [[Float]] {
         if model == nil {
             try await loadModel()
         }
-        guard model != nil else {
+        guard let model = model else {
             throw EmbeddingError.modelNotAvailable
         }
 
         Self.logger.info("Generating embeddings for \(texts.count, privacy: .public) texts")
 
-        var embeddings: [[Float]] = []
-        embeddings.reserveCapacity(texts.count)
-
-        // Process in batches to manage memory
-        let batchSize = 32
-        for batchStart in stride(from: 0, to: texts.count, by: batchSize) {
-            let batchEnd = min(batchStart + batchSize, texts.count)
-            let batch = Array(texts[batchStart..<batchEnd])
-
-            for text in batch {
-                let processedText = preprocessText(text)
-                let embedding = try await generateEmbedding(for: processedText)
-                embeddings.append(embedding)
+        // Pre-tokenize all texts in parallel
+        let tokenizedInputs: [(inputIds: [Int32], attentionMask: [Int32])] = await withTaskGroup(of: (Int, (inputIds: [Int32], attentionMask: [Int32])).self) { group in
+            for (index, text) in texts.enumerated() {
+                group.addTask {
+                    let processedText = self.preprocessText(text)
+                    return (index, self.tokenize(processedText))
+                }
             }
 
-            // Progress logging for large batches
-            if texts.count > 100 && batchEnd % 100 == 0 {
-                Self.logger.debug("Embedded \(batchEnd, privacy: .public)/\(texts.count, privacy: .public) texts")
+            var results = [(inputIds: [Int32], attentionMask: [Int32])](repeating: ([], []), count: texts.count)
+            for await (index, tokens) in group {
+                results[index] = tokens
+            }
+            return results
+        }
+
+        // Process embeddings concurrently using TaskGroup
+        // CoreML model inference is thread-safe
+        let concurrency = min(8, ProcessInfo.processInfo.activeProcessorCount)
+
+        return try await withThrowingTaskGroup(of: (Int, [Float]).self) { group in
+            var results = [[Float]](repeating: [], count: texts.count)
+
+            // Add tasks in batches to control concurrency
+            var nextIndex = 0
+
+            // Seed initial batch of tasks
+            for _ in 0..<min(concurrency, texts.count) {
+                let index = nextIndex
+                let tokens = tokenizedInputs[index]
+                nextIndex += 1
+
+                group.addTask {
+                    let embedding = try await self.generateEmbeddingFromTokens(
+                        inputIds: tokens.inputIds,
+                        attentionMask: tokens.attentionMask,
+                        model: model
+                    )
+                    return (index, embedding)
+                }
+            }
+
+            // Process results and add new tasks
+            for try await (index, embedding) in group {
+                results[index] = embedding
+
+                // Add next task if available
+                if nextIndex < texts.count {
+                    let index = nextIndex
+                    let tokens = tokenizedInputs[index]
+                    nextIndex += 1
+
+                    group.addTask {
+                        let embedding = try await self.generateEmbeddingFromTokens(
+                            inputIds: tokens.inputIds,
+                            attentionMask: tokens.attentionMask,
+                            model: model
+                        )
+                        return (index, embedding)
+                    }
+                }
+
+                // Progress logging for large batches
+                let completed = results.filter { !$0.isEmpty }.count
+                if texts.count > 100 && completed % 100 == 0 && completed > 0 {
+                    Self.logger.debug("Embedded \(completed, privacy: .public)/\(texts.count, privacy: .public) texts")
+                }
+            }
+
+            Self.logger.info("Generated \(results.count, privacy: .public) embeddings")
+            return results
+        }
+    }
+
+    /// Generate embedding from pre-tokenized input (for concurrent processing)
+    private nonisolated func generateEmbeddingFromTokens(
+        inputIds: [Int32],
+        attentionMask: [Int32],
+        model: MLModel
+    ) async throws -> [Float] {
+        // Create MLMultiArray for input_ids
+        let inputIdsArray = try MLMultiArray(shape: [1, NSNumber(value: inputIds.count)], dataType: .int32)
+        for (i, id) in inputIds.enumerated() {
+            inputIdsArray[i] = NSNumber(value: id)
+        }
+
+        // Create MLMultiArray for attention_mask
+        let attentionMaskArray = try MLMultiArray(shape: [1, NSNumber(value: attentionMask.count)], dataType: .int32)
+        for (i, mask) in attentionMask.enumerated() {
+            attentionMaskArray[i] = NSNumber(value: mask)
+        }
+
+        // Create feature provider
+        let features: [String: MLFeatureValue] = [
+            "input_ids": MLFeatureValue(multiArray: inputIdsArray),
+            "attention_mask": MLFeatureValue(multiArray: attentionMaskArray)
+        ]
+        let input = try MLDictionaryFeatureProvider(dictionary: features)
+
+        // Run inference (CoreML is thread-safe)
+        let output = try await model.prediction(from: input)
+
+        // Extract and normalize embedding
+        let embedding = try extractEmbeddingSync(from: output)
+        return normalizeL2(embedding)
+    }
+
+    /// Extract embedding synchronously (for use in nonisolated context)
+    private nonisolated func extractEmbeddingSync(from output: MLFeatureProvider) throws -> [Float] {
+        // Try common output names for sentence embeddings
+        let possibleNames = ["sentence_embedding", "pooler_output", "last_hidden_state", "embeddings"]
+
+        for name in possibleNames {
+            if let featureValue = output.featureValue(for: name),
+               let multiArray = featureValue.multiArrayValue {
+                return extractFloatArraySync(from: multiArray)
             }
         }
 
-        Self.logger.info("Generated \(embeddings.count, privacy: .public) embeddings")
-        return embeddings
+        // If we have a single output, use that
+        if let featureName = output.featureNames.first,
+           let featureValue = output.featureValue(for: featureName),
+           let multiArray = featureValue.multiArrayValue {
+            return extractFloatArraySync(from: multiArray)
+        }
+
+        throw EmbeddingError.invalidOutput("Could not find embedding in model output")
+    }
+
+    /// Extract Float array synchronously
+    private nonisolated func extractFloatArraySync(from multiArray: MLMultiArray) -> [Float] {
+        let count = multiArray.count
+        var result = [Float](repeating: 0, count: count)
+
+        let shape = multiArray.shape.map { $0.intValue }
+
+        if shape.count == 2 && shape[1] == Self.dimension {
+            // Shape [1, 384] - direct embedding
+            for i in 0..<Self.dimension {
+                result[i] = multiArray[[0, i] as [NSNumber]].floatValue
+            }
+        } else if shape.count == 3 && shape[2] == Self.dimension {
+            // Shape [1, seq_len, 384] - take [CLS] token embedding
+            for i in 0..<Self.dimension {
+                result[i] = multiArray[[0, 0, i] as [NSNumber]].floatValue
+            }
+        } else {
+            // Fallback: take first `dimension` values
+            let extractCount = min(count, Self.dimension)
+            for i in 0..<extractCount {
+                result[i] = multiArray[i].floatValue
+            }
+        }
+
+        return Array(result.prefix(Self.dimension))
     }
 
     // MARK: - Private Helpers
 
-    /// Preprocesses text for embedding generation
-    private func preprocessText(_ text: String) -> String {
+    /// Preprocesses text for embedding generation (pure function)
+    private nonisolated func preprocessText(_ text: String) -> String {
         // BGE models work best with a query prefix for retrieval
         // For passages, we use the text as-is
         // Truncate to approximate token limit (rough estimate: 4 chars per token)
@@ -191,13 +353,14 @@ public actor EmbeddingService {
         return try MLDictionaryFeatureProvider(dictionary: features)
     }
 
-    /// Simple tokenizer for BERT-style models
-    /// Note: For production, this should use the actual WordPiece tokenizer
-    private func tokenize(_ text: String) -> (inputIds: [Int32], attentionMask: [Int32]) {
-        // This is a simplified tokenizer
-        // In production, we'd use the proper WordPiece vocabulary
-        // For now, we use a basic word-level tokenization with padding
+    /// Tokenize text using proper WordPiece tokenizer (pure function)
+    private nonisolated func tokenize(_ text: String) -> (inputIds: [Int32], attentionMask: [Int32]) {
+        // Use proper BERT tokenizer if available
+        if let tokenizer = BertTokenizer.shared {
+            return tokenizer.encode(text, maxLength: Self.maxTokens)
+        }
 
+        // Fallback to basic tokenization if tokenizer not loaded
         let maxLength = Self.maxTokens
         let words = text.lowercased().split(separator: " ").map(String.init)
 
@@ -205,11 +368,9 @@ public actor EmbeddingService {
         var inputIds: [Int32] = [101]  // [CLS]
         var attentionMask: [Int32] = [1]
 
-        // Add word tokens (using simple hash for now - placeholder)
-        for word in words.prefix(maxLength - 2) {
-            // Simple hash to token ID (placeholder - real implementation needs vocabulary)
-            let tokenId = Int32(abs(word.hashValue % 30000) + 1000)
-            inputIds.append(tokenId)
+        // Add word tokens (using [UNK] = 100 for unknown words)
+        for _ in words.prefix(maxLength - 2) {
+            inputIds.append(100)  // [UNK]
             attentionMask.append(1)
         }
 
@@ -277,8 +438,8 @@ public actor EmbeddingService {
         return Array(result.prefix(Self.dimension))
     }
 
-    /// L2 normalizes an embedding vector
-    private func normalizeL2(_ vector: [Float]) -> [Float] {
+    /// L2 normalizes an embedding vector (pure function, safe to call from any context)
+    private nonisolated func normalizeL2(_ vector: [Float]) -> [Float] {
         let norm = sqrt(vector.reduce(0) { $0 + $1 * $1 })
         guard norm > 0 else { return vector }
         return vector.map { $0 / norm }
