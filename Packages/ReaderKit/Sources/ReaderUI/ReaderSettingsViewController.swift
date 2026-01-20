@@ -10,7 +10,6 @@ public final class ReaderSettingsViewController: UITableViewController {
     private let fontScaleSteps: [CGFloat] = [1.0, 1.2, 1.4, 1.6, 1.8]
 
     private var apiKey: String = UserDefaults.standard.string(forKey: "OpenRouterAPIKey") ?? ""
-    private var selectedModel: String = OpenRouterConfig.model
 
     public init(fontScale: CGFloat, onFontScaleChanged: @escaping (CGFloat) -> Void) {
         self.fontScale = fontScale
@@ -47,7 +46,7 @@ public final class ReaderSettingsViewController: UITableViewController {
     // MARK: - Table View
 
     public override func numberOfSections(in tableView: UITableView) -> Int {
-        return 5
+        return 4
     }
 
     public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -56,7 +55,6 @@ public final class ReaderSettingsViewController: UITableViewController {
         case 1: return 1 // Font size
         case 2: return 1 // Render mode
         case 3: return 2 // API key + link
-        case 4: return 1 // Model picker
         default: return 0
         }
     }
@@ -67,7 +65,6 @@ public final class ReaderSettingsViewController: UITableViewController {
         case 1: return "Font Size"
         case 2: return "Rendering"
         case 3: return "OpenRouter API"
-        case 4: return "AI Model"
         default: return nil
         }
     }
@@ -96,8 +93,6 @@ public final class ReaderSettingsViewController: UITableViewController {
             } else {
                 return linkCell()
             }
-        case 4:
-            return modelPickerCell()
         default:
             return UITableViewCell()
         }
@@ -115,8 +110,6 @@ public final class ReaderSettingsViewController: UITableViewController {
             if let url = URL(string: "https://openrouter.ai/keys") {
                 UIApplication.shared.open(url)
             }
-        } else if indexPath.section == 4 {
-            showModelPicker()
         }
     }
 
@@ -209,16 +202,6 @@ public final class ReaderSettingsViewController: UITableViewController {
         return cell
     }
 
-    private func modelPickerCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
-        cell.textLabel?.text = "Model"
-        cell.textLabel?.font = fontManager.bodyFont
-        cell.detailTextLabel?.text = OpenRouterConfig.availableModels.first(where: { $0.id == selectedModel })?.name ?? selectedModel
-        cell.detailTextLabel?.font = fontManager.bodyFont
-        cell.accessoryType = .disclosureIndicator
-        return cell
-    }
-
     private func renderModeCell() -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
         cell.textLabel?.text = "Renderer"
@@ -290,34 +273,6 @@ public final class ReaderSettingsViewController: UITableViewController {
     @objc private func apiKeyChanged(_ textField: UITextField) {
         apiKey = textField.text ?? ""
         UserDefaults.standard.set(apiKey, forKey: "OpenRouterAPIKey")
-    }
-
-    private func showModelPicker() {
-        let alert = UIAlertController(title: "Select Model", message: nil, preferredStyle: .actionSheet)
-
-        for model in OpenRouterConfig.availableModels {
-            // Format: "GPT-4.1 Nano ($0.10/M)"
-            let priceStr = String(format: "$%.2f/M", model.inputCost)
-            let title = "\(model.name) (\(priceStr))"
-            let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
-                self?.selectedModel = model.id
-                UserDefaults.standard.set(model.id, forKey: "OpenRouterModel")
-                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 4)], with: .automatic)
-            }
-            if model.id == selectedModel {
-                action.setValue(true, forKey: "checked")
-            }
-            alert.addAction(action)
-        }
-
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = tableView
-            popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 4))
-        }
-
-        present(alert, animated: true)
     }
 
     private func showRenderModePicker() {

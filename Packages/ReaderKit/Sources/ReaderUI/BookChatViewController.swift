@@ -183,8 +183,7 @@ public final class BookChatViewController: UIViewController {
         config.imagePlacement = .trailing
         config.imagePadding = 4
         modelButton.configuration = config
-        modelButton.showsMenuAsPrimaryAction = true
-        modelButton.menu = createModelMenu()
+        modelButton.addTarget(self, action: #selector(showModelPicker), for: .touchUpInside)
         buttonRow.addSubview(modelButton)
 
         // Send button - in the button row, right-aligned
@@ -295,20 +294,25 @@ public final class BookChatViewController: UIViewController {
         )
     }
 
-    private func createModelMenu() -> UIMenu {
-        let actions = OpenRouterConfig.availableModels.map { model in
-            let priceStr = String(format: "$%.2f/M", model.inputCost)
-            let title = "\(model.name) (\(priceStr))"
-            return UIAction(
-                title: title,
-                state: model.id == OpenRouterConfig.model ? .on : .off
-            ) { [weak self] _ in
+    @objc private func showModelPicker() {
+        let picker = ModelPickerViewController(
+            selectedModelId: OpenRouterConfig.model,
+            onSelect: { [weak self] model in
                 OpenRouterConfig.model = model.id
-                self?.modelButton.setTitle(model.name, for: .normal)
-                self?.modelButton.menu = self?.createModelMenu()
+                self?.modelButton.configuration?.title = model.name
             }
+        )
+        picker.modalPresentationStyle = .popover
+        picker.preferredContentSize = CGSize(width: 350, height: 400)
+
+        if let popover = picker.popoverPresentationController {
+            popover.sourceView = modelButton
+            popover.sourceRect = modelButton.bounds
+            popover.permittedArrowDirections = [.down, .up]
+            popover.delegate = self
         }
-        return UIMenu(title: "Select Model", children: actions)
+
+        present(picker, animated: true)
     }
 
     private func addWelcomeMessage() {
@@ -890,6 +894,14 @@ extension BookChatViewController: UITextViewDelegate {
     }
 }
 
+// MARK: - UIPopoverPresentationControllerDelegate
+
+extension BookChatViewController: UIPopoverPresentationControllerDelegate {
+    public func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
+        return .none  // Force popover on all devices
+    }
+}
+
 // MARK: - Chat Message Model
 
 private struct ChatMessage {
@@ -1363,4 +1375,117 @@ private extension String {
 private class MapTapGestureRecognizer: UITapGestureRecognizer {
     var coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D()
     var locationName: String = ""
+}
+
+// MARK: - Model Picker View Controller
+
+private final class ModelPickerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
+    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let models = OpenRouterConfig.availableModels
+    private var selectedModelId: String
+    private let onSelect: (OpenRouterConfig.Model) -> Void
+    private let fontManager = FontScaleManager.shared
+
+    init(selectedModelId: String, onSelect: @escaping (OpenRouterConfig.Model) -> Void) {
+        self.selectedModelId = selectedModelId
+        self.onSelect = onSelect
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(ModelCell.self, forCellReuseIdentifier: "ModelCell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 60
+        view.addSubview(tableView)
+
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+
+    // MARK: - UITableViewDataSource
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return models.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "ModelCell", for: indexPath) as! ModelCell
+        let model = models[indexPath.row]
+        cell.configure(with: model, isSelected: model.id == selectedModelId)
+        return cell
+    }
+
+    // MARK: - UITableViewDelegate
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        let model = models[indexPath.row]
+        selectedModelId = model.id
+        onSelect(model)
+        dismiss(animated: true)
+    }
+}
+
+// MARK: - Model Cell
+
+private final class ModelCell: UITableViewCell {
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(with model: OpenRouterConfig.Model, isSelected: Bool) {
+        var content = defaultContentConfiguration()
+        content.text = model.name
+        content.textProperties.font = .systemFont(ofSize: 16, weight: .medium)
+
+        let inputStr = formatPrice(model.inputCost)
+        let outputStr = formatPrice(model.outputCost)
+        let contextStr = formatContextLength(model.contextLength)
+        content.secondaryText = "\(inputStr) in  ·  \(outputStr) out  ·  \(contextStr) context"
+        content.secondaryTextProperties.font = .systemFont(ofSize: 14)
+        content.secondaryTextProperties.color = .secondaryLabel
+
+        contentConfiguration = content
+        accessoryType = isSelected ? .checkmark : .none
+    }
+
+    private func formatPrice(_ cost: Double) -> String {
+        if cost < 1.0 {
+            return String(format: "$%.2f", cost)
+        } else {
+            return String(format: "$%.0f", cost)
+        }
+    }
+
+    private func formatContextLength(_ tokens: Int) -> String {
+        if tokens >= 1_000_000 {
+            let millions = Double(tokens) / 1_000_000.0
+            if millions == floor(millions) {
+                return String(format: "%.0fM", millions)
+            }
+            return String(format: "%.1fM", millions)
+        } else {
+            let thousands = tokens / 1000
+            return "\(thousands)K"
+        }
+    }
 }
