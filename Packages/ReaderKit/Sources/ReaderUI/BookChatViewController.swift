@@ -73,7 +73,7 @@ public final class BookChatViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        Self.logger.debug("Chat UI opened for book: \(self.context.bookTitle, privacy: .public)")
+        Self.logger.debug("Chat UI opened for book: \(self.context.bookTitle)")
         setupUI()
         setupKeyboardObservers()
         setupFontScaleObserver()
@@ -428,7 +428,7 @@ public final class BookChatViewController: UIViewController {
         while offset < transcript.endIndex {
             let end = transcript.index(offset, offsetBy: chunkSize, limitedBy: transcript.endIndex) ?? transcript.endIndex
             let chunk = String(transcript[offset..<end])
-            Self.logger.info("TRACE[\(chunkNum, privacy: .public)]: \(chunk, privacy: .public)")
+            Self.logger.info("TRACE[\(chunkNum)]: \(chunk)")
             offset = end
             chunkNum += 1
         }

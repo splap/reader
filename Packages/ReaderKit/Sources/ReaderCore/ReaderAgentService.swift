@@ -45,7 +45,7 @@ public actor ReaderAgentService {
             conceptMap: conceptMap
         )
 
-        Self.logger.debug("Routed question: \(routingResult.route.rawValue, privacy: .public) (confidence: \(routingResult.confidence, privacy: .public))")
+        Self.logger.debug("Routed question: \(routingResult.route.rawValue) (confidence: \(routingResult.confidence))")
 
         // Step 2: Build system prompt with routing context
         let systemPrompt = buildSystemPrompt(
@@ -91,7 +91,7 @@ public actor ReaderAgentService {
                 routingResult: routingResult
             )
             let llmDuration = Date().timeIntervalSince(llmStartTime)
-            Self.logger.info("LLM call completed in \(String(format: "%.2f", llmDuration), privacy: .public)s (model: \(OpenRouterConfig.model, privacy: .public))")
+            Self.logger.info("LLM call completed in \(String(format: "%.2f", llmDuration))s (model: \(OpenRouterConfig.model))")
 
             // Check for tool calls
             if let toolCalls = response.toolCalls, !toolCalls.isEmpty {
@@ -116,7 +116,7 @@ public actor ReaderAgentService {
                 for call in toolCalls {
                     // Check tool budget
                     guard toolBudget.useToolCall() else {
-                        Self.logger.warning("Tool budget exhausted, skipping: \(call.function.name, privacy: .public)")
+                        Self.logger.warning("Tool budget exhausted, skipping: \(call.function.name)")
                         history.append(AgentMessage(
                             role: .tool,
                             content: "Tool budget exceeded. Maximum \(ExecutionGuardrails.maxToolCalls) tool calls per question.",
@@ -132,7 +132,7 @@ public actor ReaderAgentService {
                     let startTime = Date()
                     let result = await executor.execute(call)
                     let executionTime = Date().timeIntervalSince(startTime)
-                    Self.logger.info("Tool call \(call.function.name, privacy: .public) completed in \(String(format: "%.2f", executionTime), privacy: .public)s")
+                    Self.logger.info("Tool call \(call.function.name) completed in \(String(format: "%.2f", executionTime))s")
 
                     // Track evidence for book questions
                     if routingResult.route == .book || routingResult.route == .ambiguous {

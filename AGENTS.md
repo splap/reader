@@ -134,45 +134,24 @@ Additional test books can be loaded via `TEST_BOOKS_DIR` environment variable.
 
 
 
-### For Physical iPad (Only When Required)
-Unified logging (os_log/Logger) doesn't reliably stream to Mac from iOS 26+ devices.
+### For Physical iPad (USB required)
 
-**Best approach:** Write debug logs to a file in the app, then pull it:
-
-1. Add file logging in your code:
-```swift
-private let debugLogURL = FileManager.default
-    .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    .appendingPathComponent("import-debug.log")
-
-private func writeDebugLog(_ message: String) {
-    let timestamp = ISO8601DateFormatter().string(from: Date())
-    let logEntry = "[\(timestamp)] \(message)\n"
-    if let data = logEntry.data(using: .utf8) {
-        if FileManager.default.fileExists(atPath: debugLogURL.path) {
-            if let fileHandle = try? FileHandle(forWritingTo: debugLogURL) {
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-                try? fileHandle.close()
-            }
-        } else {
-            try? data.write(to: debugLogURL)
-        }
-    }
-}
-```
-
-2. Pull the log from device:
+Device must be connected via USB cable. Get the UDID first:
 ```bash
-xcrun devicectl device copy from \
-  --device <DEVICE_UDID> \
-  --domain-type appDataContainer \
-  --domain-identifier com.splap.reader \
-  --source "Library/Application Support/import-debug.log" \
-  --destination /tmp/debug.log
-
-cat /tmp/debug.log
+idevice_id -l
 ```
+
+**User runs** (requires sudo):
+```bash
+sudo log collect --device-udid <UDID> --last 10m --output /tmp/device.logarchive
+```
+
+**Claude reads** (no sudo needed):
+```bash
+log show /tmp/device.logarchive --predicate 'subsystem == "com.splap.reader"' --style compact
+```
+
+Note: Console.app also works for live streaming (search `subsystem:com.splap.reader`).
 
 
 1. Project structure (most important)

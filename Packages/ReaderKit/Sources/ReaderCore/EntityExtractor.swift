@@ -99,7 +99,7 @@ public struct EntityExtractor {
     ) -> [EntityCandidate] {
         guard !chapters.isEmpty else { return [] }
 
-        logger.info("Extracting entities from \(chapters.count, privacy: .public) chapters")
+        logger.info("Extracting entities from \(chapters.count) chapters")
 
         // Step 1: Find all capitalized spans
         var allMentions: [String: [EntityMention]] = [:]
@@ -121,7 +121,7 @@ public struct EntityExtractor {
         // Step 3: Filter by minimum frequency
         let filteredEntities = mergedEntities.filter { $0.value.count >= config.minMentions }
 
-        logger.debug("Found \(filteredEntities.count, privacy: .public) entities after frequency filter")
+        logger.debug("Found \(filteredEntities.count) entities after frequency filter")
 
         // Step 4: Build co-occurrence matrix
         let coOccurrences = buildCoOccurrenceMatrix(
@@ -177,7 +177,7 @@ public struct EntityExtractor {
         candidates.sort { $0.salience > $1.salience }
         candidates = Array(candidates.prefix(config.maxEntities))
 
-        logger.info("Extracted \(candidates.count, privacy: .public) entity candidates")
+        logger.info("Extracted \(candidates.count) entity candidates")
 
         return candidates
     }

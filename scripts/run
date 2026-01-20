@@ -61,12 +61,28 @@ if [ "$USE_SIMULATOR" = "1" ]; then
   fi
 else
   echo "Running on physical iPad..."
-  # Find first connected iOS device
-  DEVICE_UDID=$(xcrun devicectl list devices 2>/dev/null | grep -E "^[0-9A-F-]+" | head -1 | awk '{print $1}')
+  # Find first connected iOS device using JSON for reliable UDID extraction
+  DEVICES_JSON=$(mktemp)
+  xcrun devicectl list devices -j "$DEVICES_JSON" 2>/dev/null
+  DEVICE_UDID=$(jq -r '
+    .result.devices[] |
+    select(.connectionProperties.tunnelState == "connected") |
+    .hardwareProperties.udid
+  ' "$DEVICES_JSON" | head -1)
+  DEVICE_NAME=$(jq -r '
+    .result.devices[] |
+    select(.connectionProperties.tunnelState == "connected") |
+    .deviceProperties.name
+  ' "$DEVICES_JSON" | head -1)
+  rm -f "$DEVICES_JSON"
+
   if [ -z "$DEVICE_UDID" ]; then
-    echo "No physical device found. Connect a device or use USE_SIMULATOR=1" >&2
+    echo "No connected physical device found." >&2
+    echo "Available devices:" >&2
+    xcrun devicectl list devices 2>/dev/null | grep -E "iPad|iPhone" >&2
     exit 1
   fi
+  echo "Using device: $DEVICE_NAME ($DEVICE_UDID)"
   APP_BUNDLE_ID="com.splap.reader"
   SDK="iphoneos"
 fi

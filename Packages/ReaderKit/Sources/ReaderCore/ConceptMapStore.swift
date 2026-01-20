@@ -39,7 +39,7 @@ public actor ConceptMapStore {
         // Update cache
         cache[map.bookId] = map
 
-        Self.logger.info("Saved concept map for book \(map.bookId, privacy: .public) (\(data.count, privacy: .public) bytes)")
+        Self.logger.info("Saved concept map for book \(map.bookId) (\(data.count) bytes)")
     }
 
     /// Loads a concept map for a book
@@ -66,7 +66,7 @@ public actor ConceptMapStore {
         // Update cache
         cache[bookId] = map
 
-        Self.logger.debug("Loaded concept map for book \(bookId, privacy: .public)")
+        Self.logger.debug("Loaded concept map for book \(bookId)")
 
         return map
     }
@@ -80,7 +80,7 @@ public actor ConceptMapStore {
         let path = conceptMapPath(for: bookId)
         try? FileManager.default.removeItem(at: path)
 
-        Self.logger.info("Deleted concept map for book \(bookId, privacy: .public)")
+        Self.logger.info("Deleted concept map for book \(bookId)")
     }
 
     /// Checks if a concept map exists for a book
@@ -135,7 +135,7 @@ public struct ConceptMapBuilder {
     ) -> ConceptMap {
         let startTime = Date()
 
-        logger.info("Building concept map for book \(bookId, privacy: .public) with \(chapters.count, privacy: .public) chapters")
+        logger.info("Building concept map for book \(bookId) with \(chapters.count) chapters")
 
         // Step 1: TF-IDF analysis
         let tfidfResult = TFIDFAnalyzer.analyze(chapters: chapters)
@@ -171,7 +171,7 @@ public struct ConceptMapBuilder {
             embeddingsUsed: chapterCentroids != nil
         )
 
-        logger.info("Concept map built: \(entities.count, privacy: .public) entities, \(themes.count, privacy: .public) themes, \(events.count, privacy: .public) events in \(processingTimeMs, privacy: .public)ms")
+        logger.info("Concept map built: \(entities.count) entities, \(themes.count) themes, \(events.count) events in \(processingTimeMs)ms")
 
         return ConceptMap(
             bookId: bookId,

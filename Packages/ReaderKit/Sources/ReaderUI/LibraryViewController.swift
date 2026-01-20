@@ -94,7 +94,7 @@ public final class LibraryViewController: UITableViewController {
         // Skip indexing entirely during UI tests if requested
         let skipIndexing = CommandLine.arguments.contains("--uitesting-skip-indexing")
         if skipIndexing {
-            Self.logger.info("UI test skip-indexing mode, opening directly: \(book.title, privacy: .public)")
+            Self.logger.info("UI test skip-indexing mode, opening directly: \(book.title)")
             navigateToReader(book: book)
             return
         }
@@ -105,10 +105,10 @@ public final class LibraryViewController: UITableViewController {
             let isIndexed = await BookLibraryService.shared.isFullyIndexed(bookId: bookId)
 
             if isIndexed {
-                Self.logger.info("Book already indexed, opening directly: \(book.title, privacy: .public)")
+                Self.logger.info("Book already indexed, opening directly: \(book.title)")
                 self.navigateToReader(book: book)
             } else {
-                Self.logger.info("Book needs indexing, showing progress: \(book.title, privacy: .public)")
+                Self.logger.info("Book needs indexing, showing progress: \(book.title)")
                 await self.indexAndOpenBook(book)
             }
         }
@@ -127,7 +127,7 @@ public final class LibraryViewController: UITableViewController {
         // Index the book with progress updates
         let success = await BookLibraryService.shared.ensureIndexed(book: book) { [weak self] progress in
             self?.indexingProgressView?.update(progress: progress)
-            Self.logger.info("Indexing progress: \(progress.stage.rawValue, privacy: .public) - \(progress.message, privacy: .public)")
+            Self.logger.info("Indexing progress: \(progress.stage.rawValue) - \(progress.message)")
         }
 
         // Hide progress overlay
@@ -136,10 +136,10 @@ public final class LibraryViewController: UITableViewController {
         }
 
         if success {
-            Self.logger.info("Indexing complete, opening book: \(book.title, privacy: .public)")
+            Self.logger.info("Indexing complete, opening book: \(book.title)")
             navigateToReader(book: book)
         } else {
-            Self.logger.error("Indexing failed for book: \(book.title, privacy: .public)")
+            Self.logger.error("Indexing failed for book: \(book.title)")
             isOpeningBook = false
             showError("Failed to prepare book for reading. Please try again.")
         }

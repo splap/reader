@@ -75,7 +75,7 @@ public final class ConversationStorage {
             let conversations = try JSONDecoder().decode([Conversation].self, from: data)
             return conversations.sorted { $0.updatedAt > $1.updatedAt }
         } catch {
-            Self.logger.error("Failed to decode conversations: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to decode conversations: \(error.localizedDescription)")
             return []
         }
     }
@@ -113,7 +113,7 @@ public final class ConversationStorage {
             let data = try JSONEncoder().encode(conversations)
             userDefaults.set(data, forKey: key)
         } catch {
-            Self.logger.error("Failed to encode conversations: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to encode conversations: \(error.localizedDescription)")
         }
     }
 }

@@ -55,7 +55,7 @@ public final class UserDefaultsBookStorage: BookLibraryStorage {
             return books
         } catch {
             Log.logger(category: "library")
-                .error("Failed to decode books: \(error.localizedDescription, privacy: .public)")
+                .error("Failed to decode books: \(error.localizedDescription)")
             return []
         }
     }
@@ -66,7 +66,7 @@ public final class UserDefaultsBookStorage: BookLibraryStorage {
             defaults.set(data, forKey: key)
         } catch {
             Log.logger(category: "library")
-                .error("Failed to encode books: \(error.localizedDescription, privacy: .public)")
+                .error("Failed to encode books: \(error.localizedDescription)")
         }
     }
 }
@@ -79,7 +79,6 @@ public final class BookLibraryService {
     private let fileManager: FileManager
     private let booksDirectory: URL
     private let storage: BookLibraryStorage
-    private let debugLogURL: URL
 
     public init(
         fileManager: FileManager = .default,
@@ -91,36 +90,15 @@ public final class BookLibraryService {
         // Get Application Support directory
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         self.booksDirectory = appSupport.appendingPathComponent("Books")
-        self.debugLogURL = appSupport.appendingPathComponent("import-debug.log")
 
         // Create Books directory if it doesn't exist
         try? fileManager.createDirectory(at: booksDirectory, withIntermediateDirectories: true)
-
-        // Write initial log entry
-        writeDebugLog("=== BookLibraryService initialized ===")
-    }
-
-    private func writeDebugLog(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let logEntry = "[\(timestamp)] \(message)\n"
-        if let data = logEntry.data(using: .utf8) {
-            if fileManager.fileExists(atPath: debugLogURL.path) {
-                if let fileHandle = try? FileHandle(forWritingTo: debugLogURL) {
-                    fileHandle.seekToEndOfFile()
-                    fileHandle.write(data)
-                    try? fileHandle.close()
-                }
-            } else {
-                try? data.write(to: debugLogURL)
-            }
-        }
     }
 
     // MARK: - Import Operations
 
     public func importBook(from sourceURL: URL, startAccessing: Bool = false) throws -> Book {
-        writeDebugLog("Starting import from: \(sourceURL.path)")
-        Self.logger.debug("Importing book from: \(sourceURL.path, privacy: .public) (scheme: \(sourceURL.scheme ?? "nil", privacy: .public), security scope: \(startAccessing, privacy: .public))")
+        Self.logger.debug("Importing book from: \(sourceURL.path) (scheme: \(sourceURL.scheme ?? "nil"), security scope: \(startAccessing))")
 
         // Only use security-scoped resource access if the file is outside our sandbox
         // Files in tmp/Inbox are already accessible
@@ -130,12 +108,9 @@ public final class BookLibraryService {
         if needsSecurityScope {
             didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
             if !didStartAccessing {
-                writeDebugLog("Failed to start accessing security scoped resource")
                 Self.logger.error("Failed to start accessing security scoped resource")
                 throw BookLibraryError.fileNotFound
             }
-        } else {
-            writeDebugLog("File is in sandbox, no security scope needed")
         }
 
         defer {
@@ -146,23 +121,19 @@ public final class BookLibraryService {
 
         // Check if file exists
         let fileExists = fileManager.fileExists(atPath: sourceURL.path)
-        writeDebugLog("File exists at path: \(fileExists)")
-        Self.logger.debug("File exists check: \(fileExists, privacy: .public)")
+        Self.logger.debug("File exists check: \(fileExists)")
 
         if !fileExists {
-            writeDebugLog("File does not exist at path: \(sourceURL.path)")
-            Self.logger.error("File does not exist at path: \(sourceURL.path, privacy: .public)")
+            Self.logger.error("File does not exist at path: \(sourceURL.path)")
             throw BookLibraryError.fileNotFound
         }
 
         // Copy file to library
-        writeDebugLog("Beginning copy to library")
         Self.logger.debug("Copying book to library")
 
         let (filePath, _) = try copyToLibrary(from: sourceURL)
 
-        writeDebugLog("Successfully copied to: \(filePath)")
-        Self.logger.debug("Copy complete: \(filePath, privacy: .public)")
+        Self.logger.debug("Copy complete: \(filePath)")
 
         // Extract metadata
         let fileURL = booksDirectory.appendingPathComponent(filePath)
@@ -181,7 +152,7 @@ public final class BookLibraryService {
         books.append(book)
         storage.saveBooks(books)
 
-        Self.logger.info("Imported book: \(title, privacy: .public) (\(book.id, privacy: .public))")
+        Self.logger.info("Imported book: \(title) (\(book.id))")
 
         // Index the book for search (background, non-blocking)
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -193,7 +164,7 @@ public final class BookLibraryService {
 
     /// Synchronous indexing for background dispatch
     private func indexBookSync(_ book: Book) {
-        Self.logger.info("Indexing book: \(book.title, privacy: .public)")
+        Self.logger.info("Indexing book: \(book.title)")
 
         let fileURL = getFileURL(for: book)
         let loader = EPUBLoader()
@@ -201,14 +172,14 @@ public final class BookLibraryService {
         do {
             chapter = try loader.loadChapter(from: fileURL, maxSections: .max)
         } catch {
-            Self.logger.error("Index failed - EPUB load error: \(error, privacy: .public)")
+            Self.logger.error("Index failed - EPUB load error: \(error)")
             return
         }
 
         let bookId = book.id.uuidString
         let chapters = [chapter]
         let chunks = Chunker.chunkBook(chapters: chapters, bookId: bookId)
-        Self.logger.debug("Created \(chunks.count, privacy: .public) chunks from \(chapter.allBlocks.count, privacy: .public) blocks")
+        Self.logger.debug("Created \(chunks.count) chunks from \(chapter.allBlocks.count) blocks")
 
         let group = DispatchGroup()
         group.enter()
@@ -216,7 +187,7 @@ public final class BookLibraryService {
             do {
                 // Step 1: Index chunks in FTS5 (lexical search)
                 try await ChunkStore.shared.indexBook(chunks: chunks, bookId: bookId)
-                Self.logger.info("Indexed \(chunks.count, privacy: .public) chunks for \(book.title, privacy: .public)")
+                Self.logger.info("Indexed \(chunks.count) chunks for \(book.title)")
 
                 // Step 2: Generate embeddings and build vector index (semantic search)
                 await self.buildVectorIndex(bookId: bookId, chunks: chunks)
@@ -225,7 +196,7 @@ public final class BookLibraryService {
                 await self.buildConceptMap(bookId: bookId, chapters: chapters)
 
             } catch {
-                Self.logger.error("Index failed - store error: \(error, privacy: .public)")
+                Self.logger.error("Index failed - store error: \(error)")
             }
             group.leave()
         }
@@ -251,9 +222,9 @@ public final class BookLibraryService {
             // Build HNSW index
             try await VectorStore.shared.buildIndex(bookId: bookId, chunks: chunks, embeddings: embeddings)
 
-            Self.logger.info("Built vector index with \(embeddings.count, privacy: .public) embeddings")
+            Self.logger.info("Built vector index with \(embeddings.count) embeddings")
         } catch {
-            Self.logger.error("Vector index build failed: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Vector index build failed: \(error.localizedDescription)")
         }
     }
 
@@ -270,9 +241,9 @@ public final class BookLibraryService {
             // Save to persistent storage
             try await ConceptMapStore.shared.save(map: conceptMap)
 
-            Self.logger.info("Built concept map: \(conceptMap.entities.count, privacy: .public) entities, \(conceptMap.themes.count, privacy: .public) themes")
+            Self.logger.info("Built concept map: \(conceptMap.entities.count) entities, \(conceptMap.themes.count) themes")
         } catch {
-            Self.logger.error("Concept map build failed: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Concept map build failed: \(error.localizedDescription)")
         }
     }
 
@@ -323,25 +294,25 @@ public final class BookLibraryService {
             do {
                 try await ChunkStore.shared.deleteBook(bookId: bookId)
             } catch {
-                Self.logger.error("Failed to delete book from chunk index: \(error.localizedDescription, privacy: .public)")
+                Self.logger.error("Failed to delete book from chunk index: \(error.localizedDescription)")
             }
 
             // Delete vector index
             do {
                 try await VectorStore.shared.deleteBook(bookId: bookId)
             } catch {
-                Self.logger.error("Failed to delete book from vector index: \(error.localizedDescription, privacy: .public)")
+                Self.logger.error("Failed to delete book from vector index: \(error.localizedDescription)")
             }
 
             // Delete concept map
             do {
                 try await ConceptMapStore.shared.delete(bookId: bookId)
             } catch {
-                Self.logger.error("Failed to delete book concept map: \(error.localizedDescription, privacy: .public)")
+                Self.logger.error("Failed to delete book concept map: \(error.localizedDescription)")
             }
         }
 
-        Self.logger.info("Deleted book: \(book.title, privacy: .public) (\(id, privacy: .public))")
+        Self.logger.info("Deleted book: \(book.title) (\(id))")
     }
 
     public func updateLastOpened(bookId: UUID) {
@@ -368,37 +339,33 @@ public final class BookLibraryService {
         let bookDir = booksDirectory.appendingPathComponent(uuid.uuidString)
         let destURL = bookDir.appendingPathComponent("book.epub")
 
-        Self.logger.debug("Creating book directory: \(uuid.uuidString, privacy: .public)")
+        Self.logger.debug("Creating book directory: \(uuid.uuidString)")
         try fileManager.createDirectory(at: bookDir, withIntermediateDirectories: true)
 
-        Self.logger.debug("Copying file from \(sourceURL.lastPathComponent, privacy: .public) to library")
+        Self.logger.debug("Copying file from \(sourceURL.lastPathComponent) to library")
 
         var coordinatorError: NSError?
         var copyError: Error?
 
         let coordinator = NSFileCoordinator()
         coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatorError) { url in
-            Self.logger.debug("File coordinator provided URL: \(url.lastPathComponent, privacy: .public)")
+            Self.logger.debug("File coordinator provided URL: \(url.lastPathComponent)")
 
             do {
                 try self.fileManager.copyItem(at: url, to: destURL)
-                self.writeDebugLog("Copy succeeded")
                 Self.logger.debug("File copy completed successfully")
             } catch {
-                self.writeDebugLog("Copy failed: \(error.localizedDescription)")
-                Self.logger.error("Copy failed: \(error.localizedDescription, privacy: .public)")
+                Self.logger.error("Copy failed: \(error.localizedDescription)")
                 copyError = error
             }
         }
 
         if let error = coordinatorError {
-            writeDebugLog("Coordinator error: \(error.localizedDescription)")
-            Self.logger.error("File coordinator error: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("File coordinator error: \(error.localizedDescription)")
             throw BookLibraryError.copyFailed(error)
         }
 
         if let error = copyError {
-            writeDebugLog("Copy error occurred")
             Self.logger.error("Copy operation failed")
             throw BookLibraryError.copyFailed(error)
         }
@@ -406,7 +373,7 @@ public final class BookLibraryService {
         let attributes = try fileManager.attributesOfItem(atPath: destURL.path)
         let fileSize = attributes[.size] as? Int64 ?? 0
 
-        Self.logger.debug("File copied successfully, size: \(fileSize, privacy: .public) bytes")
+        Self.logger.debug("File copied successfully, size: \(fileSize) bytes")
 
         return (path: "\(uuid.uuidString)/book.epub", size: fileSize)
     }
@@ -417,7 +384,7 @@ public final class BookLibraryService {
             let chapter = try loader.loadChapter(from: epubURL, maxSections: 1)
             return (title: chapter.title ?? epubURL.deletingPathExtension().lastPathComponent, author: nil)
         } catch {
-            Self.logger.error("Failed to extract metadata: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to extract metadata: \(error.localizedDescription)")
             return (title: epubURL.deletingPathExtension().lastPathComponent, author: nil)
         }
     }
@@ -446,7 +413,7 @@ public final class BookLibraryService {
         do {
             return try await ChunkStore.shared.isBookIndexed(bookId: bookId)
         } catch {
-            Self.logger.error("Failed to check lexical index: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to check lexical index: \(error.localizedDescription)")
             return false
         }
     }
@@ -480,12 +447,12 @@ public final class BookLibraryService {
         let hasVector = await isVectorIndexed(bookId: bookId)
 
         if hasLexical && hasVector {
-            Self.logger.info("Book already fully indexed: \(book.title, privacy: .public)")
+            Self.logger.info("Book already fully indexed: \(book.title)")
             progressHandler(IndexingProgress(stage: .complete, message: "Already indexed"))
             return true
         }
 
-        Self.logger.info("Starting indexing for book: \(book.title, privacy: .public) (lexical: \(hasLexical), vector: \(hasVector))")
+        Self.logger.info("Starting indexing for book: \(book.title) (lexical: \(hasLexical), vector: \(hasVector))")
 
         // Load the book
         progressHandler(IndexingProgress(stage: .loading, message: "Loading book content..."))
@@ -495,9 +462,9 @@ public final class BookLibraryService {
         let chapter: Chapter
         do {
             chapter = try loader.loadChapter(from: fileURL, maxSections: .max)
-            Self.logger.info("Loaded \(chapter.allBlocks.count, privacy: .public) blocks from book")
+            Self.logger.info("Loaded \(chapter.allBlocks.count) blocks from book")
         } catch {
-            Self.logger.error("Index failed - EPUB load error: \(error, privacy: .public)")
+            Self.logger.error("Index failed - EPUB load error: \(error)")
             progressHandler(IndexingProgress(stage: .failed, message: "Failed to load book: \(error.localizedDescription)"))
             return false
         }
@@ -507,7 +474,7 @@ public final class BookLibraryService {
 
         let chapters = [chapter]
         let chunks = Chunker.chunkBook(chapters: chapters, bookId: bookId)
-        Self.logger.info("Created \(chunks.count, privacy: .public) chunks from \(chapter.allBlocks.count, privacy: .public) blocks")
+        Self.logger.info("Created \(chunks.count) chunks from \(chapter.allBlocks.count) blocks")
 
         // Build lexical index if needed
         if !hasLexical {
@@ -515,9 +482,9 @@ public final class BookLibraryService {
 
             do {
                 try await ChunkStore.shared.indexBook(chunks: chunks, bookId: bookId)
-                Self.logger.info("Lexical index complete: \(chunks.count, privacy: .public) chunks indexed")
+                Self.logger.info("Lexical index complete: \(chunks.count) chunks indexed")
             } catch {
-                Self.logger.error("Lexical index failed: \(error, privacy: .public)")
+                Self.logger.error("Lexical index failed: \(error)")
                 progressHandler(IndexingProgress(stage: .failed, message: "Failed to build search index"))
                 return false
             }
@@ -538,7 +505,7 @@ public final class BookLibraryService {
                 } else {
                     // Generate embeddings with progress logging
                     let texts = chunks.map(\.text)
-                    Self.logger.info("Generating embeddings for \(texts.count, privacy: .public) chunks...")
+                    Self.logger.info("Generating embeddings for \(texts.count) chunks...")
 
                     let embeddings = try await embeddingService.embedBatch(texts: texts)
 
@@ -547,10 +514,10 @@ public final class BookLibraryService {
                     // Build HNSW index
                     try await VectorStore.shared.buildIndex(bookId: bookId, chunks: chunks, embeddings: embeddings)
 
-                    Self.logger.info("Vector index complete: \(embeddings.count, privacy: .public) embeddings indexed")
+                    Self.logger.info("Vector index complete: \(embeddings.count) embeddings indexed")
                 }
             } catch {
-                Self.logger.error("Vector index build failed: \(error.localizedDescription, privacy: .public)")
+                Self.logger.error("Vector index build failed: \(error.localizedDescription)")
                 // Don't fail completely - lexical search still works
             }
         }
@@ -565,14 +532,14 @@ public final class BookLibraryService {
                 chunkEmbeddings: nil
             )
             try await ConceptMapStore.shared.save(map: conceptMap)
-            Self.logger.info("Concept map complete: \(conceptMap.entities.count, privacy: .public) entities, \(conceptMap.themes.count, privacy: .public) themes")
+            Self.logger.info("Concept map complete: \(conceptMap.entities.count) entities, \(conceptMap.themes.count) themes")
         } catch {
-            Self.logger.error("Concept map build failed: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Concept map build failed: \(error.localizedDescription)")
             // Not fatal
         }
 
         progressHandler(IndexingProgress(stage: .complete, message: "Indexing complete"))
-        Self.logger.info("Indexing complete for book: \(book.title, privacy: .public)")
+        Self.logger.info("Indexing complete for book: \(book.title)")
         return true
     }
 
@@ -580,11 +547,11 @@ public final class BookLibraryService {
     /// - Parameter titleContains: Substring to match in book title
     public func indexBookByTitle(_ titleContains: String) {
         guard let book = getAllBooks().first(where: { $0.title.lowercased().contains(titleContains.lowercased()) }) else {
-            Self.logger.warning("No book found matching '\(titleContains, privacy: .public)'")
+            Self.logger.warning("No book found matching '\(titleContains)'")
             return
         }
 
-        Self.logger.info("Indexing book: \(book.title, privacy: .public)")
+        Self.logger.info("Indexing book: \(book.title)")
 
         DispatchQueue.global(qos: .background).async { [weak self] in
             self?.indexBookSync(book)
@@ -621,24 +588,24 @@ public final class BookLibraryService {
                 // Extract title to check for duplicates
                 let (title, _) = extractMetadata(from: epubURL)
                 if existingTitles.contains(title.lowercased()) {
-                    Self.logger.debug("Skipping duplicate book: \(title, privacy: .public)")
+                    Self.logger.debug("Skipping duplicate book: \(title)")
                     continue
                 }
 
                 do {
                     let book = try importBook(from: epubURL, startAccessing: false)
-                    Self.logger.info("Imported test book: \(book.title, privacy: .public)")
+                    Self.logger.info("Imported test book: \(book.title)")
                     newImports += 1
                 } catch {
-                    Self.logger.error("Failed to import \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    Self.logger.error("Failed to import \(filename): \(error.localizedDescription)")
                 }
             }
 
             if newImports > 0 {
-                Self.logger.info("Imported \(newImports, privacy: .public) new test books")
+                Self.logger.info("Imported \(newImports) new test books")
             }
         } catch {
-            Self.logger.error("Failed to scan TestBooks: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Failed to scan TestBooks: \(error.localizedDescription)")
         }
     }
 }

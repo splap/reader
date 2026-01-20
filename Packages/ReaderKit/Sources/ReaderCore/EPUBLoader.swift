@@ -145,7 +145,7 @@ public final class EPUBLoader {
         applyDefaultColorIfNeeded(to: combined)
 #if DEBUG
         Self.logger.debug(
-            "Loaded EPUB \(url.lastPathComponent, privacy: .public) sections=\(sectionCount, privacy: .public) length=\(combined.length, privacy: .public) htmlSections=\(htmlSections.count, privacy: .public)"
+            "Loaded EPUB \(url.lastPathComponent) sections=\(sectionCount) length=\(combined.length) htmlSections=\(htmlSections.count)"
         )
 #endif
         return Chapter(id: chapterId, attributedText: combined, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels)

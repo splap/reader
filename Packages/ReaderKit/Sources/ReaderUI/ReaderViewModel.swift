@@ -95,11 +95,11 @@ final class ReaderViewModel: ObservableObject {
         currentPageIndex = engine.pageIndex(for: positionOffset, in: pages)
 #if DEBUG
         Self.logger.debug(
-            "paginate size=\(pageSize.width, privacy: .public)x\(pageSize.height, privacy: .public) pages=\(self.pages.count, privacy: .public)"
+            "paginate size=\(pageSize.width)x\(pageSize.height) pages=\(self.pages.count)"
         )
         for (index, page) in pages.prefix(5).enumerated() {
             Self.logger.debug(
-                "page \(index, privacy: .public) planned=\(page.range.location, privacy: .public)+\(page.range.length, privacy: .public)"
+                "page \(index) planned=\(page.range.location)+\(page.range.length)"
             )
         }
 #endif

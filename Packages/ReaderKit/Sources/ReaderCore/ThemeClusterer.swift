@@ -52,7 +52,7 @@ public struct ThemeClusterer {
             return []
         }
 
-        logger.info("Clustering \(chapters.count, privacy: .public) chapters into themes")
+        logger.info("Clustering \(chapters.count) chapters into themes")
 
         // Step 1: Build feature vectors for each chapter
         let vocabulary = TFIDFAnalyzer.buildVocabulary(from: tfidfResult, maxTerms: 100)
@@ -106,7 +106,7 @@ public struct ThemeClusterer {
         // Sort by number of chapters (larger themes first)
         themes.sort { $0.chapterIds.count > $1.chapterIds.count }
 
-        logger.info("Created \(themes.count, privacy: .public) theme clusters")
+        logger.info("Created \(themes.count) theme clusters")
 
         return themes
     }
