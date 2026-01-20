@@ -4,8 +4,14 @@ import Foundation
 public enum OpenRouterConfig {
     /// Available models for selection
     public static let availableModels: [(id: String, name: String)] = [
+        ("google/gemini-2.5-flash", "Gemini 2.5 Flash"),
+        ("google/gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
+        ("google/gemini-3-flash-preview", "Gemini 3 Flash"),
+        ("openai/gpt-4.1-mini", "GPT-4.1 Mini"),
         ("openai/gpt-4.1-nano", "GPT-4.1 Nano"),
-        ("x-ai/grok-4.1-fast", "Grok 4.1 Fast")
+        ("openai/gpt-oss-120b:exacto", "GPT-OSS 120B"),
+        ("x-ai/grok-4.1-fast", "Grok 4.1 Fast"),
+        ("x-ai/grok-code-fast-1", "Grok Code Fast")
     ]
 
     /// Get the selected model from UserDefaults (set via Settings UI)

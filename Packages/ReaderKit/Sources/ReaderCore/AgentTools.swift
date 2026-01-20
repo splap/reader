@@ -14,6 +14,7 @@ public enum AgentTools {
             getSurroundingContextTool,
             getBookStructureTool,
             getChapterSummaryTool,
+            getChapterFullTextTool,
             getBookSynopsisTool,
             wikipediaLookupTool,
             showMapTool,
@@ -187,12 +188,38 @@ public enum AgentTools {
                 Get a summary of a specific chapter including key plot points and characters mentioned.
                 Use for questions like "what happens in chapter 3?" or to understand a chapter without searching through it.
                 Returns: narrative summary, key points, characters mentioned.
+                NOTE: If the user asks for specific examples, quotes, or detailed passages after seeing a summary, use get_chapter_full_text instead — summaries don't contain that level of detail.
                 """,
             parameters: JSONSchema(
                 properties: [
                     "chapter_id": PropertySchema(
                         type: "string",
                         description: "The chapter ID to summarize (from get_book_structure). Use 'current' for the current chapter."
+                    )
+                ],
+                required: ["chapter_id"]
+            )
+        )
+    )
+
+    /// Get the full text of a chapter
+    static let getChapterFullTextTool = ToolDefinition(
+        function: FunctionDefinition(
+            name: "get_chapter_full_text",
+            description: """
+                Get the complete text of a chapter. Use this when:
+                - User asks for specific examples, quotes, or passages from a chapter
+                - User asks "what exactly does it say about X?" or "show me the part where..."
+                - User wants more detail after seeing a summary
+                - You need the actual text to answer a question (not just a summary)
+                NOT for initial exploration — use search tools or summaries first.
+                Returns: the complete chapter text.
+                """,
+            parameters: JSONSchema(
+                properties: [
+                    "chapter_id": PropertySchema(
+                        type: "string",
+                        description: "The chapter ID (from get_book_structure). Use 'current' for the current chapter."
                     )
                 ],
                 required: ["chapter_id"]
@@ -319,6 +346,8 @@ public struct ToolExecutor {
             return executeGetBookStructure()
         case "get_chapter_summary":
             return await executeGetChapterSummary(args)
+        case "get_chapter_full_text":
+            return executeGetChapterFullText(args)
         case "get_book_synopsis":
             return await executeGetBookSynopsis()
         case "wikipedia_lookup":
@@ -717,6 +746,33 @@ public struct ToolExecutor {
             return chapterId
         }
         return nil
+    }
+
+    // MARK: - Chapter Full Text
+
+    private func executeGetChapterFullText(_ args: [String: Any]) -> String {
+        let chapterId = args["chapter_id"] as? String ?? "current"
+
+        guard let targetId = Self.resolveChapterId(chapterId, in: context) else {
+            return "Unknown chapter_id '\(chapterId)'. Use get_book_structure and pass the id field."
+        }
+
+        // Find the chapter for its title
+        let section = context.sections.first(where: { $0.spineItemId == targetId })
+
+        // Get chapter text
+        guard let chapterText = context.chapterText(spineItemId: targetId) else {
+            return "Could not retrieve chapter text for: \(targetId)"
+        }
+
+        var output = "Chapter"
+        if let title = section?.displayLabel {
+            output += ": \(title)"
+        }
+        output += "\n\n"
+        output += chapterText
+
+        return output
     }
 
     // MARK: - Book Synopsis

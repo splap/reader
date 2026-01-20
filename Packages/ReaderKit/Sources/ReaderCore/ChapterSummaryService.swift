@@ -153,8 +153,8 @@ public actor ChapterSummaryStore {
 public actor ChapterSummaryService {
     private static let logger = Log.logger(category: "ChapterSummaryService")
 
-    /// Maximum tokens for map-reduce chunking
-    private let maxChunkTokens = 4000
+    /// Maximum tokens for map-reduce chunking (high limit since modern models have large context windows)
+    private let maxChunkTokens = 100000
 
     /// Shared instance
     public static let shared = ChapterSummaryService()
