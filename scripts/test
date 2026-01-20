@@ -6,8 +6,8 @@ cd "$ROOT_DIR"
 
 PROJECT="Reader.xcodeproj"
 CONFIGURATION="Debug"
-# Use iOS 26 simulator by default
-DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=26.0.1,arch=arm64"
+# Use iOS 26 simulator by ID to avoid ambiguity with multiple matching devices
+DESTINATION="platform=iOS Simulator,id=7B7DD2A9-1AFA-4767-8543-9C874EBAA682"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
 EXTRA_BUILD_SETTINGS=""
 
@@ -54,30 +54,30 @@ case "$TEST_TYPE" in
     run_tests "ReaderApp"
     ;;
   ui)
-    run_tests "ReaderAppUITests"
+    run_tests "ReaderApp" "ReaderAppUITests"
     ;;
   all)
     run_tests "ReaderApp"
     echo ""
-    run_tests "ReaderAppUITests"
+    run_tests "ReaderApp" "ReaderAppUITests"
     ;;
   perf)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextResizeReflowPerformance"
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testTextResizeReflowPerformance"
     ;;
   textsize)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testTextSizeChangeAffectsPageCount"
     ;;
   alignment)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPageAlignmentOnPage2"
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testMarginAndPageBleed"
     ;;
   scrubber)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testScrubberAppearsOnTap"
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testScrubberAppearsOnTap"
     ;;
   position)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testPositionPersistence"
     ;;
   doubletap)
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
+    run_tests "ReaderApp" "ReaderAppUITests/ReaderAppUITests/testDoubleTapDoesNotMisalignPage"
     ;;
   *)
     echo "Usage: $0 [unit|ui|all|perf|textsize|alignment|scrubber|position|doubletap]" >&2
@@ -86,7 +86,7 @@ case "$TEST_TYPE" in
     echo "  all: Run all tests" >&2
     echo "  perf: Run text resize reflow performance test" >&2
     echo "  textsize: Run text size change page count test" >&2
-    echo "  alignment: Run page alignment test" >&2
+    echo "  alignment: Run margin and page bleed test" >&2
     echo "  scrubber: Run scrubber overlay toggle test" >&2
     echo "  position: Run position persistence test" >&2
     echo "  doubletap: Run double-tap alignment test" >&2

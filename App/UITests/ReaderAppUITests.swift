@@ -15,6 +15,12 @@ final class ReaderAppUITests: XCTestCase {
             args.append("--uitesting-show-overlay")
             args.append("--uitesting-jump-to-page=100")
         }
+        // Use WebView mode for alignment/margin tests (testing CSS pagination)
+        let testName = name.lowercased()
+        if testName.contains("alignment") || testName.contains("page3") || testName.contains("margin") || testName.contains("bleed") {
+            args.append("--uitesting-webview")
+            print("🧪 Adding --uitesting-webview for test: \(name)")
+        }
         app.launchArguments = args
         app.launch()
     }
@@ -365,78 +371,154 @@ final class ReaderAppUITests: XCTestCase {
         return Int(components[1]) ?? 0
     }
 
-    func testPageAlignmentOnPage2() {
-        // This test verifies that when we navigate to an early page (page 2),
-        // we only see content from that page and not content bleeding from adjacent pages.
-        // This catches the horizontal alignment bug where column-width + padding causes misalignment.
+    func testMarginAndPageBleed() {
+        // This test verifies:
+        // 1. Margins exist (text doesn't touch screen edges)
+        // 2. No page bleeding (adjacent page content doesn't appear)
+        //
+        // We check that the leftmost and rightmost pixel columns are uniform (background only).
+        // Any text in the edge columns indicates either missing margins or page bleed.
 
-        // Open Consider Phlebas by Banks
+        // Open Frankenstein by Shelley (bundled book)
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
 
-        print("🧪 Opening Consider Phlebas by Banks...")
-        let banksAuthor = app.staticTexts["Banks, Ian M."]
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Book by Banks should be visible")
-        banksAuthor.tap()
+        print("🧪 Opening Frankenstein...")
+        let frankensteinCell = app.cells.containing(.staticText, identifier: nil).matching(NSPredicate(format: "label CONTAINS[c] 'Frankenstein'")).firstMatch
+        if frankensteinCell.waitForExistence(timeout: 5) {
+            frankensteinCell.tap()
+        } else {
+            let frankensteinText = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'Frankenstein'")).firstMatch
+            XCTAssertTrue(frankensteinText.waitForExistence(timeout: 5), "Frankenstein book should be visible")
+            frankensteinText.tap()
+        }
 
-        // Wait for book to load
+        // Wait for navigation away from library
+        print("🧪 Waiting for navigation away from library...")
+        let libraryGone = libraryNavBar.waitForNonExistence(timeout: 90)
+        if !libraryGone {
+            print("🧪 Still on library after 90 seconds")
+        }
+
+        // Wait for WebView
+        print("🧪 Waiting for WebView...")
         let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
-        sleep(3) // Let content render and pagination calculate
+        if !webView.waitForExistence(timeout: 10) {
+            let debugScreenshot = XCUIScreen.main.screenshot()
+            let debugAttachment = XCTAttachment(screenshot: debugScreenshot)
+            debugAttachment.name = "After Book Tap - Failed"
+            debugAttachment.lifetime = .keepAlways
+            add(debugAttachment)
+            try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+            try? debugScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/reader-tests/after-book-tap.png"))
+            XCTFail("WebView should exist - app may be in native render mode instead of WebView mode")
+            return
+        }
+        print("🧪 WebView found!")
+        sleep(2)
 
-        print("🧪 Book loaded, navigating to page 2...")
-
-        // Tap top to reveal page number
-        let topPoint = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
-        topPoint.tap()
-        sleep(1)
-
-        // Navigate to page 2 by swiping left once
+        // Navigate to page 2 (middle of content, not first page which may have special layout)
+        print("🧪 Navigating to page 2...")
         webView.swipeLeft()
-        usleep(300000) // 0.3 seconds
+        sleep(1)
         print("🧪 Swiped to page 2")
 
-        // Give time for pagination to settle
-        sleep(1)
-
-        // Verify we're on page 10 by checking the debug overlay
-        // The debug overlay shows "current page: X"
-        let pageLabel = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'current page'")).firstMatch
-        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Current page label should exist")
-
-        let currentPageText = pageLabel.label
-        print("🧪 Current page label: \(currentPageText)")
-        // Extract page number - format is "current page: X"
-        XCTAssertTrue(currentPageText.contains("current page: 1") || currentPageText.contains("current page: 2"),
-                      "Should be on page 1 or 2, but showing: \(currentPageText)")
-
-        // Add JavaScript debugging to check scroll position
-        // Note: We can't easily inject JS in UI tests, so we'll check visually
-        print("🧪 If alignment is correct, you should see ONLY one column of continuous text")
-        print("🧪 If alignment is broken, you'll see fragments from 2+ pages side by side")
-
-        // Take a screenshot for manual inspection
+        // Capture screenshot and verify edge columns are uniform
         let screenshot = XCUIScreen.main.screenshot()
 
-        // Save to /tmp for easy access
-        let screenshotPath = "/tmp/page2-alignment.png"
-        let imageData = screenshot.pngRepresentation
-        try? imageData.write(to: URL(fileURLWithPath: screenshotPath))
+        // Save for debugging
+        try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+        let screenshotPath = "/tmp/reader-tests/margin-bleed-test.png"
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: screenshotPath))
         print("🧪 Screenshot saved to: \(screenshotPath)")
 
-        // Also add to test results
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "Page 2 Alignment Check"
+        attachment.name = "Margin and Page Bleed Check"
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        print("🧪 Page 2 alignment test complete")
-        print("🧪 Visual inspection: check screenshot to ensure no text from adjacent pages is visible")
-        print("🧪 If you see two columns of text side-by-side, the alignment is broken")
+        // Verify edge columns are uniform (no text bleeding)
+        let (leftUniform, rightUniform) = checkEdgeColumnsUniform(screenshot: screenshot)
 
-        // The test passes if we can navigate to page 2 and capture the state
-        // Visual inspection of the screenshot will reveal if alignment is correct
-        // After the fix, only one page of text should be visible
+        XCTAssertTrue(leftUniform, "Left edge column should be uniform (margin exists, no bleed from previous page)")
+        XCTAssertTrue(rightUniform, "Right edge column should be uniform (margin exists, no bleed from next page)")
+
+        print("🧪 ✅ Margin and page bleed test passed - edges are clean")
+    }
+
+    /// Checks if the leftmost and rightmost pixel columns are uniform (same color throughout).
+    /// Returns (leftUniform, rightUniform) booleans.
+    private func checkEdgeColumnsUniform(screenshot: XCUIScreenshot) -> (Bool, Bool) {
+        guard let cgImage = screenshot.image.cgImage else {
+            print("🧪 ⚠️ Could not get CGImage from screenshot")
+            return (false, false)
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            print("🧪 ⚠️ Could not create CGContext")
+            return (false, false)
+        }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let data = context.data else {
+            print("🧪 ⚠️ Could not get pixel data")
+            return (false, false)
+        }
+
+        let pixelData = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+
+        // Check left column (x = 0)
+        let leftUniform = isColumnUniform(pixelData: pixelData, column: 0, width: width, height: height)
+
+        // Check right column (x = width - 1)
+        let rightUniform = isColumnUniform(pixelData: pixelData, column: width - 1, width: width, height: height)
+
+        return (leftUniform, rightUniform)
+    }
+
+    /// Checks if a single pixel column has uniform color (allowing small tolerance for antialiasing).
+    private func isColumnUniform(pixelData: UnsafeMutablePointer<UInt8>, column: Int, width: Int, height: Int) -> Bool {
+        // Sample the first pixel as reference
+        let firstPixelOffset = column * 4
+        let refR = pixelData[firstPixelOffset]
+        let refG = pixelData[firstPixelOffset + 1]
+        let refB = pixelData[firstPixelOffset + 2]
+
+        let tolerance: UInt8 = 10 // Allow small variance for compression/antialiasing
+        var nonUniformCount = 0
+        let maxAllowedNonUniform = height / 20 // Allow 5% variance for UI elements at top/bottom
+
+        for y in 0..<height {
+            let offset = (y * width + column) * 4
+            let r = pixelData[offset]
+            let g = pixelData[offset + 1]
+            let b = pixelData[offset + 2]
+
+            let diffR = abs(Int(r) - Int(refR))
+            let diffG = abs(Int(g) - Int(refG))
+            let diffB = abs(Int(b) - Int(refB))
+
+            if diffR > Int(tolerance) || diffG > Int(tolerance) || diffB > Int(tolerance) {
+                nonUniformCount += 1
+            }
+        }
+
+        let uniformPercent = 100.0 * Double(height - nonUniformCount) / Double(height)
+        print("🧪 Column \(column): \(String(format: "%.1f", uniformPercent))% uniform (\(nonUniformCount) non-uniform pixels)")
+
+        return nonUniformCount <= maxAllowedNonUniform
     }
 
     // MARK: - Scrubber and Navigation Overlay Tests
