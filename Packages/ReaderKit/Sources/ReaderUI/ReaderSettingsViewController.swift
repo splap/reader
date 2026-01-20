@@ -295,13 +295,16 @@ public final class ReaderSettingsViewController: UITableViewController {
     private func showModelPicker() {
         let alert = UIAlertController(title: "Select Model", message: nil, preferredStyle: .actionSheet)
 
-        for (modelId, modelName) in OpenRouterConfig.availableModels {
-            let action = UIAlertAction(title: modelName, style: .default) { [weak self] _ in
-                self?.selectedModel = modelId
-                UserDefaults.standard.set(modelId, forKey: "OpenRouterModel")
+        for model in OpenRouterConfig.availableModels {
+            // Format: "GPT-4.1 Nano ($0.10/M)"
+            let priceStr = String(format: "$%.2f/M", model.inputCost)
+            let title = "\(model.name) (\(priceStr))"
+            let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.selectedModel = model.id
+                UserDefaults.standard.set(model.id, forKey: "OpenRouterModel")
                 self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 4)], with: .automatic)
             }
-            if modelId == selectedModel {
+            if model.id == selectedModel {
                 action.setValue(true, forKey: "checked")
             }
             alert.addAction(action)

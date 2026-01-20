@@ -408,7 +408,9 @@ public struct ToolExecutor {
 
         var output = "Found \(results.count) match(es) for '\(query)':\n\n"
         for (index, result) in results.prefix(10).enumerated() {
-            output += "[\(index + 1)] \(result.text)\n\n"
+            // Look up chapter name from spineItemId
+            let chapterName = context.sections.first { $0.spineItemId == result.spineItemId }?.displayLabel ?? result.spineItemId
+            output += "[\(index + 1)] (\(chapterName))\n\(result.text)\n\n"
         }
 
         if results.count > 10 {
@@ -458,7 +460,7 @@ public struct ToolExecutor {
         for (index, section) in context.sections.enumerated() {
             let label = section.displayLabel
             let marker = section.spineItemId == context.currentSpineItemId ? " [current]" : ""
-            output += "\(index + 1). \(label) (id: \(section.spineItemId))\(marker)\n"
+            output += "\(index + 1). \(label) (id: \(section.spineItemId), \(section.blockCount) blocks)\(marker)\n"
         }
 
         return output
@@ -605,7 +607,8 @@ public struct ToolExecutor {
                 if let chunk = try? await ChunkStore.shared.getChunk(id: result.chunkId) {
                     let snippet = String(chunk.text.prefix(300))
                     let similarity = Int(result.score * 100)
-                    output += "[\(index + 1)] (similarity: \(similarity)%)\n\(snippet)...\n\n"
+                    let chapterName = context.sections.first { $0.spineItemId == chunk.chapterId }?.displayLabel ?? chunk.chapterId
+                    output += "[\(index + 1)] (\(chapterName), similarity: \(similarity)%)\n\(snippet)...\n\n"
                 }
             }
 

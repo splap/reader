@@ -231,7 +231,12 @@ public actor ReaderAgentService {
 
 
                 ROUTING: This question appears to be about the book (confidence: \(Int(routing.confidence * 100))%).
-                Use the search tools to find relevant passages before answering.
+
+                CRITICAL: You do NOT have the book text in your context. You MUST use tools to retrieve it.
+                - If the user asks for specific chapters, quotes, or exact text: use get_chapter_full_text
+                - If the user asks about themes or wants to find passages: use semantic_search or lexical_search
+                - For chapter overviews: use get_chapter_summary
+
                 IMPORTANT: Do not make claims about the book without retrieving evidence first.
                 If you cannot find relevant information, say so rather than guessing.
                 When calling get_chapter_summary, always use the chapter id from get_book_structure (id: ...).
