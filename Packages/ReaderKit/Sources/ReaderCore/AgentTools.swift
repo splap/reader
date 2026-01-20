@@ -308,7 +308,7 @@ public struct ToolExecutor {
         case "get_current_position":
             return executeGetCurrentPosition()
         case "lexical_search":
-            return executeLexicalSearch(args)
+            return await executeLexicalSearch(args)
         case "semantic_search":
             return await executeSemanticSearch(args)
         case "book_concept_map_lookup":
@@ -359,7 +359,7 @@ public struct ToolExecutor {
         return output
     }
 
-    private func executeLexicalSearch(_ args: [String: Any]) -> String {
+    private func executeLexicalSearch(_ args: [String: Any]) async -> String {
         guard let query = args["query"] as? String else {
             return "Error: query parameter required"
         }
@@ -368,9 +368,9 @@ public struct ToolExecutor {
         let results: [SearchResult]
 
         if scope == "full_book" {
-            results = context.searchBook(query: query)
+            results = await context.searchBook(query: query)
         } else {
-            results = context.searchChapter(query: query)
+            results = await context.searchChapter(query: query)
         }
 
         if results.isEmpty {
