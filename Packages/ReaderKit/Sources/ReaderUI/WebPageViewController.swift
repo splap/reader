@@ -447,6 +447,15 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         let clampedX = min(targetX, maxX)
 
         scrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: animated)
+
+        // For non-animated navigation (e.g., scrubber), manually update position
+        // since scroll delegate callbacks won't fire
+        if !animated {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateCurrentPage()
+                self?.updateBlockPosition()
+            }
+        }
     }
 
     private func snapToNearestPage() {
