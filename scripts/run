@@ -121,6 +121,12 @@ if [ "$USE_SIMULATOR" = "1" ]; then
       echo "Loaded $BOOK_COUNT test book(s)"
     fi
   fi
+
+  # Deploy OpenRouter API key to simulator UserDefaults (survives app reinstall)
+  if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    echo "Deploying OpenRouter API key..."
+    xcrun simctl spawn "$DEVICE_UDID" defaults write "$APP_BUNDLE_ID" OpenRouterAPIKey "$OPENROUTER_API_KEY"
+  fi
 else
   xcrun devicectl device install app --device "$DEVICE_UDID" "$APP_PATH" 2>&1 | grep -v "acquired" || true
 fi
