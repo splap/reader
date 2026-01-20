@@ -394,62 +394,81 @@ public final class BookChatViewController: UIViewController {
 
     private func buildDebugTranscript() -> String {
         var transcript = "=== DEBUG TRANSCRIPT ===\n"
-        transcript += "Book: \(context.bookTitle)\n"
+        transcript += "Book: \(context.bookTitle)"
         if let author = context.bookAuthor {
-            transcript += "Author: \(author)\n"
+            transcript += " by \(author)"
         }
-        transcript += "Generated: \(Date())\n"
+        transcript += "\nGenerated: \(Date())\n"
         transcript += "========================\n\n"
 
-        // Include full conversation history (raw LLM messages)
-        transcript += "--- CONVERSATION HISTORY (Raw LLM Messages) ---\n\n"
-        for (index, msg) in conversationHistory.enumerated() {
-            transcript += "[\(index)] \(msg.role.rawValue.uppercased())\n"
+        // Render unified timeline from all message traces
+        var stepIndex = 0
+        for message in messages {
+            guard let trace = messageTraces[message.id] else { continue }
 
-            if let content = msg.content {
-                transcript += "Content:\n\(content)\n"
-            }
-
-            if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
-                transcript += "Tool Calls:\n"
-                for call in toolCalls {
-                    transcript += "  - \(call.function.name)\n"
-                    transcript += "    Args: \(call.function.arguments)\n"
-                }
-            }
-
-            if let toolCallId = msg.toolCallId {
-                transcript += "Tool Call ID: \(toolCallId)\n"
-            }
-
-            transcript += "\n"
-        }
-
-        // Include execution traces
-        transcript += "--- EXECUTION TRACES ---\n\n"
-        for (index, message) in messages.enumerated() {
-            if let trace = messageTraces[message.id] {
-                transcript += "Message \(index) Trace:\n"
-                transcript += "  Book: \(trace.bookContext.title)\n"
-                transcript += "  Position: \(trace.bookContext.position)\n"
-                if let chapter = trace.bookContext.currentChapter {
-                    transcript += "  Chapter: \(chapter)\n"
-                }
-                if let surrounding = trace.bookContext.surroundingText {
-                    transcript += "  Context: \(surrounding.prefix(200))...\n"
-                }
-                transcript += "  Tools:\n"
-                for tool in trace.toolExecutions {
-                    transcript += "    - \(tool.functionName)\n"
-                    transcript += "      Args: \(tool.arguments)\n"
-                    transcript += "      Result: \(tool.result.prefix(500))\n"
-                    transcript += "      Time: \(String(format: "%.2f", tool.executionTime))s\n"
-                }
-                transcript += "\n"
+            for step in trace.timeline {
+                transcript += formatTimelineStep(step, index: stepIndex)
+                stepIndex += 1
             }
         }
 
         return transcript
+    }
+
+    private func formatTimelineStep(_ step: TimelineStep, index: Int) -> String {
+        switch step {
+        case .user(let content):
+            let preview = content.count > 100 ? String(content.prefix(100)) + "..." : content
+            return "[\(index)] USER: \(preview)\n\n"
+
+        case .llm(let exec):
+            var line = "[\(index)] LLM (\(exec.model)) - \(String(format: "%.2f", exec.executionTime))s"
+            if let inp = exec.inputTokens, let out = exec.outputTokens {
+                line += ", \(inp) in / \(out) out"
+            }
+            line += "\n"
+
+            if let tools = exec.requestedTools, !tools.isEmpty {
+                for tool in tools {
+                    line += "    -> \(tool)\n"
+                }
+            } else {
+                line += "    [final response]\n"
+            }
+            return line + "\n"
+
+        case .tool(let exec):
+            var line = "[\(index)] TOOL \(exec.functionName) - \(String(format: "%.3f", exec.executionTime))s\n"
+            // Compact args on one line
+            let argsPreview = exec.arguments.replacingOccurrences(of: "\n", with: " ")
+            line += "    args: \(argsPreview)\n"
+            // Truncated result
+            let resultPreview = exec.result.count > 150
+                ? String(exec.result.prefix(150)).replacingOccurrences(of: "\n", with: " ") + "..."
+                : exec.result.replacingOccurrences(of: "\n", with: " ")
+            line += "    result: \(resultPreview)\n"
+            return line + "\n"
+
+        case .assistant(let content):
+            let preview = content.count > 200 ? String(content.prefix(200)) + "..." : content
+            return "[\(index)] ASSISTANT:\n\(preview)\n\n"
+        }
+    }
+
+    private func timelineStepLabel(_ step: TimelineStep) -> String {
+        switch step {
+        case .user:
+            return "User message"
+        case .llm(let exec):
+            if let tools = exec.requestedTools, !tools.isEmpty {
+                return "LLM → \(tools.joined(separator: ", "))"
+            }
+            return "LLM (final response)"
+        case .tool(let exec):
+            return exec.functionName
+        case .assistant:
+            return "Assistant response"
+        }
     }
 
     private func saveAndSummarizeConversation() {
@@ -698,10 +717,11 @@ public final class BookChatViewController: UIViewController {
     }
 
     private func formatTraceForDisplay(_ trace: AgentExecutionTrace, collapsed: Bool) -> String {
+        let totalTime = trace.totalExecutionTime
+        let stepCount = trace.timeline.count
+
         if collapsed {
-            let toolCount = trace.toolExecutions.count
-            let toolNames = trace.toolExecutions.map { $0.functionName }.joined(separator: ", ")
-            return "Execution Details ▶  (Used \(toolCount) tools: \(toolNames))"
+            return "Execution Details ▶  (\(stepCount) steps, \(String(format: "%.2f", totalTime))s total)"
         }
 
         var text = "Execution Details ▼\n\n"
@@ -722,7 +742,7 @@ public final class BookChatViewController: UIViewController {
             text += "• Context: \"\(excerptPrefix)...\"\n"
         }
 
-        // Tools section
+        // Tools section (detailed)
         if !trace.toolExecutions.isEmpty {
             text += "\nTOOLS CALLED\n"
             for (index, tool) in trace.toolExecutions.enumerated() {
@@ -735,6 +755,17 @@ public final class BookChatViewController: UIViewController {
                     text += "   ⚠️ Error: \(error)\n"
                 }
             }
+        }
+
+        // Timeline section
+        if !trace.timeline.isEmpty {
+            text += "\nTIMELINE\n"
+            for (index, step) in trace.timeline.enumerated() {
+                let timeStr = String(format: "%5.2fs", step.executionTime)
+                text += "\(index + 1). [\(timeStr)] \(timelineStepLabel(step))\n"
+            }
+            text += "─────────────────────\n"
+            text += "   Total: \(String(format: "%.2f", totalTime))s\n"
         }
 
         return text
