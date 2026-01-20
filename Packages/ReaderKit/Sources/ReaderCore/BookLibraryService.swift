@@ -609,18 +609,19 @@ public final class BookLibraryService {
 
             Self.logger.debug("Found \(epubFiles.count) epub files in TestBooks")
 
-            // Load set of already-imported test book filenames from UserDefaults
-            let defaults = UserDefaults.standard
-            var importedFiles = Set(defaults.stringArray(forKey: "ImportedTestBooks") ?? [])
-            Self.logger.debug("Already imported: \(importedFiles.count) test books")
+            // Get existing book titles to deduplicate (survives UserDefaults clearing)
+            let existingBooks = getAllBooks()
+            let existingTitles = Set(existingBooks.map { $0.title.lowercased() })
+            Self.logger.debug("Library has \(existingBooks.count) existing books")
 
             var newImports = 0
             for epubURL in epubFiles {
                 let filename = epubURL.lastPathComponent
 
-                // Check if we've already imported this file
-                if importedFiles.contains(filename) {
-                    Self.logger.debug("Skipping already imported: \(filename, privacy: .public)")
+                // Extract title to check for duplicates
+                let (title, _) = extractMetadata(from: epubURL)
+                if existingTitles.contains(title.lowercased()) {
+                    Self.logger.debug("Skipping duplicate book: \(title, privacy: .public)")
                     continue
                 }
 
@@ -628,10 +629,6 @@ public final class BookLibraryService {
                     let book = try importBook(from: epubURL, startAccessing: false)
                     Self.logger.info("Imported test book: \(book.title, privacy: .public)")
                     newImports += 1
-
-                    // Mark this file as imported
-                    importedFiles.insert(filename)
-                    defaults.set(Array(importedFiles), forKey: "ImportedTestBooks")
                 } catch {
                     Self.logger.error("Failed to import \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }

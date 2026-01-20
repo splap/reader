@@ -71,6 +71,14 @@ else
   SDK="iphoneos"
 fi
 
+# Ensure embedding model exists (required for semantic search)
+ML_MODEL_PATH="$ROOT_DIR/App/Resources/bge-small-en.mlpackage"
+if [ ! -d "$ML_MODEL_PATH" ]; then
+  echo "Embedding model missing. Generating..."
+  uv run --with transformers --with torch --with coremltools \
+    python "$ROOT_DIR/scripts/convert_bge_to_coreml.py"
+fi
+
 # Build the app
 echo "Building for $SDK..."
 if [ "$USE_SIMULATOR" = "1" ]; then
