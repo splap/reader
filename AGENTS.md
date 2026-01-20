@@ -33,7 +33,7 @@ After running with run_in_background, DO NOT poll the output or wait. The app wi
 
 ### Simulator Ownership
 
-`~/simulator-uuid` is your claim ticket. Never claim a running simulator you didn't start - another agent may own it. The scripts handle this automatically.
+`simulator-uuid` (in the project directory) is your claim ticket. Never claim a running simulator you didn't start - another agent may own it. The scripts handle this automatically.
 
 ### Throughout Session - Always Use Tracked Simulator
 

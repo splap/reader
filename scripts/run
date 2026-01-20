@@ -21,7 +21,7 @@ if [ "$USE_SIMULATOR" = "1" ]; then
   SDK="iphonesimulator"
 
   # Check claim ticket first - don't steal another agent's simulator
-  CLAIM_FILE="$HOME/simulator-uuid"
+  CLAIM_FILE="$ROOT_DIR/simulator-uuid"
   if [ -f "$CLAIM_FILE" ]; then
     DEVICE_UDID=$(cat "$CLAIM_FILE")
     STATE=$(xcrun simctl list devices -j | jq -r --arg udid "$DEVICE_UDID" \
