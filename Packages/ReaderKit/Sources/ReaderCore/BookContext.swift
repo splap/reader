@@ -47,11 +47,11 @@ public protocol BookContext {
     /// Get the full text of a chapter/section by spine item ID
     func chapterText(spineItemId: String) -> String?
 
-    /// Search for text in the current chapter
-    func searchChapter(query: String) -> [SearchResult]
+    /// Search for text in the current chapter (uses FTS index)
+    func searchChapter(query: String) async -> [SearchResult]
 
-    /// Search for text in the entire book
-    func searchBook(query: String) -> [SearchResult]
+    /// Search for text in the entire book (uses FTS index)
+    func searchBook(query: String) async -> [SearchResult]
 
     /// Get blocks around a specific block ID
     func blocksAround(blockId: String, count: Int) -> [Block]
@@ -162,18 +162,54 @@ public final class ReaderBookContext: BookContext {
         return text.isEmpty ? nil : text
     }
 
-    // MARK: - Search
+    // MARK: - Search (using FTS index)
 
-    public func searchChapter(query: String) -> [SearchResult] {
-        let targetSections = chapter.htmlSections.filter { $0.spineItemId == currentSpineItemId }
-        return searchBlocks(in: targetSections, query: query)
+    public func searchChapter(query: String) async -> [SearchResult] {
+        do {
+            let matches = try await ChunkStore.shared.search(
+                query: query,
+                bookId: _bookId,
+                chapterIds: [currentSpineItemId],
+                limit: 20
+            )
+            return matches.map { match in
+                SearchResult(
+                    blockId: match.chunk.blockIds.first ?? "",
+                    spineItemId: match.chunk.chapterId,
+                    text: match.snippet ?? match.chunk.text,
+                    matchRange: nil
+                )
+            }
+        } catch {
+            // Fallback to in-memory search if ChunkStore fails
+            return searchBlocksInMemory(in: chapter.htmlSections.filter { $0.spineItemId == currentSpineItemId }, query: query)
+        }
     }
 
-    public func searchBook(query: String) -> [SearchResult] {
-        return searchBlocks(in: chapter.htmlSections, query: query)
+    public func searchBook(query: String) async -> [SearchResult] {
+        do {
+            let matches = try await ChunkStore.shared.search(
+                query: query,
+                bookId: _bookId,
+                chapterIds: nil,
+                limit: 20
+            )
+            return matches.map { match in
+                SearchResult(
+                    blockId: match.chunk.blockIds.first ?? "",
+                    spineItemId: match.chunk.chapterId,
+                    text: match.snippet ?? match.chunk.text,
+                    matchRange: nil
+                )
+            }
+        } catch {
+            // Fallback to in-memory search if ChunkStore fails
+            return searchBlocksInMemory(in: chapter.htmlSections, query: query)
+        }
     }
 
-    private func searchBlocks(in sections: [HTMLSection], query: String) -> [SearchResult] {
+    /// Fallback in-memory search when ChunkStore is unavailable
+    private func searchBlocksInMemory(in sections: [HTMLSection], query: String) -> [SearchResult] {
         var results: [SearchResult] = []
         let lowercasedQuery = query.lowercased()
 
