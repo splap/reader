@@ -43,7 +43,17 @@ public struct HTMLSection {
 
 public struct Chapter {
     public let id: String
-    public let attributedText: NSAttributedString
+    /// Lazily computed attributed text - only used by native renderer
+    /// For WebView rendering, this is never accessed, saving significant time
+    public var attributedText: NSAttributedString {
+        if let cached = _attributedText {
+            return cached
+        }
+        // Return empty attributed string if not provided
+        // The native renderer will generate its own from htmlSections
+        return NSAttributedString()
+    }
+    private let _attributedText: NSAttributedString?
     public let htmlSections: [HTMLSection]
     public let title: String?
     public let ncxLabels: [String: String]  // Map from spineItemId to NCX label
@@ -68,9 +78,19 @@ public struct Chapter {
         return nil
     }
 
+    /// Standard initializer with attributed text
     public init(id: String, attributedText: NSAttributedString, htmlSections: [HTMLSection] = [], title: String? = nil, ncxLabels: [String: String] = [:]) {
         self.id = id
-        self.attributedText = attributedText
+        self._attributedText = attributedText
+        self.htmlSections = htmlSections
+        self.title = title
+        self.ncxLabels = ncxLabels
+    }
+
+    /// Fast initializer that skips attributed text conversion (for WebView rendering)
+    public init(id: String, htmlSections: [HTMLSection], title: String? = nil, ncxLabels: [String: String] = [:]) {
+        self.id = id
+        self._attributedText = nil
         self.htmlSections = htmlSections
         self.title = title
         self.ncxLabels = ncxLabels

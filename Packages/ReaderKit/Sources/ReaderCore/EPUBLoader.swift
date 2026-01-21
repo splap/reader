@@ -36,6 +36,7 @@ public final class EPUBLoader {
     public init() {}
 
     public func loadChapter(from url: URL, maxSections: Int = .max) throws -> Chapter {
+        let totalStart = CFAbsoluteTimeGetCurrent()
         let archive = try Archive(url: url, accessMode: .read)
 
         guard let containerData = try data(for: "META-INF/container.xml", in: archive) else {
@@ -85,15 +86,19 @@ public final class EPUBLoader {
         }
 
         // Extract and cache images and CSS FIRST
+        let extractStart = CFAbsoluteTimeGetCurrent()
         extractImages(from: archive, package: package)
         extractCSS(from: archive, package: package)
+        Self.logger.info("PERF: Image/CSS extraction took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - extractStart))s")
 
         let title = package.title ?? url.deletingPathExtension().lastPathComponent
         let chapterId = url.lastPathComponent
 
-        let combined = NSMutableAttributedString()
         var htmlSections: [HTMLSection] = []
         var sectionCount = 0
+
+        let spineStart = CFAbsoluteTimeGetCurrent()
+        var blockParseTime: Double = 0
 
         for item in spineItems {
             guard item.mediaType.contains("html") else { continue }
@@ -111,10 +116,12 @@ public final class EPUBLoader {
                 let spineItemId = item.id
 
                 // Parse HTML into blocks and generate annotated HTML with data-block-id attributes
+                let blockStart = CFAbsoluteTimeGetCurrent()
                 let (blocks, annotatedHTML) = blockParser.parseWithAnnotatedHTML(
                     html: htmlString,
                     spineItemId: spineItemId
                 )
+                blockParseTime += CFAbsoluteTimeGetCurrent() - blockStart
 
                 htmlSections.append(HTMLSection(
                     html: htmlString,
@@ -125,30 +132,22 @@ public final class EPUBLoader {
                     blocks: blocks,
                     spineItemId: spineItemId
                 ))
+                sectionCount += 1
             }
-
-            let section = attributedString(fromHTML: htmlData)
-            if !containsReadableText(section) { continue }
-
-            if combined.length > 0 {
-                combined.append(NSAttributedString(string: "\n\n"))
-            }
-            combined.append(section)
-            sectionCount += 1
         }
 
-        if combined.length == 0 {
+        let spineTime = CFAbsoluteTimeGetCurrent() - spineStart
+        Self.logger.info("PERF: Spine processing took \(String(format: "%.3f", spineTime))s (blockParse: \(String(format: "%.3f", blockParseTime))s)")
+
+        if htmlSections.isEmpty {
             throw LoaderError.emptyContent
         }
 
-        applyDefaultFontIfNeeded(to: combined)
-        applyDefaultColorIfNeeded(to: combined)
-#if DEBUG
-        Self.logger.debug(
-            "Loaded EPUB \(url.lastPathComponent) sections=\(sectionCount) length=\(combined.length) htmlSections=\(htmlSections.count)"
-        )
-#endif
-        return Chapter(id: chapterId, attributedText: combined, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels)
+        let totalTime = CFAbsoluteTimeGetCurrent() - totalStart
+        Self.logger.info("PERF: Total EPUB load took \(String(format: "%.3f", totalTime))s for \(sectionCount) sections, \(htmlSections.count) htmlSections")
+
+        // Use fast initializer - skip NSAttributedString conversion (saves ~1s for large books)
+        return Chapter(id: chapterId, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels)
     }
 
     private func data(for path: String, in archive: Archive) throws -> Data? {
@@ -158,49 +157,6 @@ public final class EPUBLoader {
             data.append(chunk)
         }
         return data
-    }
-
-    private func attributedString(fromHTML data: Data) -> NSAttributedString {
-        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
-            .documentType: NSAttributedString.DocumentType.html,
-            .characterEncoding: String.Encoding.utf8.rawValue
-        ]
-
-        if let attributed = try? NSAttributedString(data: data, options: options, documentAttributes: nil) {
-            return attributed
-        }
-
-        let fallback = String(data: data, encoding: .utf8) ?? ""
-        return NSAttributedString(string: fallback)
-    }
-
-    private func applyDefaultFontIfNeeded(to attributed: NSMutableAttributedString) {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        let baseFont = UIFont.systemFont(ofSize: 16)
-
-        attributed.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
-            if value == nil {
-                attributed.addAttribute(.font, value: baseFont, range: range)
-            }
-        }
-    }
-
-    private func applyDefaultColorIfNeeded(to attributed: NSMutableAttributedString) {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        let baseColor = UIColor.label
-
-        attributed.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
-            if value == nil {
-                attributed.addAttribute(.foregroundColor, value: baseColor, range: range)
-            }
-        }
-    }
-
-    private func containsReadableText(_ attributed: NSAttributedString) -> Bool {
-        let filtered = attributed.string
-            .replacingOccurrences(of: "\u{FFFC}", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !filtered.isEmpty
     }
 
     private func extractImages(from archive: Archive, package: EPUBPackageParser) {

@@ -93,7 +93,10 @@ final class ReaderCoreTests: XCTestCase {
         let loader = EPUBLoader()
         let chapter = try loader.loadChapter(from: epubURL, maxSections: 1)
 
-        XCTAssertTrue(chapter.attributedText.string.contains("Hello from EPUB"))
+        // Check that content is loaded in htmlSections (used by WebView renderer)
+        XCTAssertFalse(chapter.htmlSections.isEmpty, "Chapter should have HTML sections")
+        let allHTML = chapter.htmlSections.map { $0.html }.joined()
+        XCTAssertTrue(allHTML.contains("Hello from EPUB"), "HTML should contain test content")
         XCTAssertEqual(chapter.title, "Sample EPUB")
     }
 
