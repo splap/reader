@@ -69,7 +69,11 @@ this ensures the correct bundle id for the logs: com.splap.reader
 
 ### For Simulator (Primary)
 
-# Stream logs (info and above)
+**IMPORTANT: Always use `log stream` for simulators, NEVER `log show`.**
+`log show` queries the log archive, but simulators don't reliably persist logs (especially debug-level). You'll get empty results. Only use `log show` for physical devices.
+
+```bash
+# Stream logs (info and above) - use this!
 xcrun simctl spawn "$SIMULATOR_UDID" log stream \
   --style compact \
   --predicate 'subsystem == "com.splap.reader"'
@@ -79,13 +83,9 @@ xcrun simctl spawn "$SIMULATOR_UDID" log stream \
   --style compact \
   --debug \
   --predicate 'subsystem == "com.splap.reader"'
+```
 
-# Show recent logs (last 5 minutes)
-xcrun simctl spawn "$SIMULATOR_UDID" log show \
-  --style compact \
-  --debug \
-  --predicate 'subsystem == "com.splap.reader"' \
-  --last 5m
+To capture simulator logs, run `log stream` in a background task, then have the user reproduce the issue.
 
 
 
