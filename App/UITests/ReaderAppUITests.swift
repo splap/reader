@@ -140,9 +140,10 @@ final class ReaderAppUITests: XCTestCase {
         print("🧪 Back button found - confirmed in reader view")
 
         // Check that we have substantial text content (book text)
+        // Note: With section-based loading, we only load ~5 sections around initial position
         let staticTextCount = app.staticTexts.count
         print("🧪 Static text elements found: \(staticTextCount)")
-        XCTAssertGreaterThan(staticTextCount, 100, "Should have substantial book content loaded")
+        XCTAssertGreaterThan(staticTextCount, 30, "Should have substantial book content loaded (section-based loading)")
 
         print("🧪 Book content verified successfully - \(staticTextCount) text elements")
     }

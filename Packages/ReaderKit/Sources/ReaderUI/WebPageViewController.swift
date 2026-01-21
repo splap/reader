@@ -51,6 +51,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private var hasRestoredPosition = false  // Track if we've restored position
     private var currentBlockId: String?  // Currently visible block ID
     private var currentSpineItemId: String?  // Currently visible spine item ID
+    private var urlSchemeHandler: EPUBURLSchemeHandler?  // Handler for serving images
 
     // MARK: - PageRenderer Protocol Properties
 
@@ -97,10 +98,21 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
         Self.logger.debug("WebPageViewController viewDidLoad")
 
-        // Create WKWebView configuration
+        // Combine all image caches from sections
+        var combinedImageCache: [String: Data] = [:]
+        for section in htmlSections {
+            combinedImageCache.merge(section.imageCache) { _, new in new }
+        }
+
+        // Create URL scheme handler for serving images
+        let schemeHandler = EPUBURLSchemeHandler(imageCache: combinedImageCache)
+        self.urlSchemeHandler = schemeHandler
+
+        // Create WKWebView configuration with custom URL scheme
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
         configuration.dataDetectorTypes = []
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: EPUBURLSchemeHandler.scheme)
 
         webView = SelectableWebView(frame: .zero, configuration: configuration)
         webView.onSendToLLM = { [weak self] in
@@ -234,16 +246,28 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     private func loadContent() {
-        // Combine all HTML sections, using annotatedHTML which includes data-block-id attributes
+        let loadStart = CFAbsoluteTimeGetCurrent()
+
+        // PERF OPTIMIZATION: Only load sections around the initial position
+        // This dramatically reduces WebView layout time for large books
+        let sectionsToLoad = selectSectionsToLoad()
+        Self.logger.info("PERF: Loading \(sectionsToLoad.count) of \(htmlSections.count) sections")
+
+        // Combine selected HTML sections
         var combinedHTML = ""
-        for section in htmlSections {
+        var imageProcessTime: Double = 0
+        for sectionIndex in sectionsToLoad {
+            let section = htmlSections[sectionIndex]
             // Use annotatedHTML for block-based position tracking
             // Extract just the body content, stripping out <html>, <head>, and <body> wrapper tags
             // This prevents publisher CSS from being loaded via <link> tags
             let bodyContent = extractBodyContent(from: section.annotatedHTML)
+            let imgStart = CFAbsoluteTimeGetCurrent()
             let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
+            imageProcessTime += CFAbsoluteTimeGetCurrent() - imgStart
             combinedHTML += processedHTML + "\n"
         }
+        Self.logger.info("PERF: HTML combination took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - loadStart))s (image processing: \(String(format: "%.3f", imageProcessTime))s)")
 
         // Generate CSS using CSSManager (house CSS + sanitized publisher CSS)
         let css = CSSManager.generateCompleteCSS(fontScale: fontScale, publisherCSS: nil)
@@ -289,13 +313,44 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         </html>
         """
 
+        Self.logger.info("PERF: Starting WebView load with \(wrappedHTML.count) chars")
+        webViewLoadStartTime = CFAbsoluteTimeGetCurrent()
         webView.loadHTMLString(wrappedHTML, baseURL: nil)
+    }
+
+    private var webViewLoadStartTime: CFAbsoluteTime = 0
+
+    /// Select which sections to load for faster initial display
+    /// Loads the section containing initial position plus a few neighbors
+    private func selectSectionsToLoad() -> [Int] {
+        // For small books, load everything
+        if htmlSections.count <= 5 {
+            return Array(0..<htmlSections.count)
+        }
+
+        // Find the section containing the initial block ID
+        var targetSectionIndex = 0
+        if let blockId = initialBlockId {
+            for (index, section) in htmlSections.enumerated() {
+                if section.blocks.contains(where: { $0.id == blockId }) {
+                    targetSectionIndex = index
+                    break
+                }
+            }
+        }
+
+        // Load target section plus 2 before and 2 after for buffer
+        let buffer = 2
+        let startIndex = max(0, targetSectionIndex - buffer)
+        let endIndex = min(htmlSections.count - 1, targetSectionIndex + buffer)
+
+        return Array(startIndex...endIndex)
     }
 
     private func processHTMLWithImages(_ html: String, basePath: String, imageCache: [String: Data]) -> String {
         var processedHTML = html
 
-        // Find all img tags and replace src with base64 data
+        // Find all img tags and replace src with custom URL scheme
         let imgPattern = #"<img([^>]*)src\s*=\s*["\']([^"\']+)["\']([^>]*)>"#
         guard let regex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive]) else {
             return html
@@ -335,12 +390,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                 resolvedPath = basePath.isEmpty ? srcPath : "\(basePath)/\(srcPath)"
             }
 
-            // Try to find image data
-            if let imageData = imageCache[resolvedPath] ?? imageCache[(resolvedPath as NSString).lastPathComponent] {
-                let base64 = imageData.base64EncodedString()
-                let mimeType = mimeType(for: resolvedPath)
-                let dataURL = "data:\(mimeType);base64,\(base64)"
-                let newTag = "<img\(beforeAttrs)src=\"\(dataURL)\"\(afterAttrs)>"
+            // Check if image exists in cache, then use custom URL scheme
+            if imageCache[resolvedPath] != nil || imageCache[(resolvedPath as NSString).lastPathComponent] != nil {
+                // Use custom URL scheme - images served via EPUBURLSchemeHandler
+                let schemeURL = "\(EPUBURLSchemeHandler.scheme)://image/\(resolvedPath)"
+                let newTag = "<img\(beforeAttrs)src=\"\(schemeURL)\"\(afterAttrs)>"
 
                 processedHTML = (processedHTML as NSString).replacingCharacters(in: fullMatchRange, with: newTag)
             }
@@ -649,7 +703,8 @@ extension WebPageViewController: UIScrollViewDelegate {
 // MARK: - WKNavigationDelegate
 extension WebPageViewController: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Self.logger.debug("didFinish navigation")
+        let navTime = webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - webViewLoadStartTime : 0
+        Self.logger.info("PERF: WebView didFinish navigation in \(String(format: "%.3f", navTime))s")
 
         // Inject JavaScript to ensure content is scrollable and wait for layout
         let js = """
@@ -674,6 +729,8 @@ extension WebPageViewController: WKNavigationDelegate {
                     // This prevents overwriting saved position with initial values
                     if !self.hasRestoredPosition {
                         self.hasRestoredPosition = true
+                        let totalLoadTime = self.webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - self.webViewLoadStartTime : 0
+                        Self.logger.info("PERF: Content ready in \(String(format: "%.3f", totalLoadTime))s total")
 
                         // Prefer block-based restoration over page-based
                         if let blockId = self.initialBlockId {
