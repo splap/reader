@@ -47,14 +47,18 @@ final class ReaderAppUITests: XCTestCase {
     }
 
     func testAppLaunchesInLibrary() {
-        // Verify we're on the library screen
-        // The library should show either books or an empty state
-        let navBar = app.navigationBars.firstMatch
-        XCTAssertTrue(navBar.waitForExistence(timeout: 5), "Navigation bar should exist")
+        // Verify we're on the Library screen
+        let libraryNavBar = app.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5), "Library screen should be visible")
 
-        // Log for debugging
-        print("🧪 App launched successfully")
-        print("🧪 Navigation bars: \(app.navigationBars.count)")
+        // Verify all three bundled books are present
+        let frankenstein = findBook(containing: "Frankenstein")
+        let meditations = findBook(containing: "Meditations")
+        let metamorphosis = findBook(containing: "Metamorphosis")
+
+        XCTAssertTrue(frankenstein.waitForExistence(timeout: 5), "Bundled book 'Frankenstein' should be visible")
+        XCTAssertTrue(meditations.waitForExistence(timeout: 5), "Bundled book 'Meditations' should be visible")
+        XCTAssertTrue(metamorphosis.waitForExistence(timeout: 5), "Bundled book 'Metamorphosis' should be visible")
     }
 
     func testNavigateFromLibraryToSettings() {
