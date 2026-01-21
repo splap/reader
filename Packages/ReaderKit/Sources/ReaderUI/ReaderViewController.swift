@@ -42,6 +42,7 @@ public final class ReaderViewController: UIViewController {
     }
 
     public init(epubURL: URL, bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max) {
+        let initStart = CFAbsoluteTimeGetCurrent()
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
@@ -55,6 +56,7 @@ public final class ReaderViewController: UIViewController {
             self.viewModel = ReaderViewModel(chapter: fallback)
         }
         super.init(nibName: nil, bundle: nil)
+        Self.logger.info("PERF: ReaderViewController init took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - initStart))s")
     }
 
     required init?(coder: NSCoder) {
