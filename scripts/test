@@ -13,7 +13,7 @@ if [ -f "$ROOT_DIR/simulator-uuid" ]; then
   UDID=$(cat "$ROOT_DIR/simulator-uuid")
   DESTINATION="platform=iOS Simulator,id=$UDID"
 else
-  DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=26.0.1,arch=arm64"
+  DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.0.1,arch=arm64"
 fi
 EXTRA_BUILD_SETTINGS=""
 

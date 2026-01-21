@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 PROJECT="Reader.xcodeproj"
 SCHEME="ReaderApp"
 CONFIGURATION="Debug"
-DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M4),OS=18.5,arch=arm64"
+DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=18.5,arch=arm64"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
 
 if [ ! -d "$PROJECT" ]; then
