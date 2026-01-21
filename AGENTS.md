@@ -31,7 +31,7 @@ sleep 30 && tail output.txt        # pointless waiting
 
 After running with run_in_background, DO NOT poll the output or wait. The app will launch and you're done. Move on immediately.
 
-**IMPORTANT**: Always use iOS 26 simulator (iPad Pro 11-inch M4).
+**IMPORTANT**: Always use iOS 26 simulator (iPad Pro 11-inch M5).
 
 ### Simulator Ownership
 

@@ -16,7 +16,7 @@ USE_SIMULATOR="${USE_SIMULATOR:-1}"
 
 if [ "$USE_SIMULATOR" = "1" ]; then
   echo "Running on simulator..."
-  DEVICE_NAME="iPad Pro 11-inch (M4)"
+  DEVICE_NAME="iPad Pro 11-inch (M5)"
   APP_BUNDLE_ID="com.splap.reader"
   SDK="iphonesimulator"
 
@@ -46,7 +46,7 @@ if [ "$USE_SIMULATOR" = "1" ]; then
       .devices | to_entries[] |
       select(.key | test("iOS-26|iOS-18-2")) |
       .value[] |
-      select(.name == "iPad Pro 11-inch (M4)" and .state == "Shutdown") |
+      select(.name == "iPad Pro 11-inch (M5)" and .state == "Shutdown") |
       .udid' | head -1)
 
     if [ -z "$DEVICE_UDID" ]; then

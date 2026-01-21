@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-SIMULATOR_NAME="iPad Pro 11-inch (M4)"
+SIMULATOR_NAME="iPad Pro 11-inch (M5)"
 BUNDLE_ID="com.splap.reader"
 BOOKS_SOURCE_DIR="${1:-}"
 
