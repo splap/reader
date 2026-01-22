@@ -133,31 +133,14 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
     // MARK: - Page Building
 
-    /// Select which sections to load for faster initial display
-    /// Loads the section containing initial position plus a few neighbors
+    /// Select which sections to load
+    /// NOTE: Section-based loading was disabled because it broke pagination -
+    /// totalPages was calculated from only loaded content, making books appear
+    /// to have far fewer pages than they actually do (e.g., Frankenstein showing 3 pages).
+    /// If re-enabling, must estimate total pages from ALL sections, not just loaded ones.
     private func selectSectionsToLoad() -> [Int] {
-        // For small books, load everything
-        if htmlSections.count <= 5 {
-            return Array(0..<htmlSections.count)
-        }
-
-        // Find the section containing the initial block ID
-        var targetSectionIndex = 0
-        if let blockId = initialBlockId {
-            for (index, section) in htmlSections.enumerated() {
-                if section.blocks.contains(where: { $0.id == blockId }) {
-                    targetSectionIndex = index
-                    break
-                }
-            }
-        }
-
-        // Load target section plus 2 before and 2 after for buffer
-        let buffer = 2
-        let startIndex = max(0, targetSectionIndex - buffer)
-        let endIndex = min(htmlSections.count - 1, targetSectionIndex + buffer)
-
-        return Array(startIndex...endIndex)
+        // Load all sections to ensure correct page count
+        return Array(0..<htmlSections.count)
     }
 
     private func buildPages() {
@@ -808,6 +791,36 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             }
         }
         Self.logger.warning("Block \(blockId) not found in any page")
+    }
+
+    public func navigateToSpineItem(_ spineItemId: String, animated: Bool) {
+        guard let content = attributedContent else {
+            Self.logger.warning("Cannot navigate to spine item - no content loaded")
+            return
+        }
+
+        // Find the first block that belongs to this spine item
+        for blockId in content.blockOrder {
+            guard let range = content.blockRanges[blockId] else { continue }
+
+            // Check if this block belongs to the target spine item
+            var foundSpineItemId: String?
+            content.attributedString.enumerateAttribute(.spineItemId, in: range, options: []) { value, _, stop in
+                if let id = value as? String {
+                    foundSpineItemId = id
+                    stop.pointee = true
+                }
+            }
+
+            if foundSpineItemId == spineItemId {
+                // Found the first block of this spine item, navigate to it
+                Self.logger.info("Found spine item \(spineItemId) starting at block \(blockId)")
+                navigateToBlock(blockId, animated: animated)
+                return
+            }
+        }
+
+        Self.logger.warning("Spine item \(spineItemId) not found in content")
     }
 
     public func queryFirstVisibleBlock(completion: @escaping (String?, String?) -> Void) {

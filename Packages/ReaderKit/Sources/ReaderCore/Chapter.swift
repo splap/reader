@@ -57,6 +57,7 @@ public struct Chapter {
     public let htmlSections: [HTMLSection]
     public let title: String?
     public let ncxLabels: [String: String]  // Map from spineItemId to NCX label
+    public let hrefToSpineItemId: [String: String]  // Map from file href to spineItemId for link resolution
 
     /// All blocks across all sections, flattened for easy lookup
     public var allBlocks: [Block] {
@@ -78,21 +79,38 @@ public struct Chapter {
         return nil
     }
 
+    /// Table of contents built from NCX labels, in spine order
+    public var tableOfContents: [TOCItem] {
+        var items: [TOCItem] = []
+        for (index, section) in htmlSections.enumerated() {
+            if let label = ncxLabels[section.spineItemId] {
+                items.append(TOCItem(
+                    id: section.spineItemId,
+                    label: label,
+                    sectionIndex: index
+                ))
+            }
+        }
+        return items
+    }
+
     /// Standard initializer with attributed text
-    public init(id: String, attributedText: NSAttributedString, htmlSections: [HTMLSection] = [], title: String? = nil, ncxLabels: [String: String] = [:]) {
+    public init(id: String, attributedText: NSAttributedString, htmlSections: [HTMLSection] = [], title: String? = nil, ncxLabels: [String: String] = [:], hrefToSpineItemId: [String: String] = [:]) {
         self.id = id
         self._attributedText = attributedText
         self.htmlSections = htmlSections
         self.title = title
         self.ncxLabels = ncxLabels
+        self.hrefToSpineItemId = hrefToSpineItemId
     }
 
     /// Fast initializer that skips attributed text conversion (for WebView rendering)
-    public init(id: String, htmlSections: [HTMLSection], title: String? = nil, ncxLabels: [String: String] = [:]) {
+    public init(id: String, htmlSections: [HTMLSection], title: String? = nil, ncxLabels: [String: String] = [:], hrefToSpineItemId: [String: String] = [:]) {
         self.id = id
         self._attributedText = nil
         self.htmlSections = htmlSections
         self.title = title
         self.ncxLabels = ncxLabels
+        self.hrefToSpineItemId = hrefToSpineItemId
     }
 }

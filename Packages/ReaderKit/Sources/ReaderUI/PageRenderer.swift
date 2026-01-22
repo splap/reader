@@ -22,6 +22,9 @@ public protocol PageRenderer: AnyObject {
     /// Navigate to a specific block by ID (preferred for position restoration)
     func navigateToBlock(_ blockId: String, animated: Bool)
 
+    /// Navigate to the first page of a specific spine item (chapter)
+    func navigateToSpineItem(_ spineItemId: String, animated: Bool)
+
     /// Query the first visible block ID and spine item ID
     func queryFirstVisibleBlock(completion: @escaping (_ blockId: String?, _ spineItemId: String?) -> Void)
 

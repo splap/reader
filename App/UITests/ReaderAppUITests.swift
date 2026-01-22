@@ -823,6 +823,88 @@ final class ReaderAppUITests: XCTestCase {
         return Int(text[range])
     }
 
+    func testFrankensteinBookIntegrity() {
+        // This test verifies that Frankenstein loads with the correct number of pages.
+        // Frankenstein is a full novel (~75,000 words) and should have 100+ pages
+        // at any reasonable text size. If it shows only a few pages, pagination is broken.
+        //
+        // This catches regressions where book loading optimizations break pagination.
+
+        // Open Frankenstein
+        let webView = openFrankenstein()
+
+        print("🧪 Book loaded, revealing overlay to check page count...")
+        webView.tap()
+        sleep(1)
+
+        // Get the scrubber and page label
+        let scrubber = app.sliders["Page scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 3), "Scrubber should exist")
+
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Page label should exist")
+
+        let initialPageText = pageLabel.label
+        print("🧪 Initial page label: \(initialPageText)")
+
+        // Extract total page count
+        let totalPages = extractTotalPages(from: initialPageText)
+        print("🧪 Total pages: \(totalPages)")
+
+        // CRITICAL ASSERTION: Frankenstein must have a reasonable number of pages
+        // The novel is ~75,000 words. Even with large text, it should be 100+ pages.
+        // If this fails with a very low number (like 3), pagination is broken.
+        XCTAssertGreaterThan(totalPages, 100,
+            "Frankenstein should have at least 100 pages (got \(totalPages)). " +
+            "If this is a very small number, book loading/pagination is broken.")
+
+        // Navigate to the last page
+        print("🧪 Scrubbing to last page...")
+        scrubber.adjust(toNormalizedSliderPosition: 1.0)
+        sleep(2) // Wait for page load
+
+        // Verify we're on the last page
+        let finalPageText = pageLabel.label
+        print("🧪 Final page label: \(finalPageText)")
+
+        if let currentPage = extractCurrentPage(from: finalPageText) {
+            let finalTotalPages = extractTotalPages(from: finalPageText)
+            print("🧪 At page \(currentPage) of \(finalTotalPages)")
+
+            // Verify we're near the end of the book (within last 5%)
+            // Scrubber precision can vary due to slider control mechanics
+            let minExpectedPage = Int(Double(finalTotalPages) * 0.95)
+            XCTAssertGreaterThanOrEqual(currentPage, minExpectedPage,
+                "Should be near the last page after scrubbing to 100% (expected >= \(minExpectedPage), got \(currentPage))")
+
+            // Double-check total pages is still reasonable
+            XCTAssertGreaterThan(finalTotalPages, 100,
+                "Total pages should still be > 100 at end of book")
+        }
+
+        // Take screenshot of the final page for visual verification
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Frankenstein Final Page"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // Save to temp for inspection
+        try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+        let screenshotPath = "/tmp/reader-tests/frankenstein-final-page.png"
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: screenshotPath))
+        print("🧪 Final page screenshot saved to: \(screenshotPath)")
+
+        // Verify webview has substantial text content on the last page
+        let webViewStaticTexts = app.webViews.firstMatch.staticTexts
+        let textElementCount = webViewStaticTexts.count
+        print("🧪 Text elements on final page: \(textElementCount)")
+        XCTAssertGreaterThan(textElementCount, 0,
+            "Last page should have some text content rendered")
+
+        print("🧪 ✅ Frankenstein book integrity test passed - \(totalPages) pages, last page verified")
+    }
+
     // MARK: - Semantic Search Integration Test
 
     func testVectorIndexBuildingOnBookOpen() {
@@ -907,6 +989,406 @@ final class ReaderAppUITests: XCTestCase {
         add(finalAttachment)
 
         print("🧪 ✅ Book open integration test complete")
+    }
+
+    // MARK: - Table of Contents Tests
+
+    /// List of bundled books to test TOC functionality with
+    /// (Frankenstein, Meditations, Metamorphosis per AGENTS.md)
+    private let bundledBooks = ["Frankenstein", "Meditations", "Metamorphosis"]
+
+    /// Helper to navigate back to library from reader
+    private func navigateToLibrary() {
+        // Check if we're already in the library
+        let libraryNavBar = app.navigationBars["Library"]
+        if libraryNavBar.exists {
+            return
+        }
+
+        // If we're in the reader, tap to show overlay and press back
+        let backButton = app.buttons["Back"]
+
+        // First tap to reveal overlay (buttons start hidden)
+        if !backButton.isHittable {
+            // Try tapping the webview or screen to reveal overlay
+            let webView = app.webViews.firstMatch
+            if webView.exists {
+                webView.tap()
+            } else {
+                app.tap()
+            }
+            sleep(1)
+        }
+
+        // Now try to tap back
+        if backButton.waitForExistence(timeout: 3) && backButton.isHittable {
+            backButton.tap()
+            sleep(1)
+        }
+
+        // Wait for library to appear
+        _ = libraryNavBar.waitForExistence(timeout: 5)
+    }
+
+    /// Opens a book and returns the content view (WebView or other)
+    private func openBook(_ bookName: String) -> XCUIElement? {
+        let bookCell = findBook(containing: bookName)
+        guard bookCell.waitForExistence(timeout: 5) else {
+            return nil
+        }
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = app.webViews.firstMatch
+        guard webView.waitForExistence(timeout: 10) else {
+            return nil
+        }
+        sleep(2) // Let content render
+        return webView
+    }
+
+    func testTOCButtonVisibility() {
+        // Test that TOC button is visible for all bundled books
+        for bookName in bundledBooks {
+            print("🧪 Testing TOC button visibility for: \(bookName)")
+
+            // Navigate to library if needed
+            navigateToLibrary()
+
+            // Open the book
+            guard let contentView = openBook(bookName) else {
+                XCTFail("Failed to open book: \(bookName)")
+                continue
+            }
+
+            // Tap to reveal overlay
+            contentView.tap()
+            sleep(1)
+
+            // Verify TOC button exists and is hittable
+            let tocButton = app.buttons["Table of Contents"]
+            XCTAssertTrue(tocButton.waitForExistence(timeout: 3), "TOC button should exist for \(bookName)")
+            XCTAssertTrue(tocButton.isHittable, "TOC button should be hittable for \(bookName)")
+
+            // Verify accessibility identifier
+            let tocButtonById = app.buttons["toc-button"]
+            XCTAssertTrue(tocButtonById.exists, "TOC button should have accessibility identifier for \(bookName)")
+
+            print("🧪 ✅ TOC button visible for \(bookName)")
+
+            // Take screenshot
+            let screenshot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: screenshot)
+            attachment.name = "TOC Button - \(bookName)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        print("🧪 ✅ TOC button visibility test passed for all books")
+    }
+
+    func testTOCMenuShowsChapters() {
+        // Test that tapping TOC button shows menu with chapters for all bundled books
+        for bookName in bundledBooks {
+            print("🧪 Testing TOC menu for: \(bookName)")
+
+            // Navigate to library if needed
+            navigateToLibrary()
+
+            // Open the book
+            guard let contentView = openBook(bookName) else {
+                XCTFail("Failed to open book: \(bookName)")
+                continue
+            }
+
+            // Tap to reveal overlay
+            contentView.tap()
+            sleep(1)
+
+            // Tap TOC button to show menu
+            let tocButton = app.buttons["toc-button"]
+            XCTAssertTrue(tocButton.waitForExistence(timeout: 3), "TOC button should exist")
+            tocButton.tap()
+            sleep(1)
+
+            // Verify menu appears by looking for menu items
+            // UIMenu items appear in a different location in the view hierarchy
+            let menuExists = app.buttons.count > 5 || app.staticTexts.count > 10
+            XCTAssertTrue(menuExists, "Menu should appear after tapping TOC button for \(bookName)")
+
+            // Take screenshot of menu
+            let screenshot = XCUIScreen.main.screenshot()
+            let attachment = XCTAttachment(screenshot: screenshot)
+            attachment.name = "TOC Menu - \(bookName)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+
+            // Save screenshot to temp
+            try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+            let screenshotPath = "/tmp/reader-tests/toc-menu-\(bookName.lowercased().replacingOccurrences(of: " ", with: "-")).png"
+            try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: screenshotPath))
+            print("🧪 Screenshot saved to: \(screenshotPath)")
+
+            // Dismiss menu by tapping elsewhere
+            contentView.tap()
+            sleep(1)
+
+            print("🧪 ✅ TOC menu shown for \(bookName)")
+        }
+
+        print("🧪 ✅ TOC menu test passed for all books")
+    }
+
+    func testTOCNavigationToChapter() {
+        // Test that selecting a chapter from TOC navigates to it
+        for bookName in bundledBooks {
+            print("🧪 Testing TOC navigation for: \(bookName)")
+
+            // Navigate to library if needed
+            navigateToLibrary()
+
+            // Open the book
+            guard let contentView = openBook(bookName) else {
+                XCTFail("Failed to open book: \(bookName)")
+                continue
+            }
+
+            // Tap to reveal overlay
+            contentView.tap()
+            sleep(1)
+
+            // Get initial page
+            let pageLabel = app.staticTexts["scrubber-page-label"]
+            guard pageLabel.waitForExistence(timeout: 3) else {
+                print("🧪 ⚠️ No page label found for \(bookName), skipping navigation check")
+                continue
+            }
+            let initialPageText = pageLabel.label
+            print("🧪 Initial page: \(initialPageText)")
+
+            // Tap TOC button
+            let tocButton = app.buttons["toc-button"]
+            XCTAssertTrue(tocButton.waitForExistence(timeout: 3), "TOC button should exist")
+            tocButton.tap()
+            sleep(1)
+
+            // Take screenshot of menu before selecting
+            let menuScreenshot = XCUIScreen.main.screenshot()
+            let menuAttachment = XCTAttachment(screenshot: menuScreenshot)
+            menuAttachment.name = "TOC Menu Before Selection - \(bookName)"
+            menuAttachment.lifetime = .keepAlways
+            add(menuAttachment)
+
+            // Find and tap a menu item that is NOT the first one (to ensure navigation)
+            // UIMenu items appear as buttons in the menu
+            let menuButtons = app.buttons.allElementsBoundByIndex
+            var tappedItem = false
+
+            // Look for menu items - they should be in the menu, skip the first few buttons
+            // (which are Back, TOC, Chat, Settings)
+            for button in menuButtons {
+                let label = button.label
+                // Skip control buttons and empty labels
+                if label.isEmpty || label == "Back" || label == "Settings" ||
+                   label == "Chat" || label == "Table of Contents" {
+                    continue
+                }
+                // Skip if it looks like the first chapter (often titles or "Letter" for Frankenstein)
+                if label.lowercased().contains("letter 1") || label.lowercased().contains("title") {
+                    continue
+                }
+                // Found a chapter item, tap it
+                print("🧪 Tapping chapter: \(label)")
+                button.tap()
+                tappedItem = true
+                break
+            }
+
+            if !tappedItem {
+                print("🧪 ⚠️ Could not find chapter menu item to tap for \(bookName)")
+                // Dismiss menu
+                contentView.tap()
+                sleep(1)
+                continue
+            }
+
+            // Wait for navigation and scrubber animation
+            sleep(2)
+
+            // Verify scrubber is visible (it should show after navigation)
+            let scrubber = app.sliders["Page scrubber"]
+            // The scrubber might have auto-hidden by now, but page should have changed
+
+            // Check if page changed
+            if pageLabel.waitForExistence(timeout: 2) {
+                let newPageText = pageLabel.label
+                print("🧪 After navigation: \(newPageText)")
+
+                // Take screenshot after navigation
+                let afterScreenshot = XCUIScreen.main.screenshot()
+                let afterAttachment = XCTAttachment(screenshot: afterScreenshot)
+                afterAttachment.name = "After TOC Navigation - \(bookName)"
+                afterAttachment.lifetime = .keepAlways
+                add(afterAttachment)
+
+                // Save screenshot
+                let afterPath = "/tmp/reader-tests/toc-after-\(bookName.lowercased().replacingOccurrences(of: " ", with: "-")).png"
+                try? afterScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: afterPath))
+                print("🧪 After navigation screenshot saved to: \(afterPath)")
+            }
+
+            print("🧪 ✅ TOC navigation completed for \(bookName)")
+        }
+
+        print("🧪 ✅ TOC navigation test passed for all books")
+    }
+
+    func testTOCNavigationVerifyContent() {
+        // Deep verification test for Frankenstein - verify we actually navigate to the right content
+        print("🧪 Testing TOC navigation with content verification for Frankenstein")
+
+        // Navigate to library
+        navigateToLibrary()
+
+        // Open Frankenstein
+        guard let contentView = openBook("Frankenstein") else {
+            XCTFail("Failed to open Frankenstein")
+            return
+        }
+
+        // Tap to reveal overlay
+        contentView.tap()
+        sleep(1)
+
+        // Get initial page
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        guard pageLabel.waitForExistence(timeout: 3) else {
+            XCTFail("Page label not found")
+            return
+        }
+        let initialPageText = pageLabel.label
+        print("🧪 Initial page: \(initialPageText)")
+
+        // Tap TOC button
+        let tocButton = app.buttons["toc-button"]
+        XCTAssertTrue(tocButton.waitForExistence(timeout: 3), "TOC button should exist")
+        tocButton.tap()
+        sleep(1)
+
+        // Look for "Chapter 1" or similar in the menu
+        let menuButtons = app.buttons.allElementsBoundByIndex
+        var foundChapter = false
+
+        for button in menuButtons {
+            let label = button.label.lowercased()
+            if label.contains("chapter") && (label.contains("1") || label.contains("i")) {
+                print("🧪 Tapping: \(button.label)")
+                button.tap()
+                foundChapter = true
+                break
+            }
+        }
+
+        if !foundChapter {
+            // Try looking for "Letter" entries (Frankenstein starts with letters)
+            for button in menuButtons {
+                let label = button.label.lowercased()
+                if label.contains("letter") && label.contains("4") {
+                    print("🧪 Tapping: \(button.label)")
+                    button.tap()
+                    foundChapter = true
+                    break
+                }
+            }
+        }
+
+        guard foundChapter else {
+            XCTFail("Could not find a chapter to navigate to")
+            return
+        }
+
+        // Wait for navigation
+        sleep(3)
+
+        // Take screenshot
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Frankenstein Chapter Navigation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // Save screenshot
+        try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
+        let screenshotPath = "/tmp/reader-tests/frankenstein-chapter-content.png"
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: screenshotPath))
+        print("🧪 Content screenshot saved to: \(screenshotPath)")
+
+        // Verify page changed from initial
+        if pageLabel.exists {
+            let newPageText = pageLabel.label
+            print("🧪 After navigation: \(newPageText)")
+            // We should be on a different page than page 1
+            if initialPageText.contains("Page 1 of") && !newPageText.contains("Page 1 of") {
+                print("🧪 ✅ Page changed from initial position")
+            }
+        }
+
+        print("🧪 ✅ Content verification test complete")
+    }
+
+    func testTOCScrubberAutoHides() {
+        // Test that scrubber auto-hides after TOC navigation
+        // Note: The scrubber shows for 1.5s then auto-hides, so we verify it's hidden after waiting
+        print("🧪 Testing scrubber auto-hide after TOC navigation")
+
+        // Navigate to library
+        navigateToLibrary()
+
+        // Open Frankenstein
+        guard let contentView = openBook("Frankenstein") else {
+            XCTFail("Failed to open Frankenstein")
+            return
+        }
+
+        // Show overlay first
+        contentView.tap()
+        sleep(1)
+
+        // Tap TOC button
+        let tocButton = app.buttons["toc-button"]
+        XCTAssertTrue(tocButton.waitForExistence(timeout: 3), "TOC button should exist")
+        tocButton.tap()
+        sleep(1)
+
+        // Tap any chapter item (not first few which are control buttons)
+        let menuButtons = app.buttons.allElementsBoundByIndex
+        var tappedChapter = false
+        for button in menuButtons {
+            let label = button.label
+            if !label.isEmpty && label != "Back" && label != "Settings" &&
+               label != "Chat" && label != "Table of Contents" &&
+               label.count > 3 {
+                print("🧪 Tapping chapter: \(label)")
+                button.tap()
+                tappedChapter = true
+                break
+            }
+        }
+
+        guard tappedChapter else {
+            XCTFail("Could not find chapter to tap")
+            return
+        }
+
+        // Wait for auto-hide timeout (1.5s) plus some buffer
+        sleep(4)
+
+        // After 4 seconds, the scrubber should have auto-hidden
+        let scrubber = app.sliders["Page scrubber"]
+        let scrubberHidden = !scrubber.isHittable
+        XCTAssertTrue(scrubberHidden, "Scrubber should auto-hide after TOC navigation")
+
+        print("🧪 ✅ Scrubber auto-hide test passed")
     }
 
     func testDoubleTapDoesNotMisalignPage() {

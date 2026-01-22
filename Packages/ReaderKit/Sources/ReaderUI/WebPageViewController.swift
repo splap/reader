@@ -52,6 +52,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private var currentBlockId: String?  // Currently visible block ID
     private var currentSpineItemId: String?  // Currently visible spine item ID
     private var urlSchemeHandler: EPUBURLSchemeHandler?  // Handler for serving images
+    private let hrefToSpineItemId: [String: String]  // Map from file href to spineItemId for link resolution
 
     // MARK: - PageRenderer Protocol Properties
 
@@ -75,7 +76,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         chapterTitle: String? = nil,
         fontScale: CGFloat = 2.0,
         initialPageIndex: Int = 0,
-        initialBlockId: String? = nil
+        initialBlockId: String? = nil,
+        hrefToSpineItemId: [String: String] = [:]
     ) {
         self.htmlSections = htmlSections
         self.bookTitle = bookTitle
@@ -84,6 +86,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         self.fontScale = fontScale
         self.initialPageIndex = initialPageIndex
         self.initialBlockId = initialBlockId
+        self.hrefToSpineItemId = hrefToSpineItemId
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -320,31 +323,14 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
     private var webViewLoadStartTime: CFAbsoluteTime = 0
 
-    /// Select which sections to load for faster initial display
-    /// Loads the section containing initial position plus a few neighbors
+    /// Select which sections to load
+    /// NOTE: Section-based loading was disabled because it broke pagination -
+    /// totalPages was calculated from only loaded content, making books appear
+    /// to have far fewer pages than they actually do (e.g., Frankenstein showing 3 pages).
+    /// If re-enabling, must estimate total pages from ALL sections, not just loaded ones.
     private func selectSectionsToLoad() -> [Int] {
-        // For small books, load everything
-        if htmlSections.count <= 5 {
-            return Array(0..<htmlSections.count)
-        }
-
-        // Find the section containing the initial block ID
-        var targetSectionIndex = 0
-        if let blockId = initialBlockId {
-            for (index, section) in htmlSections.enumerated() {
-                if section.blocks.contains(where: { $0.id == blockId }) {
-                    targetSectionIndex = index
-                    break
-                }
-            }
-        }
-
-        // Load target section plus 2 before and 2 after for buffer
-        let buffer = 2
-        let startIndex = max(0, targetSectionIndex - buffer)
-        let endIndex = min(htmlSections.count - 1, targetSectionIndex + buffer)
-
-        return Array(startIndex...endIndex)
+        // Load all sections to ensure correct page count
+        return Array(0..<htmlSections.count)
     }
 
     private func processHTMLWithImages(_ html: String, basePath: String, imageCache: [String: Data]) -> String {
@@ -637,6 +623,55 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         }
     }
 
+    /// Navigate to the first page of a specific spine item (chapter)
+    /// - Parameters:
+    ///   - spineItemId: The spine item ID to navigate to
+    ///   - animated: Whether to animate the scroll
+    public func navigateToSpineItem(_ spineItemId: String, animated: Bool = false) {
+        let js = """
+        (function() {
+            // Find the first element with this spine item ID
+            const element = document.querySelector('[data-spine-item-id="\(spineItemId)"]');
+            if (!element) return null;
+
+            const rect = element.getBoundingClientRect();
+            const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+
+            // Calculate the page that contains this element
+            const viewportWidth = window.innerWidth;
+            const elementLeft = rect.left + scrollLeft;
+            const targetPage = Math.floor(elementLeft / viewportWidth);
+
+            return targetPage * viewportWidth;
+        })();
+        """
+
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                Self.logger.error("Failed to navigate to spine item: \(error.localizedDescription)")
+                return
+            }
+
+            if let targetX = result as? Double {
+                Self.logger.info("Navigating to spine item \(spineItemId) at x=\(targetX)")
+                self.webView.scrollView.setContentOffset(
+                    CGPoint(x: CGFloat(targetX), y: 0),
+                    animated: animated
+                )
+
+                // Update page and block position after navigation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.updateCurrentPage()
+                    self?.updateBlockPosition()
+                }
+            } else {
+                Self.logger.warning("Spine item \(spineItemId) not found in content")
+            }
+        }
+    }
+
     /// Update block position and notify callback if changed
     private func updateBlockPosition() {
         guard onBlockPositionChanged != nil else { return }
@@ -702,6 +737,114 @@ extension WebPageViewController: UIScrollViewDelegate {
 
 // MARK: - WKNavigationDelegate
 extension WebPageViewController: WKNavigationDelegate {
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // Allow the initial page load
+        guard navigationAction.navigationType == .linkActivated,
+              let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+
+        Self.logger.info("Link tapped: \(url.absoluteString)")
+
+        // Handle internal EPUB links
+        let urlString = url.absoluteString
+
+        // Extract the file path and optional fragment (anchor) from the URL
+        // Links look like: file:///path/to/7972579585791322943_84-h-6.htm.html#chap01
+        // Or relative: 7972579585791322943_84-h-6.htm.html#chap01
+        let path = url.path
+        let filename = (path as NSString).lastPathComponent
+        let fragment = url.fragment  // The anchor part after #
+
+        Self.logger.debug("Link filename: \(filename), fragment: \(fragment ?? "none")")
+
+        // Try to find the spine item ID for this file
+        if let spineItemId = hrefToSpineItemId[filename] ?? hrefToSpineItemId[path] {
+            Self.logger.info("Navigating to spine item: \(spineItemId) (fragment: \(fragment ?? "none"))")
+
+            // If there's a fragment (anchor), try to navigate to that specific element
+            if let anchor = fragment {
+                navigateToAnchor(anchor, inSpineItem: spineItemId)
+            } else {
+                navigateToSpineItem(spineItemId, animated: false)
+            }
+
+            decisionHandler(.cancel)
+            return
+        }
+
+        // If we couldn't resolve the link, check if it's an external URL
+        if url.scheme == "http" || url.scheme == "https" {
+            // Open external links in Safari
+            UIApplication.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+
+        // Unknown link type - allow default handling
+        Self.logger.warning("Could not resolve internal link: \(urlString)")
+        decisionHandler(.cancel)
+    }
+
+    /// Navigate to a specific anchor within a spine item
+    private func navigateToAnchor(_ anchor: String, inSpineItem spineItemId: String) {
+        // First navigate to the spine item
+        let js = """
+        (function() {
+            // Find element with this ID
+            var element = document.getElementById('\(anchor)');
+            if (!element) {
+                // Try finding by name attribute
+                element = document.querySelector('[name="\(anchor)"]');
+            }
+            if (!element) {
+                // Try finding within the spine item section
+                var section = document.querySelector('[data-spine-item-id="\(spineItemId)"]');
+                if (section) {
+                    element = section.querySelector('#\(anchor)') || section.querySelector('[name="\(anchor)"]');
+                }
+            }
+            if (!element) return null;
+
+            var rect = element.getBoundingClientRect();
+            var scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+            var viewportWidth = window.innerWidth;
+            var elementLeft = rect.left + scrollLeft;
+            var targetPage = Math.floor(elementLeft / viewportWidth);
+
+            return targetPage * viewportWidth;
+        })();
+        """
+
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                Self.logger.error("Failed to navigate to anchor: \(error.localizedDescription)")
+                // Fall back to navigating to spine item start
+                self.navigateToSpineItem(spineItemId, animated: false)
+                return
+            }
+
+            if let targetX = result as? Double {
+                Self.logger.info("Navigating to anchor \(anchor) at x=\(targetX)")
+                self.webView.scrollView.setContentOffset(
+                    CGPoint(x: CGFloat(targetX), y: 0),
+                    animated: false
+                )
+                // Update page and block position after navigation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.updateCurrentPage()
+                    self?.updateBlockPosition()
+                }
+            } else {
+                Self.logger.warning("Anchor \(anchor) not found, navigating to spine item start")
+                self.navigateToSpineItem(spineItemId, animated: false)
+            }
+        }
+    }
+
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         let navTime = webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - webViewLoadStartTime : 0
         Self.logger.info("PERF: WebView didFinish navigation in \(String(format: "%.3f", navTime))s")
