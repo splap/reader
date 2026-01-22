@@ -23,9 +23,6 @@ if [ ! -d "$ML_MODEL_PATH" ]; then
     python "$ROOT_DIR/scripts/convert_bge_to_coreml.py"
 fi
 
-# Generate build timestamp
-"$ROOT_DIR/scripts/generate-build-info.sh"
-
 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
