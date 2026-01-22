@@ -133,6 +133,33 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
     // MARK: - Page Building
 
+    /// Select which sections to load for faster initial display
+    /// Loads the section containing initial position plus a few neighbors
+    private func selectSectionsToLoad() -> [Int] {
+        // For small books, load everything
+        if htmlSections.count <= 5 {
+            return Array(0..<htmlSections.count)
+        }
+
+        // Find the section containing the initial block ID
+        var targetSectionIndex = 0
+        if let blockId = initialBlockId {
+            for (index, section) in htmlSections.enumerated() {
+                if section.blocks.contains(where: { $0.id == blockId }) {
+                    targetSectionIndex = index
+                    break
+                }
+            }
+        }
+
+        // Load target section plus 2 before and 2 after for buffer
+        let buffer = 2
+        let startIndex = max(0, targetSectionIndex - buffer)
+        let endIndex = min(htmlSections.count - 1, targetSectionIndex + buffer)
+
+        return Array(startIndex...endIndex)
+    }
+
     private func buildPages() {
         Self.logger.info("Building pages for native renderer")
 
@@ -140,13 +167,17 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         showLoadingOverlay()
 
         let fontScale = self.fontScale
-        let htmlSections = self.htmlSections
         let viewBounds = self.view.bounds
         let initialBlockId = self.initialBlockId
         let bookId = self.bookId
 
-        // Get spine item ID from first section
-        let spineItemId = htmlSections.first?.spineItemId ?? "unknown"
+        // PERF OPTIMIZATION: Only load sections around the initial position
+        let sectionsToLoad = selectSectionsToLoad()
+        let selectedSections = sectionsToLoad.map { htmlSections[$0] }
+        Self.logger.info("PERF: Loading \(sectionsToLoad.count) of \(self.htmlSections.count) sections for native renderer")
+
+        // Get spine item ID from first selected section
+        let spineItemId = selectedSections.first?.spineItemId ?? "unknown"
 
         // Build layout config
         let horizontalPadding: CGFloat = 48
@@ -169,17 +200,17 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 config: config
             )
 
-            // Build attributed content (needed for both paths)
-            let imageCache = htmlSections.reduce(into: [String: Data]()) { result, section in
+            // Build attributed content from selected sections only
+            let imageCache = selectedSections.reduce(into: [String: Data]()) { result, section in
                 result.merge(section.imageCache) { _, new in new }
             }
 
             let converter = HTMLToAttributedStringConverter(imageCache: imageCache, fontScale: fontScale)
             let conversionStart = CFAbsoluteTimeGetCurrent()
-            let content = converter.convert(sections: htmlSections)
+            let content = converter.convert(sections: selectedSections)
             let conversionTime = CFAbsoluteTimeGetCurrent() - conversionStart
 
-            Self.logger.info("TIMING: HTML conversion took \(conversionTime)s for \(content.blockOrder.count) blocks")
+            Self.logger.info("PERF: HTML conversion took \(String(format: "%.3f", conversionTime))s for \(content.blockOrder.count) blocks (\(selectedSections.count) sections)")
 
             let textPageRanges: [NSRange]
 
@@ -578,12 +609,17 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         pageBlockIds.removeAll()
         attributedContent = nil
 
-        // Rebuild using cache-aware approach
+        // Rebuild using cache-aware approach with section-based loading
         let fontScale = self.fontScale
-        let htmlSections = self.htmlSections
         let viewBounds = self.view.bounds
         let bookId = self.bookId
-        let spineItemId = htmlSections.first?.spineItemId ?? "unknown"
+
+        // Use section-based loading for rebuilds too
+        let sectionsToLoad = selectSectionsToLoad()
+        let selectedSections = sectionsToLoad.map { htmlSections[$0] }
+        Self.logger.info("PERF (rebuild): Loading \(sectionsToLoad.count) of \(self.htmlSections.count) sections")
+
+        let spineItemId = selectedSections.first?.spineItemId ?? "unknown"
 
         let horizontalPadding: CGFloat = 48
         let verticalPadding: CGFloat = 48
@@ -605,17 +641,17 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 config: config
             )
 
-            // Build attributed content
-            let imageCache = htmlSections.reduce(into: [String: Data]()) { result, section in
+            // Build attributed content from selected sections
+            let imageCache = selectedSections.reduce(into: [String: Data]()) { result, section in
                 result.merge(section.imageCache) { _, new in new }
             }
 
             let converter = HTMLToAttributedStringConverter(imageCache: imageCache, fontScale: fontScale)
             let conversionStart = CFAbsoluteTimeGetCurrent()
-            let content = converter.convert(sections: htmlSections)
+            let content = converter.convert(sections: selectedSections)
             let conversionTime = CFAbsoluteTimeGetCurrent() - conversionStart
 
-            Self.logger.info("TIMING (rebuild): HTML conversion took \(conversionTime)s")
+            Self.logger.info("PERF (rebuild): HTML conversion took \(String(format: "%.3f", conversionTime))s for \(content.blockOrder.count) blocks")
 
             let textPageRanges: [NSRange]
 
