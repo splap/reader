@@ -143,6 +143,7 @@ public final class BookChatViewController: UIViewController {
         tableView.allowsSelection = false
         tableView.keyboardDismissMode = .interactive
         tableView.register(ChatMessageCell.self, forCellReuseIdentifier: "MessageCell")
+        tableView.accessibilityIdentifier = "chat-message-list"
         view.addSubview(tableView)
 
         // Input container - single rounded rectangle
@@ -159,6 +160,7 @@ public final class BookChatViewController: UIViewController {
         textView.textContainerInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         textView.isScrollEnabled = false
         textView.delegate = self
+        textView.accessibilityIdentifier = "chat-input-textview"
         inputContainer.addSubview(textView)
 
         // Placeholder label
@@ -193,6 +195,7 @@ public final class BookChatViewController: UIViewController {
         sendButton.contentHorizontalAlignment = .fill
         sendButton.contentVerticalAlignment = .fill
         sendButton.addTarget(self, action: #selector(sendMessage), for: .touchUpInside)
+        sendButton.accessibilityIdentifier = "chat-send-button"
         buttonRow.addSubview(sendButton)
 
         // Loading indicator
@@ -831,12 +834,39 @@ extension BookChatViewController: UITableViewDataSource {
                 guard let self = self else { return }
                 let wasCollapsed = self.messages[indexPath.row].isCollapsed
                 self.messages[indexPath.row].isCollapsed.toggle()
-                self.tableView.reloadRows(at: [indexPath], with: .automatic)
+                self.tableView.reloadRows(at: [indexPath], with: .none)
 
-                // If expanding, scroll to show the expanded content
+                // If expanding, scroll to ensure the "Execution Details" header is visible
                 if wasCollapsed {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        self.tableView.scrollToRow(at: indexPath, at: .top, animated: true)
+                        guard let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageCell,
+                              let traceLabelFrame = cell.traceLabelFrameInTableView(self.tableView) else {
+                            return
+                        }
+
+                        let visibleRect = CGRect(
+                            x: 0,
+                            y: self.tableView.contentOffset.y,
+                            width: self.tableView.bounds.width,
+                            height: self.tableView.bounds.height
+                        )
+
+                        // Check if the trace label header (top of trace label) is visible
+                        let headerY = traceLabelFrame.minY
+                        let headerVisible = headerY >= visibleRect.minY && headerY <= visibleRect.maxY - 50
+
+                        if !headerVisible {
+                            // Scroll so the header is near the top of the visible area (with padding)
+                            let targetOffset = headerY - 20 // 20pt padding from top
+                            let maxOffset = self.tableView.contentSize.height - self.tableView.bounds.height
+                            let newOffset = max(0, min(targetOffset, maxOffset))
+
+                            self.tableView.setContentOffset(
+                                CGPoint(x: 0, y: newOffset),
+                                animated: true
+                            )
+                        }
+                        // If header is already visible, don't scroll - preserve user's position
                     }
                 }
             }
@@ -846,12 +876,13 @@ extension BookChatViewController: UITableViewDataSource {
                 guard let self = self else { return }
                 let wasCollapsed = self.messages[indexPath.row].isCollapsed
                 self.messages[indexPath.row].isCollapsed.toggle()
-                self.tableView.reloadRows(at: [indexPath], with: .automatic)
+                self.tableView.reloadRows(at: [indexPath], with: .none)
 
-                // If expanding, scroll to show the expanded content
+                // If expanding, scroll to ensure the content header is visible
                 if wasCollapsed {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        self.tableView.scrollToRow(at: indexPath, at: .top, animated: true)
+                        // For system messages, just ensure the cell is in view
+                        self.tableView.scrollToRow(at: indexPath, at: .none, animated: true)
                     }
                 }
             }
@@ -1338,10 +1369,24 @@ private final class ChatMessageCell: UITableViewCell {
         if let text = text {
             traceLabel.text = text
             traceLabel.isHidden = false
+            // Accessibility identifier includes collapsed/expanded state for testing
+            if text.contains("▶") {
+                traceLabel.accessibilityIdentifier = "execution-details-collapsed"
+            } else {
+                traceLabel.accessibilityIdentifier = "execution-details-expanded"
+            }
         } else {
             traceLabel.text = nil
             traceLabel.isHidden = true
+            traceLabel.accessibilityIdentifier = nil
         }
+    }
+
+    /// Returns the frame of the trace label in the table view's coordinate system
+    /// Used for smart scrolling to keep the "Execution Details" header visible
+    func traceLabelFrameInTableView(_ tableView: UITableView) -> CGRect? {
+        guard !traceLabel.isHidden else { return nil }
+        return traceLabel.convert(traceLabel.bounds, to: tableView)
     }
 
     @objc private func mapTapped(_ gesture: MapTapGestureRecognizer) {
