@@ -14,6 +14,7 @@ public final class ReaderViewController: UIViewController {
     private var pageRenderer: PageRenderer!
     private var cancellables = Set<AnyCancellable>()
     private var backButton: FloatingButton!
+    private var tocButton: FloatingButton!
     private var settingsButton: FloatingButton!
     private var chatButton: FloatingButton!
     private var scrubberContainer: UIView!
@@ -144,7 +145,8 @@ public final class ReaderViewController: UIViewController {
                 chapterTitle: chapter.title,
                 fontScale: viewModel.fontScale,
                 initialPageIndex: viewModel.initialPageIndex,
-                initialBlockId: viewModel.initialBlockId
+                initialBlockId: viewModel.initialBlockId,
+                hrefToSpineItemId: chapter.hrefToSpineItemId
             )
         }
 
@@ -197,6 +199,14 @@ public final class ReaderViewController: UIViewController {
         backButton.addTarget(self, action: #selector(navigateBack), for: .touchUpInside)
         backButton.accessibilityLabel = "Back"
 
+        tocButton = FloatingButton(systemImage: "list.bullet")
+        tocButton.accessibilityLabel = "Table of Contents"
+        tocButton.accessibilityIdentifier = "toc-button"
+        tocButton.showsMenuAsPrimaryAction = true
+        tocButton.menu = buildTOCMenu()
+        // Hide TOC button if there's no meaningful table of contents
+        tocButton.isHidden = chapter.tableOfContents.count < 2
+
         settingsButton = FloatingButton(systemImage: "gearshape")
         settingsButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
         settingsButton.accessibilityLabel = "Settings"
@@ -217,6 +227,7 @@ public final class ReaderViewController: UIViewController {
 
         // Add buttons and title to container
         topBarContainer.addSubview(backButton)
+        topBarContainer.addSubview(tocButton)
         topBarContainer.addSubview(settingsButton)
         topBarContainer.addSubview(chatButton)
         topBarContainer.addSubview(titleLabel)
@@ -242,6 +253,12 @@ public final class ReaderViewController: UIViewController {
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
 
+            // TOC button - next to back button
+            tocButton.topAnchor.constraint(equalTo: topBarContainer.topAnchor, constant: 16),
+            tocButton.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 8),
+            tocButton.widthAnchor.constraint(equalToConstant: 44),
+            tocButton.heightAnchor.constraint(equalToConstant: 44),
+
             // Settings button - top right within container
             settingsButton.topAnchor.constraint(equalTo: topBarContainer.topAnchor, constant: 16),
             settingsButton.trailingAnchor.constraint(equalTo: topBarContainer.trailingAnchor, constant: -16),
@@ -254,9 +271,9 @@ public final class ReaderViewController: UIViewController {
             chatButton.widthAnchor.constraint(equalToConstant: 44),
             chatButton.heightAnchor.constraint(equalToConstant: 44),
 
-            // Title label - centered between back button and chat button
+            // Title label - centered between TOC button and chat button
             titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: tocButton.trailingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(equalTo: chatButton.leadingAnchor, constant: -12)
         ])
     }
@@ -500,6 +517,33 @@ public final class ReaderViewController: UIViewController {
         navigationController?.popViewController(animated: true)
     }
 
+    // MARK: - Table of Contents
+
+    private func buildTOCMenu() -> UIMenu {
+        let tocItems = chapter.tableOfContents
+        let actions = tocItems.map { item in
+            UIAction(title: item.label) { [weak self] _ in
+                self?.navigateToChapter(item)
+            }
+        }
+        return UIMenu(title: "Table of Contents", children: actions)
+    }
+
+    private func navigateToChapter(_ tocItem: TOCItem) {
+        Self.logger.info("Navigating to chapter: \(tocItem.label) (spine: \(tocItem.id))")
+
+        // Navigate to the spine item
+        pageRenderer.navigateToSpineItem(tocItem.id, animated: false)
+
+        // Show the scrubber overlay
+        setOverlayVisible(true, animated: true)
+
+        // Hide the scrubber after a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.setOverlayVisible(false, animated: true)
+        }
+    }
+
     @objc private func navigateToPreviousPage() {
         pageRenderer.navigateToPreviousPage()
     }
@@ -569,7 +613,8 @@ public final class ReaderViewController: UIViewController {
                 chapterTitle: chapter.title,
                 fontScale: viewModel.fontScale,
                 initialPageIndex: viewModel.currentPageIndex,
-                initialBlockId: viewModel.currentBlockId
+                initialBlockId: viewModel.currentBlockId,
+                hrefToSpineItemId: chapter.hrefToSpineItemId
             )
         }
 

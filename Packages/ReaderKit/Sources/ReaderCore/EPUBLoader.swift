@@ -97,6 +97,14 @@ public final class EPUBLoader {
         var htmlSections: [HTMLSection] = []
         var sectionCount = 0
 
+        // Build mapping from file href to spine item ID for link resolution
+        var hrefToSpineItemId: [String: String] = [:]
+        for item in spineItems {
+            // Store both the raw href and the filename for flexible matching
+            hrefToSpineItemId[item.href] = item.id
+            hrefToSpineItemId[(item.href as NSString).lastPathComponent] = item.id
+        }
+
         let spineStart = CFAbsoluteTimeGetCurrent()
         var blockParseTime: Double = 0
 
@@ -147,7 +155,7 @@ public final class EPUBLoader {
         Self.logger.info("PERF: Total EPUB load took \(String(format: "%.3f", totalTime))s for \(sectionCount) sections, \(htmlSections.count) htmlSections")
 
         // Use fast initializer - skip NSAttributedString conversion (saves ~1s for large books)
-        return Chapter(id: chapterId, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels)
+        return Chapter(id: chapterId, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels, hrefToSpineItemId: hrefToSpineItemId)
     }
 
     private func data(for path: String, in archive: Archive) throws -> Data? {
