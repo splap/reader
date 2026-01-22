@@ -6,8 +6,8 @@ public final class ReaderSettingsViewController: UITableViewController {
     private let onFontScaleChanged: (CGFloat) -> Void
     private let fontManager = FontScaleManager.shared
 
-    // Discrete font scale steps
-    private let fontScaleSteps: [CGFloat] = [1.0, 1.2, 1.4, 1.6, 1.8]
+    // Discrete font scale steps (1.0 to 2.2 in 0.1 increments)
+    private let fontScaleSteps: [CGFloat] = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2]
 
     private var apiKey: String = UserDefaults.standard.string(forKey: "OpenRouterAPIKey") ?? ""
 
@@ -140,7 +140,7 @@ public final class ReaderSettingsViewController: UITableViewController {
         maxLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let valueLabel = UILabel()
-        valueLabel.text = String(format: "%.2gx", fontScale)
+        valueLabel.text = String(format: "%.1fx", fontScale)
         valueLabel.font = fontManager.scaledFont(size: 14)
         valueLabel.textColor = .secondaryLabel
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -243,9 +243,9 @@ public final class ReaderSettingsViewController: UITableViewController {
         let snappedValue = snapToStep(CGFloat(slider.value))
 
         // Update label to show snapped value
-        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)),
+        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 1)),
            let label = cell.contentView.viewWithTag(100) as? UILabel {
-            label.text = String(format: "%.2gx", snappedValue)
+            label.text = String(format: "%.1fx", snappedValue)
         }
     }
 
@@ -264,9 +264,9 @@ public final class ReaderSettingsViewController: UITableViewController {
         onFontScaleChanged(fontScale)
 
         // Update label
-        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)),
+        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 1)),
            let label = cell.contentView.viewWithTag(100) as? UILabel {
-            label.text = String(format: "%.2gx", fontScale)
+            label.text = String(format: "%.1fx", fontScale)
         }
     }
 
