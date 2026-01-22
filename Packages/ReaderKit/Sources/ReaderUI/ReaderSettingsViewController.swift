@@ -46,15 +46,16 @@ public final class ReaderSettingsViewController: UITableViewController {
     // MARK: - Table View
 
     public override func numberOfSections(in tableView: UITableView) -> Int {
-        return 4
+        return 5
     }
 
     public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: return 1 // Appearance
         case 1: return 1 // Font size
-        case 2: return 1 // Render mode
-        case 3: return 2 // API key + link
+        case 2: return 1 // Margins
+        case 3: return 1 // Render mode
+        case 4: return 2 // API key + link
         default: return 0
         }
     }
@@ -63,17 +64,18 @@ public final class ReaderSettingsViewController: UITableViewController {
         switch section {
         case 0: return "Appearance"
         case 1: return "Font Size"
-        case 2: return "Rendering"
-        case 3: return "OpenRouter API"
+        case 2: return "Margins"
+        case 3: return "Rendering"
+        case 4: return "OpenRouter API"
         default: return nil
         }
     }
 
     public override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section == 2 {
+        if section == 3 {
             return "Native uses iOS text rendering for cleaner layout. HTML preserves original formatting."
         }
-        if section == 3 {
+        if section == 4 {
             return "Your API key is stored securely on device and only used to call the LLM when you select text."
         }
         return nil
@@ -86,8 +88,10 @@ public final class ReaderSettingsViewController: UITableViewController {
         case 1:
             return fontSizeCell()
         case 2:
-            return renderModeCell()
+            return marginSizeCell()
         case 3:
+            return renderModeCell()
+        case 4:
             if indexPath.row == 0 {
                 return apiKeyCell()
             } else {
@@ -103,9 +107,9 @@ public final class ReaderSettingsViewController: UITableViewController {
 
         if indexPath.section == 0 {
             showAppearanceModePicker()
-        } else if indexPath.section == 2 {
+        } else if indexPath.section == 3 {
             showRenderModePicker()
-        } else if indexPath.section == 3 && indexPath.row == 1 {
+        } else if indexPath.section == 4 && indexPath.row == 1 {
             // Open OpenRouter link
             if let url = URL(string: "https://openrouter.ai/keys") {
                 UIApplication.shared.open(url)
@@ -145,6 +149,60 @@ public final class ReaderSettingsViewController: UITableViewController {
         valueLabel.textColor = .secondaryLabel
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
         valueLabel.tag = 100
+
+        let stack = UIStackView(arrangedSubviews: [minLabel, slider, maxLabel])
+        stack.axis = .horizontal
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        cell.contentView.addSubview(stack)
+        cell.contentView.addSubview(valueLabel)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+
+            valueLabel.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 8),
+            valueLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            valueLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12)
+        ])
+
+        return cell
+    }
+
+    private func marginSizeCell() -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.selectionStyle = .none
+
+        let currentMargin = ReaderPreferences.shared.marginSize
+
+        let slider = UISlider()
+        slider.minimumValue = 24
+        slider.maximumValue = 96
+        slider.value = Float(currentMargin)
+        slider.translatesAutoresizingMaskIntoConstraints = false
+        slider.addTarget(self, action: #selector(marginSliding(_:)), for: .valueChanged)
+        slider.addTarget(self, action: #selector(marginReleased(_:)), for: [.touchUpInside, .touchUpOutside])
+
+        let minLabel = UILabel()
+        minLabel.text = "Narrow"
+        minLabel.font = fontManager.scaledFont(size: 12)
+        minLabel.textColor = .secondaryLabel
+        minLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let maxLabel = UILabel()
+        maxLabel.text = "Wide"
+        maxLabel.font = fontManager.scaledFont(size: 12)
+        maxLabel.textColor = .secondaryLabel
+        maxLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let valueLabel = UILabel()
+        valueLabel.text = "\(Int(currentMargin))px"
+        valueLabel.font = fontManager.scaledFont(size: 14)
+        valueLabel.textColor = .secondaryLabel
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.tag = 200
 
         let stack = UIStackView(arrangedSubviews: [minLabel, slider, maxLabel])
         stack.axis = .horizontal
@@ -275,13 +333,31 @@ public final class ReaderSettingsViewController: UITableViewController {
         UserDefaults.standard.set(apiKey, forKey: "OpenRouterAPIKey")
     }
 
+    @objc private func marginSliding(_ slider: UISlider) {
+        let value = Int(slider.value)
+        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 2)),
+           let label = cell.contentView.viewWithTag(200) as? UILabel {
+            label.text = "\(value)px"
+        }
+    }
+
+    @objc private func marginReleased(_ slider: UISlider) {
+        let value = CGFloat(Int(slider.value))
+        ReaderPreferences.shared.marginSize = value
+
+        if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 2)),
+           let label = cell.contentView.viewWithTag(200) as? UILabel {
+            label.text = "\(Int(value))px"
+        }
+    }
+
     private func showRenderModePicker() {
         let alert = UIAlertController(title: "Select Renderer", message: nil, preferredStyle: .actionSheet)
 
         for mode in RenderMode.allCases {
             let action = UIAlertAction(title: mode.displayName, style: .default) { [weak self] _ in
                 ReaderPreferences.shared.renderMode = mode
-                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 2)], with: .automatic)
+                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 3)], with: .automatic)
             }
             if mode == ReaderPreferences.shared.renderMode {
                 action.setValue(true, forKey: "checked")
@@ -293,7 +369,7 @@ public final class ReaderSettingsViewController: UITableViewController {
 
         if let popover = alert.popoverPresentationController {
             popover.sourceView = tableView
-            popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 2))
+            popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 3))
         }
 
         present(alert, animated: true)
