@@ -1,21 +1,15 @@
-1.	Verify you are not on main. You must be on the agent’s long-lived private branch.
+1.	Verify you are not on main. You must be on your agent branch.
 2.	git fetch origin
 3.	git rebase origin/main
-    •	If conflicts: resolve, ensure build/tests pass, then git rebase --continue. If you cannot resolve confidently, stop and ask.
+	•	If conflicts: resolve, ensure build/tests pass, then git rebase --continue. If you cannot resolve confidently, stop and ask.
 4.	Examine uncommitted changes. Remove temp debugging, throwaway logs, and accidental files. Keep the diff minimal and intentional.
 5.	If the code or approach looks janky/unsafe/unclear, stop and ask for clarification.
-6.	If OK: stage changes and create a commit with a precise message.
-7.	Push the agent branch update to origin (rebasing rewrites history, so use the safe force push):
-    •	git push --force-with-lease origin HEAD
-8.	Switch to main and merge the agent branch into it:
-    •	git checkout main
-    •	git pull origin main
-    •	git merge <agent-branch>
-    •	git push origin main
-9.	Switch back to the agent branch:
-    •	git checkout <agent-branch>
+6.	Stage changes and create a commit with a precise message.
+7.	Push to main:
+	•	git push origin HEAD:main
+	•	If this fails (another agent pushed), repeat from step 2.
 
 Rules:
+	•	Never work directly on main; use your agent branch for isolation.
 	•	Never merge main into the agent branch; rebase only.
 	•	Never force-push main.
-	•	Always merge agent branch into main after committing, so other agents can pull the latest.
