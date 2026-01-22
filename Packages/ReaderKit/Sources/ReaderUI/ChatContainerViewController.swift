@@ -178,6 +178,9 @@ public final class ChatContainerViewController: UIViewController {
     }
 
     private func startNewChat() {
+        // Collapse the drawer
+        hideDrawer()
+
         // Create new chat
         let newChatViewController = BookChatViewController(context: context, selection: nil)
         newChatViewController.onToggleDrawer = { [weak self] in

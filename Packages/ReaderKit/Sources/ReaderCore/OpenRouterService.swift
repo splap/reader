@@ -24,10 +24,10 @@ public enum OpenRouterConfig {
     ]
 
     /// Get the selected model from UserDefaults (set via Settings UI)
-    /// Default: openai/gpt-4.1-nano
+    /// Default: google/gemini-3-flash-preview
     public static var model: String {
         get {
-            return UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "openai/gpt-4.1-nano"
+            return UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "google/gemini-3-flash-preview"
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "OpenRouterModel")
