@@ -58,7 +58,7 @@ public final class ReaderPreferences {
         get {
             guard let stored = UserDefaults.standard.string(forKey: Self.renderModeKey),
                   let mode = RenderMode(rawValue: stored) else {
-                return .native // Default to native
+                return .webView // Default to HTML
             }
             return mode
         }
