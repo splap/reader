@@ -7,10 +7,14 @@ public final class CSSManager {
     // MARK: - House CSS
 
     /// Generates minimal house CSS for pagination and basic safety
-    /// - Parameter fontScale: The font size multiplier
+    /// - Parameters:
+    ///   - fontScale: The font size multiplier
+    ///   - marginSize: Horizontal margin in pixels (default 32)
     /// - Returns: CSS string for house styles
-    public static func houseCSS(fontScale: CGFloat) -> String {
+    public static func houseCSS(fontScale: CGFloat, marginSize: CGFloat = 32) -> String {
         let baseFontSize = Int(16 * fontScale)
+        let margin = Int(marginSize)
+        let totalMargin = margin * 2
 
         return """
         /* House CSS - Minimal overrides for pagination */
@@ -25,12 +29,12 @@ public final class CSSManager {
 
             /* Pagination container - we own the outer margins */
             margin: 0;
-            padding: 0 24px; /* Horizontal padding for readable margins */
+            padding: 0 \(margin)px; /* Horizontal padding for readable margins */
             box-sizing: border-box;
 
             /* CSS columns for pagination */
-            column-width: calc(100vw - 48px); /* Account for padding */
-            column-gap: 48px; /* Match total padding for page transitions */
+            column-width: calc(100vw - \(totalMargin)px); /* Account for padding */
+            column-gap: \(totalMargin)px; /* Match total padding for page transitions */
             column-fill: auto;
         }
 
@@ -66,9 +70,10 @@ public final class CSSManager {
     /// Publisher CSS is included as-is - we trust it by default
     /// - Parameters:
     ///   - fontScale: The font size multiplier
+    ///   - marginSize: Horizontal margin in pixels (default 32)
     ///   - publisherCSS: Optional publisher CSS to include
     /// - Returns: Complete CSS string
-    public static func generateCompleteCSS(fontScale: CGFloat, publisherCSS: String? = nil) -> String {
+    public static func generateCompleteCSS(fontScale: CGFloat, marginSize: CGFloat = 32, publisherCSS: String? = nil) -> String {
         var css = ""
 
         // Publisher CSS comes first so house CSS can override if needed
@@ -78,7 +83,7 @@ public final class CSSManager {
             css += "\n\n"
         }
 
-        css += houseCSS(fontScale: fontScale)
+        css += houseCSS(fontScale: fontScale, marginSize: marginSize)
 
         return css
     }

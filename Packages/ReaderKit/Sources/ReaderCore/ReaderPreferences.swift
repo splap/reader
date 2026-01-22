@@ -45,11 +45,13 @@ public final class ReaderPreferences {
 
     public static let renderModeDidChangeNotification = Notification.Name("ReaderPreferences.renderModeDidChange")
     public static let appearanceModeDidChangeNotification = Notification.Name("ReaderPreferences.appearanceModeDidChange")
+    public static let marginSizeDidChangeNotification = Notification.Name("ReaderPreferences.marginSizeDidChange")
 
     // MARK: - Keys
 
     private static let renderModeKey = "ReaderRenderMode"
     private static let appearanceModeKey = "AppearanceMode"
+    private static let marginSizeKey = "ReaderMarginSize"
 
     // MARK: - Properties
 
@@ -84,6 +86,19 @@ public final class ReaderPreferences {
             UserDefaults.standard.set(newValue.rawValue, forKey: Self.appearanceModeKey)
             applyAppearanceMode(newValue)
             NotificationCenter.default.post(name: Self.appearanceModeDidChangeNotification, object: newValue)
+        }
+    }
+
+    /// Horizontal margin size in pixels (24-96)
+    public var marginSize: CGFloat {
+        get {
+            let stored = UserDefaults.standard.float(forKey: Self.marginSizeKey)
+            return stored > 0 ? CGFloat(stored) : 32 // Default to 32px
+        }
+        set {
+            let clamped = min(96, max(24, newValue))
+            UserDefaults.standard.set(Float(clamped), forKey: Self.marginSizeKey)
+            NotificationCenter.default.post(name: Self.marginSizeDidChangeNotification, object: clamped)
         }
     }
 

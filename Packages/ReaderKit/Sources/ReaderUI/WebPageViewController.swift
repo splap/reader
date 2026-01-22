@@ -147,7 +147,19 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
+        // Observe margin size changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(marginSizeDidChange),
+            name: ReaderPreferences.marginSizeDidChangeNotification,
+            object: nil
+        )
+
         loadContent()
+    }
+
+    @objc private func marginSizeDidChange() {
+        reloadWithNewFontScale()  // Reuse the same reload logic
     }
 
     public override func viewDidLayoutSubviews() {
@@ -273,7 +285,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         Self.logger.info("PERF: HTML combination took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - loadStart))s (image processing: \(String(format: "%.3f", imageProcessTime))s)")
 
         // Generate CSS using CSSManager (house CSS + sanitized publisher CSS)
-        let css = CSSManager.generateCompleteCSS(fontScale: fontScale, publisherCSS: nil)
+        let marginSize = ReaderPreferences.shared.marginSize
+        let css = CSSManager.generateCompleteCSS(fontScale: fontScale, marginSize: marginSize, publisherCSS: nil)
 
         // Wrap HTML with house CSS
         let wrappedHTML = """
