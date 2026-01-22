@@ -268,7 +268,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             let imgStart = CFAbsoluteTimeGetCurrent()
             let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
             imageProcessTime += CFAbsoluteTimeGetCurrent() - imgStart
-            combinedHTML += processedHTML + "\n"
+            combinedHTML += "<div class=\"spine-item-section\">\(processedHTML)</div>\n"
         }
         Self.logger.info("PERF: HTML combination took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - loadStart))s (image processing: \(String(format: "%.3f", imageProcessTime))s)")
 
