@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Parse arguments
+CLEAN_DATA=0
+for arg in "$@"; do
+  case "$arg" in
+    --clean)
+      CLEAN_DATA=1
+      ;;
+  esac
+done
+
 # Load local environment from .env if it exists
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
@@ -84,6 +94,33 @@ else
   echo "Using device: $DEVICE_NAME ($DEVICE_UDID)"
   APP_BUNDLE_ID="com.splap.reader"
   SDK="iphoneos"
+fi
+
+# Clean app data if requested
+if [ "$CLEAN_DATA" = "1" ]; then
+  if [ "$USE_SIMULATOR" = "1" ]; then
+    echo "Cleaning app data from simulator..."
+    APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE_UDID" "$APP_BUNDLE_ID" data 2>/dev/null || true)
+    if [ -n "$APP_CONTAINER" ]; then
+      # Clear Application Support (page layouts, vector indices, chunk store, etc.)
+      SUPPORT_DIR="$APP_CONTAINER/Library/Application Support/com.splap.reader"
+      if [ -d "$SUPPORT_DIR" ]; then
+        echo "  Removing: $SUPPORT_DIR"
+        rm -rf "$SUPPORT_DIR"
+      fi
+      # Clear Documents (any cached content)
+      DOCS_DIR="$APP_CONTAINER/Documents"
+      if [ -d "$DOCS_DIR" ]; then
+        echo "  Clearing Documents folder..."
+        rm -rf "$DOCS_DIR"/*
+      fi
+      echo "App data cleaned."
+    else
+      echo "No app container found (app not installed yet)"
+    fi
+  else
+    echo "Warning: --clean only supported for simulator"
+  fi
 fi
 
 # Ensure embedding model exists (required for semantic search)

@@ -33,6 +33,19 @@ After running with run_in_background, DO NOT poll the output or wait. The app wi
 
 **IMPORTANT**: Always use iOS 26 simulator (iPad Pro 11-inch M5).
 
+### Clearing App Data (--clean)
+
+Use `./scripts/run --clean` to clear all cached app data before launching. This removes:
+- Page layout cache (`page_layouts.sqlite`)
+- Search indices (`book_index.sqlite`, `vectors/`)
+- AI-generated content (`concept_maps/`, `book_synopses/`, `chapter_summaries/`)
+- Documents folder contents
+
+Use this when:
+- Debugging issues that might be caused by stale cached data
+- Testing fresh app behavior after code changes to pagination or indexing
+- Resetting the app to a clean state without reinstalling
+
 ### Simulator Ownership
 
 `simulator-uuid` (in the project directory) is your claim ticket.
