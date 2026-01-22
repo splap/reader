@@ -45,6 +45,28 @@ After running with run_in_background, DO NOT poll the output or wait. The app wi
 - Use `scripts/run` to start a simulator - never start one manually
 - Check `../reader2/simulator-uuid` (and similar peer directories) to see what sims other agents own
 
+### Simulator Naming (Conductor)
+
+When running in Conductor, multiple agents may run simulators simultaneously. **Name your simulator after your workspace** so the user can identify which simulator belongs to which agent.
+
+**Workspace name:** The last component of your working directory path (e.g., `/Users/.../conductor/workspaces/conductor/shanghai` → "shanghai")
+
+**When creating a new simulator:**
+```bash
+# Extract workspace name from current directory
+WORKSPACE_NAME=$(basename "$PWD")
+
+# Create simulator with workspace name
+xcrun simctl create "$WORKSPACE_NAME" "iPad Pro 11-inch (M5)" "com.apple.CoreSimulator.SimRuntime.iOS-26-2"
+```
+
+**If you inherit an unnamed simulator**, rename it:
+```bash
+xcrun simctl rename "$(cat simulator-uuid)" "$WORKSPACE_NAME"
+```
+
+This helps the user distinguish between simulators when multiple agents are working in parallel.
+
 ### Simulator Logs
 ```bash
 # Read the session simulator UDID
