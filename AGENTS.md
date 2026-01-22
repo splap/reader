@@ -35,7 +35,15 @@ After running with run_in_background, DO NOT poll the output or wait. The app wi
 
 ### Simulator Ownership
 
-`simulator-uuid` (in the project directory) is your claim ticket. Never claim a running simulator you didn't start - another agent may own it. The scripts handle this automatically. Never start a simulator yourself, use scripts/run to start a simulator
+`simulator-uuid` (in the project directory) is your claim ticket.
+
+**CRITICAL RULES:**
+- **NEVER modify `simulator-uuid` without explicit user permission** - this file is your claim ticket and changing it can steal another agent's simulator or cause resource conflicts
+- Never claim a running simulator you didn't start - another agent may own it
+- Before running `scripts/run`, check how many sims are already booted (`xcrun simctl list devices | grep Booted`) - if there are multiple, ask before booting another
+- If your claimed sim is shutdown and others are running, ask before booting to avoid system overload
+- Use `scripts/run` to start a simulator - never start one manually
+- Check `../reader2/simulator-uuid` (and similar peer directories) to see what sims other agents own
 
 ### Simulator Logs
 ```bash
