@@ -522,24 +522,27 @@ public final class BookLibraryService {
             }
         }
 
-        // Build concept map
-        progressHandler(IndexingProgress(stage: .conceptMap, message: "Extracting concepts..."))
-
-        do {
-            let conceptMap = ConceptMapBuilder.build(
-                bookId: bookId,
-                chapters: chapters,
-                chunkEmbeddings: nil
-            )
-            try await ConceptMapStore.shared.save(map: conceptMap)
-            Self.logger.info("Concept map complete: \(conceptMap.entities.count) entities, \(conceptMap.themes.count) themes")
-        } catch {
-            Self.logger.error("Concept map build failed: \(error.localizedDescription)")
-            // Not fatal
-        }
-
+        // Mark indexing complete - book can be opened now
         progressHandler(IndexingProgress(stage: .complete, message: "Indexing complete"))
         Self.logger.info("Indexing complete for book: \(book.title)")
+
+        // Build concept map in background (doesn't block book opening)
+        // This is slow (~70s for large books) due to co-occurrence matrix calculation
+        Task.detached(priority: .background) {
+            Self.logger.info("Starting background concept map build for: \(book.title)")
+            do {
+                let conceptMap = ConceptMapBuilder.build(
+                    bookId: bookId,
+                    chapters: chapters,
+                    chunkEmbeddings: nil
+                )
+                try await ConceptMapStore.shared.save(map: conceptMap)
+                Self.logger.info("Background concept map complete: \(conceptMap.entities.count) entities, \(conceptMap.themes.count) themes")
+            } catch {
+                Self.logger.error("Background concept map build failed: \(error.localizedDescription)")
+            }
+        }
+
         return true
     }
 
