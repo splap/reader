@@ -35,8 +35,7 @@ if [ "$USE_SIMULATOR" = "1" ]; then
       xcrun simctl boot "$DEVICE_UDID" || true
       xcrun simctl bootstatus "$DEVICE_UDID" -b
     else
-      echo "Claimed simulator $DEVICE_UDID not found, will create new one"
-      rm "$CLAIM_FILE"
+      echo "Claimed simulator $DEVICE_UDID not found, rm simulator-uuid and re run to create a new one."
     fi
   fi
 
