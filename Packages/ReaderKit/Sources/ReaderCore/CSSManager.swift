@@ -49,6 +49,14 @@ public final class CSSManager {
             height: auto;
             object-fit: contain;
         }
+
+        /* Spine item boundaries - each starts on a new page */
+        .spine-item-section {
+            break-before: column;
+        }
+        .spine-item-section:first-child {
+            break-before: auto;
+        }
         """
     }
 
