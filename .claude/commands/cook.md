@@ -18,14 +18,19 @@ curl -s http://localhost:3000/health || (cd ../reference-server && ./scripts/run
 # Create output directory
 mkdir -p /tmp/reader-tests
 
-# Get dark-mode reference screenshot (768x1024 points = iPad Pro 11" at 2x Retina, fontSize=32 to match iOS)
-REF_RESPONSE=$(curl -s "http://localhost:3000/screenshot?book=<book>&chapter=<chapter>&width=768&height=1024&theme=dark&fontSize=32&force=true")
+# Font scale configuration - iOS app drives the font size
+# Reference fontSize is calculated as: 16 * fontScale
+FONT_SCALE=1.0
+REF_FONT_SIZE=$(echo "$FONT_SCALE * 16" | bc | cut -d. -f1)
+
+# Get dark-mode reference screenshot (768x1024 points = iPad Pro 11" at 2x Retina)
+REF_RESPONSE=$(curl -s "http://localhost:3000/screenshot?book=<book>&chapter=<chapter>&width=768&height=1024&theme=dark&fontSize=${REF_FONT_SIZE}&force=true")
 REF_PATH=$(echo "$REF_RESPONSE" | grep -o '"path":"[^"]*"' | cut -d'"' -f4)
 cp "$REF_PATH" /tmp/reader-tests/ref_<book>_ch<chapter>.png
 
-# Capture iOS screenshots (both renderers)
-./scripts/run --screenshot --book=<book> --chapter=<chapter> --output=/tmp/reader-tests/ios_html_<book>_ch<chapter>.png
-./scripts/run --screenshot --book=<book> --chapter=<chapter> --renderer=native --output=/tmp/reader-tests/ios_native_<book>_ch<chapter>.png
+# Capture iOS screenshots (both renderers) with matching font scale
+./scripts/run --screenshot --book=<book> --chapter=<chapter> --font-scale=$FONT_SCALE --output=/tmp/reader-tests/ios_html_<book>_ch<chapter>.png
+./scripts/run --screenshot --book=<book> --chapter=<chapter> --font-scale=$FONT_SCALE --renderer=native --output=/tmp/reader-tests/ios_native_<book>_ch<chapter>.png
 
 # Compose labeled comparison
 uv run --with pillow scripts/compose-comparison.py <book> <chapter>
@@ -146,7 +151,7 @@ Returns spine array with `index`, `href`, `label`, `idref`, and `baseCfi` for ea
 | `width` | No | Viewport width (default: 1024) |
 | `height` | No | Viewport height (default: 768) |
 | `theme` | No | `light` (default), `dark`, or `sepia` |
-| `fontSize` | No | Font size in pixels (default: browser default, use 32 to match iOS) |
+| `fontSize` | No | Font size in pixels (default: browser default). Calculate as `16 * fontScale` to match iOS. |
 | `format` | No | `path` (default) or `base64` |
 | `force` | No | `true` to regenerate cached screenshot |
 
@@ -173,6 +178,7 @@ curl -G "http://localhost:3000/screenshot" \
 - Native renderer may have intentional differences
 - After fixing, consider adding a deterministic UI test to prevent regression
 - Use `/books/<book>/info` to discover spine structure and CFI values
+- **Font scaling**: iOS fontScale is the source of truth. Reference fontSize = `16 * fontScale`. Adjust `FONT_SCALE` in step 1 to test different sizes.
 
 ## Example
 

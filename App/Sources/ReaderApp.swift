@@ -331,7 +331,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             }
         }
 
-        // Set renderer mode if specified
+        // Set renderer mode (default to webView for screenshot mode)
         if let renderer = rendererArg {
             switch renderer.lowercased() {
             case "native":
@@ -339,8 +339,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             case "webview", "html":
                 ReaderPreferences.shared.renderMode = .webView
             default:
-                NSLog("📸 WARNING: Unknown renderer '\(renderer)', using default")
+                NSLog("📸 WARNING: Unknown renderer '\(renderer)', using webView")
+                ReaderPreferences.shared.renderMode = .webView
             }
+        } else {
+            // Default to webView for screenshot mode (HTML renderer matches reference server)
+            ReaderPreferences.shared.renderMode = .webView
         }
 
         // Set font scale if specified (default 1.0 for consistent comparison)

@@ -30,14 +30,16 @@ def compose_comparison(book: str, chapter: str, output_dir: str = "/tmp/reader-t
 
     output_path = Path(output_dir)
 
-    # Expected input paths
+    # Expected input paths (matching cook.md workflow)
     ref_path = output_path / f"ref_{book}_ch{chapter}.png"
-    html_path = output_path / f"ios_{book}_ch{chapter}_html.png"
-    native_path = output_path / f"ios_{book}_ch{chapter}_native.png"
+    html_path = output_path / f"ios_html_{book}_ch{chapter}.png"
+    native_path = output_path / f"ios_native_{book}_ch{chapter}.png"
 
-    # Fallback: if _html doesn't exist, try the regular ios_ screenshot
+    # Fallback: try alternate naming conventions
     if not html_path.exists():
         html_path = output_path / f"ios_{book}_ch{chapter}.png"
+    if not native_path.exists():
+        native_path = output_path / f"ios_{book}_ch{chapter}_native.png"
 
     # Check which files exist
     images = []
