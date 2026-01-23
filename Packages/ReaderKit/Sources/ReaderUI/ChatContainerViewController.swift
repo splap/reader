@@ -13,8 +13,12 @@ public final class ChatContainerViewController: UIViewController {
     private var chatNavController: UINavigationController!
     private var drawerWidthConstraint: NSLayoutConstraint!
 
-    private let drawerWidth: CGFloat = 300
     private var isDrawerVisible = false
+
+    /// Responsive drawer width - percentage of view width, capped
+    private var drawerWidth: CGFloat {
+        min(view.bounds.width * 0.4, 350)
+    }
 
     // MARK: - Initialization
 
@@ -63,7 +67,7 @@ public final class ChatContainerViewController: UIViewController {
         drawerWidthConstraint = drawerViewController.view.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
-            drawerViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            drawerViewController.view.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
             drawerViewController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             drawerViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14),
             drawerWidthConstraint
