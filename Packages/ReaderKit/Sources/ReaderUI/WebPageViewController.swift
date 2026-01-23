@@ -133,6 +133,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         webView.scrollView.showsVerticalScrollIndicator = false
         webView.scrollView.maximumZoomScale = 1.0
         webView.scrollView.minimumZoomScale = 1.0
+        webView.scrollView.contentInsetAdjustmentBehavior = .never  // Prevent automatic inset changes
         webView.scrollView.delegate = self
         webView.navigationDelegate = self
         webView.isOpaque = false
@@ -881,6 +882,16 @@ extension WebPageViewController: WKNavigationDelegate {
 
                 // Query exact CSS column width for precise alignment
                 self.queryCSSColumnWidth {
+                    // Ensure scroll view y-offset is 0 to prevent vertical drift
+                    // This must happen synchronously before any async navigation
+                    let scrollView = self.webView.scrollView
+                    if scrollView.contentOffset.y != 0 {
+                        scrollView.setContentOffset(
+                            CGPoint(x: scrollView.contentOffset.x, y: 0),
+                            animated: false
+                        )
+                    }
+
                     // Restore position BEFORE reporting current page/block
                     // This prevents overwriting saved position with initial values
                     if !self.hasRestoredPosition {
