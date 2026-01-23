@@ -603,8 +603,8 @@ public struct ToolExecutor {
             var output = "Found \(results.count) semantically similar passage(s) for '\(query)':\n\n"
 
             for (index, result) in results.enumerated() {
-                // Get chunk text from ChunkStore
-                if let chunk = try? await ChunkStore.shared.getChunk(id: result.chunkId) {
+                // Get chunk text from VectorStore
+                if let chunk = try? await vectorStore.getChunk(bookId: bookId, chunkId: result.chunkId) {
                     let snippet = String(chunk.text.prefix(300))
                     let similarity = Int(result.score * 100)
                     let chapterName = context.sections.first { $0.spineItemId == chunk.chapterId }?.displayLabel ?? chunk.chapterId

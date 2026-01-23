@@ -361,15 +361,6 @@ public final class BookChatViewController: UIViewController {
                 // Scroll to make cursor visible
                 self.textView.scrollRangeToVisible(NSRange(location: self.textView.text.count, length: 0))
             }
-        } else {
-            // Show welcome message if no selection
-            let welcome = "I can help you understand this book. Try asking:\n\n" +
-                "- \"Summarize this chapter\"\n" +
-                "- \"Who is [character name]?\"\n" +
-                "- \"Find mentions of [topic]\"\n" +
-                "- \"Explain what's happening here\""
-
-            messages.append(ChatMessage(role: .assistant, content: welcome))
         }
 
         tableView.reloadData()

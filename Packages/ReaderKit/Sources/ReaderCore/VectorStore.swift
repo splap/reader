@@ -22,6 +22,9 @@ public actor VectorStore {
     /// Reverse mapping from vector position to chunk ID
     private var positionToChunkId: [String: [UInt64: String]] = [:]
 
+    /// Cached chunks for each book (for retrieving text after search)
+    private var cachedChunks: [String: [String: Chunk]] = [:]
+
     /// Embedding dimension (bge-small-en-v1.5 produces 384-dim vectors)
     public static let dimension: UInt32 = 384
 
@@ -90,10 +93,21 @@ public actor VectorStore {
         let mappingPath = mappingPath(for: bookId)
         try saveMappings(idMapping, to: mappingPath)
 
+        // Save chunks (for text retrieval after search)
+        let chunksPath = chunksPath(for: bookId)
+        try saveChunks(chunks, to: chunksPath)
+
+        // Build chunk lookup
+        var chunkLookup: [String: Chunk] = [:]
+        for chunk in chunks {
+            chunkLookup[chunk.id] = chunk
+        }
+
         // Cache in memory
         loadedIndices[bookId] = index
         chunkIdMappings[bookId] = idMapping
         positionToChunkId[bookId] = reverseMapping
+        cachedChunks[bookId] = chunkLookup
 
         Self.logger.info("Successfully built vector index for book \(bookId)")
     }
@@ -160,13 +174,16 @@ public actor VectorStore {
         loadedIndices.removeValue(forKey: bookId)
         chunkIdMappings.removeValue(forKey: bookId)
         positionToChunkId.removeValue(forKey: bookId)
+        cachedChunks.removeValue(forKey: bookId)
 
         // Remove files
         let indexPath = indexPath(for: bookId)
         let mappingPath = mappingPath(for: bookId)
+        let chunksPath = chunksPath(for: bookId)
 
         try? FileManager.default.removeItem(at: indexPath)
         try? FileManager.default.removeItem(at: mappingPath)
+        try? FileManager.default.removeItem(at: chunksPath)
 
         Self.logger.info("Deleted vector index for book \(bookId)")
     }
@@ -176,7 +193,20 @@ public actor VectorStore {
         loadedIndices.removeAll()
         chunkIdMappings.removeAll()
         positionToChunkId.removeAll()
+        cachedChunks.removeAll()
         Self.logger.info("Cleared vector index cache")
+    }
+
+    /// Retrieves a chunk by ID (for getting text after semantic search)
+    public func getChunk(bookId: String, chunkId: String) throws -> Chunk? {
+        // Check cache first
+        if let cached = cachedChunks[bookId]?[chunkId] {
+            return cached
+        }
+
+        // Load from disk
+        let chunks = try loadChunks(for: bookId)
+        return chunks[chunkId]
     }
 
     // MARK: - Private Helpers
@@ -187,6 +217,10 @@ public actor VectorStore {
 
     private func mappingPath(for bookId: String) -> URL {
         storeDirectory.appendingPathComponent("\(bookId).mapping.json")
+    }
+
+    private func chunksPath(for bookId: String) -> URL {
+        storeDirectory.appendingPathComponent("\(bookId).chunks.json")
     }
 
     private func loadIndex(for bookId: String) throws -> USearchIndex {
@@ -245,6 +279,36 @@ public actor VectorStore {
     private func saveMappings(_ mapping: [String: UInt64], to path: URL) throws {
         let data = try JSONEncoder().encode(mapping)
         try data.write(to: path)
+    }
+
+    private func saveChunks(_ chunks: [Chunk], to path: URL) throws {
+        let data = try JSONEncoder().encode(chunks)
+        try data.write(to: path)
+    }
+
+    private func loadChunks(for bookId: String) throws -> [String: Chunk] {
+        // Check cache first
+        if let cached = cachedChunks[bookId] {
+            return cached
+        }
+
+        // Load from disk
+        let path = chunksPath(for: bookId)
+        guard FileManager.default.fileExists(atPath: path.path) else {
+            return [:]
+        }
+
+        let data = try Data(contentsOf: path)
+        let chunks = try JSONDecoder().decode([Chunk].self, from: data)
+
+        // Build lookup
+        var lookup: [String: Chunk] = [:]
+        for chunk in chunks {
+            lookup[chunk.id] = chunk
+        }
+
+        cachedChunks[bookId] = lookup
+        return lookup
     }
 }
 

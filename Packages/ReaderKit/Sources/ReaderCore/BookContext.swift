@@ -162,54 +162,18 @@ public final class ReaderBookContext: BookContext {
         return text.isEmpty ? nil : text
     }
 
-    // MARK: - Search (using FTS index)
+    // MARK: - Search (in-memory, instant)
 
     public func searchChapter(query: String) async -> [SearchResult] {
-        do {
-            let matches = try await ChunkStore.shared.search(
-                query: query,
-                bookId: _bookId,
-                chapterIds: [currentSpineItemId],
-                limit: 20
-            )
-            return matches.map { match in
-                SearchResult(
-                    blockId: match.chunk.blockIds.first ?? "",
-                    spineItemId: match.chunk.chapterId,
-                    text: match.snippet ?? match.chunk.text,
-                    matchRange: nil
-                )
-            }
-        } catch {
-            // Fallback to in-memory search if ChunkStore fails
-            return searchBlocksInMemory(in: chapter.htmlSections.filter { $0.spineItemId == currentSpineItemId }, query: query)
-        }
+        searchBlocks(in: chapter.htmlSections.filter { $0.spineItemId == currentSpineItemId }, query: query)
     }
 
     public func searchBook(query: String) async -> [SearchResult] {
-        do {
-            let matches = try await ChunkStore.shared.search(
-                query: query,
-                bookId: _bookId,
-                chapterIds: nil,
-                limit: 20
-            )
-            return matches.map { match in
-                SearchResult(
-                    blockId: match.chunk.blockIds.first ?? "",
-                    spineItemId: match.chunk.chapterId,
-                    text: match.snippet ?? match.chunk.text,
-                    matchRange: nil
-                )
-            }
-        } catch {
-            // Fallback to in-memory search if ChunkStore fails
-            return searchBlocksInMemory(in: chapter.htmlSections, query: query)
-        }
+        searchBlocks(in: chapter.htmlSections, query: query)
     }
 
-    /// Fallback in-memory search when ChunkStore is unavailable
-    private func searchBlocksInMemory(in sections: [HTMLSection], query: String) -> [SearchResult] {
+    /// In-memory search - fast enough for any book size
+    private func searchBlocks(in sections: [HTMLSection], query: String) -> [SearchResult] {
         var results: [SearchResult] = []
         let lowercasedQuery = query.lowercased()
 

@@ -184,20 +184,12 @@ public final class BookLibraryService {
         let group = DispatchGroup()
         group.enter()
         Task {
-            do {
-                // Step 1: Index chunks in FTS5 (lexical search)
-                try await ChunkStore.shared.indexBook(chunks: chunks, bookId: bookId)
-                Self.logger.info("Indexed \(chunks.count) chunks for \(book.title)")
+            // Build vector index (semantic search) - also stores chunks for text retrieval
+            await self.buildVectorIndex(bookId: bookId, chunks: chunks)
 
-                // Step 2: Generate embeddings and build vector index (semantic search)
-                await self.buildVectorIndex(bookId: bookId, chunks: chunks)
+            // Build concept map (entities, themes, events)
+            await self.buildConceptMap(bookId: bookId, chapters: chapters)
 
-                // Step 3: Build concept map (entities, themes, events)
-                await self.buildConceptMap(bookId: bookId, chapters: chapters)
-
-            } catch {
-                Self.logger.error("Index failed - store error: \(error)")
-            }
             group.leave()
         }
         group.wait()
@@ -290,14 +282,7 @@ public final class BookLibraryService {
         Task {
             let bookId = id.uuidString
 
-            // Delete FTS5 index
-            do {
-                try await ChunkStore.shared.deleteBook(bookId: bookId)
-            } catch {
-                Self.logger.error("Failed to delete book from chunk index: \(error.localizedDescription)")
-            }
-
-            // Delete vector index
+            // Delete vector index (includes stored chunks)
             do {
                 try await VectorStore.shared.deleteBook(bookId: bookId)
             } catch {
@@ -408,14 +393,9 @@ public final class BookLibraryService {
         }
     }
 
-    /// Checks if a book has been indexed for lexical search
+    /// Lexical search is always available (in-memory), no index needed
     public func isLexicalIndexed(bookId: String) async -> Bool {
-        do {
-            return try await ChunkStore.shared.isBookIndexed(bookId: bookId)
-        } catch {
-            Self.logger.error("Failed to check lexical index: \(error.localizedDescription)")
-            return false
-        }
+        true
     }
 
     /// Checks if a book has a vector index for semantic search
@@ -423,11 +403,9 @@ public final class BookLibraryService {
         await VectorStore.shared.isIndexed(bookId: bookId)
     }
 
-    /// Checks if a book has all required indexes
+    /// Checks if a book has all required indexes (just vector index now)
     public func isFullyIndexed(bookId: String) async -> Bool {
-        let hasLexical = await isLexicalIndexed(bookId: bookId)
-        let hasVector = await isVectorIndexed(bookId: bookId)
-        return hasLexical && hasVector
+        await isVectorIndexed(bookId: bookId)
     }
 
     /// Indexes a book with progress updates. Call this when opening a book that hasn't been indexed.
@@ -442,17 +420,16 @@ public final class BookLibraryService {
     ) async -> Bool {
         let bookId = book.id.uuidString
 
-        // Check if already indexed
-        let hasLexical = await isLexicalIndexed(bookId: bookId)
+        // Check if vector index exists (lexical search is always in-memory)
         let hasVector = await isVectorIndexed(bookId: bookId)
 
-        if hasLexical && hasVector {
-            Self.logger.info("Book already fully indexed: \(book.title)")
+        if hasVector {
+            Self.logger.info("Book already indexed: \(book.title)")
             progressHandler(IndexingProgress(stage: .complete, message: "Already indexed"))
             return true
         }
 
-        Self.logger.info("Starting indexing for book: \(book.title) (lexical: \(hasLexical), vector: \(hasVector))")
+        Self.logger.info("Starting indexing for book: \(book.title)")
 
         // Load the book
         progressHandler(IndexingProgress(stage: .loading, message: "Loading book content..."))
@@ -476,21 +453,7 @@ public final class BookLibraryService {
         let chunks = Chunker.chunkBook(chapters: chapters, bookId: bookId)
         Self.logger.info("Created \(chunks.count) chunks from \(chapter.allBlocks.count) blocks")
 
-        // Build lexical index if needed
-        if !hasLexical {
-            progressHandler(IndexingProgress(stage: .lexical, message: "Building search index (\(chunks.count) chunks)..."))
-
-            do {
-                try await ChunkStore.shared.indexBook(chunks: chunks, bookId: bookId)
-                Self.logger.info("Lexical index complete: \(chunks.count) chunks indexed")
-            } catch {
-                Self.logger.error("Lexical index failed: \(error)")
-                progressHandler(IndexingProgress(stage: .failed, message: "Failed to build search index"))
-                return false
-            }
-        }
-
-        // Build vector index if needed
+        // Build vector index (includes chunk storage for text retrieval)
         if !hasVector {
             progressHandler(IndexingProgress(stage: .embeddings, message: "Generating embeddings..."))
 
