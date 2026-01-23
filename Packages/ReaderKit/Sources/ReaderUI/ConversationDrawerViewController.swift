@@ -82,14 +82,15 @@ final class ConversationDrawerViewController: UIViewController {
         tableView.delegate = self
         tableView.backgroundColor = .clear
         tableView.register(ConversationCell.self, forCellReuseIdentifier: "ConversationCell")
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        // Use system default separator inset
         view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
             newChatButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
             newChatButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             newChatButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            newChatButton.heightAnchor.constraint(equalToConstant: 44),
+            // Minimum 44pt touch target per Apple HIG, allows growth with font scale
+            newChatButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
 
             tableView.topAnchor.constraint(equalTo: newChatButton.bottomAnchor, constant: 16),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),

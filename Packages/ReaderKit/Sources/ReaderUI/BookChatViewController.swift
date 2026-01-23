@@ -234,7 +234,7 @@ public final class BookChatViewController: UIViewController {
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -14),
 
-            // Input container with horizontal margins
+            // Input container with margins matching message bubbles
             inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             bottomConstraint,
@@ -254,22 +254,22 @@ public final class BookChatViewController: UIViewController {
             buttonRow.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor),
             buttonRow.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor),
             buttonRow.bottomAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: -8),
-            buttonRow.heightAnchor.constraint(equalToConstant: 32),
+            buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
             // Model button in the button row, left side
             modelButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor, constant: 12),
             modelButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
 
-            // Send button in the button row, right side
-            sendButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor, constant: -12),
+            // Send button in the button row, right side - 44pt touch target per Apple HIG
+            sendButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor, constant: -8),
             sendButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 28),
-            sendButton.heightAnchor.constraint(equalToConstant: 28),
+            sendButton.widthAnchor.constraint(equalToConstant: 44),
+            sendButton.heightAnchor.constraint(equalToConstant: 44),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
 
-            // Status bubble - positioned just above the input container
+            // Status bubble - positioned just above the input container, matching message bubble margins
             statusBubble.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             statusBubble.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -60),
             statusBubble.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
@@ -1006,7 +1006,7 @@ private final class ChatMessageCell: UITableViewCell {
         // Hidden views are removed from layout by UIStackView
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
-        contentStack.spacing = 8
+        contentStack.spacing = UIStackView.spacingUseSystem
         contentStack.alignment = .fill
         bubbleView.addSubview(contentStack)
 
@@ -1488,6 +1488,7 @@ private final class ModelPickerViewController: UIViewController, UITableViewData
 // MARK: - Model Cell
 
 private final class ModelCell: UITableViewCell {
+    private let fontManager = FontScaleManager.shared
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -1500,13 +1501,13 @@ private final class ModelCell: UITableViewCell {
     func configure(with model: OpenRouterConfig.Model, isSelected: Bool) {
         var content = defaultContentConfiguration()
         content.text = model.name
-        content.textProperties.font = .systemFont(ofSize: 16, weight: .medium)
+        content.textProperties.font = fontManager.bodyFont
 
         let inputStr = formatPrice(model.inputCost)
         let outputStr = formatPrice(model.outputCost)
         let contextStr = formatContextLength(model.contextLength)
         content.secondaryText = "\(inputStr) in  ·  \(outputStr) out  ·  \(contextStr) context"
-        content.secondaryTextProperties.font = .systemFont(ofSize: 14)
+        content.secondaryTextProperties.font = fontManager.captionFont
         content.secondaryTextProperties.color = .secondaryLabel
 
         contentConfiguration = content
