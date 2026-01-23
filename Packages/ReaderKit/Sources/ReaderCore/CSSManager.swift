@@ -29,7 +29,7 @@ public final class CSSManager {
 
             /* Pagination container - we own the outer margins */
             margin: 0;
-            padding: 0 \(margin)px; /* Horizontal padding for readable margins */
+            padding: \(margin)px; /* Equal padding on all sides */
             box-sizing: border-box;
 
             /* CSS columns for pagination */
