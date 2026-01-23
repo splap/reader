@@ -6,10 +6,39 @@ cd "$ROOT_DIR"
 
 # Parse arguments
 CLEAN_DATA=0
+SCREENSHOT_MODE=0
+SCREENSHOT_BOOK=""
+SCREENSHOT_CHAPTER=""
+SCREENSHOT_CFI=""
+SCREENSHOT_OUTPUT=""
+SCREENSHOT_RENDERER=""
+SCREENSHOT_FONT_SCALE=""
+
 for arg in "$@"; do
   case "$arg" in
     --clean)
       CLEAN_DATA=1
+      ;;
+    --screenshot)
+      SCREENSHOT_MODE=1
+      ;;
+    --book=*)
+      SCREENSHOT_BOOK="${arg#--book=}"
+      ;;
+    --chapter=*)
+      SCREENSHOT_CHAPTER="${arg#--chapter=}"
+      ;;
+    --cfi=*)
+      SCREENSHOT_CFI="${arg#--cfi=}"
+      ;;
+    --output=*)
+      SCREENSHOT_OUTPUT="${arg#--output=}"
+      ;;
+    --renderer=*)
+      SCREENSHOT_RENDERER="${arg#--renderer=}"
+      ;;
+    --font-scale=*)
+      SCREENSHOT_FONT_SCALE="${arg#--font-scale=}"
       ;;
   esac
 done
@@ -185,6 +214,52 @@ fi
 
 echo "Launching app..."
 if [ "$USE_SIMULATOR" = "1" ]; then
+  # Screenshot mode - special headless launch
+  if [ "$SCREENSHOT_MODE" = "1" ]; then
+    if [ -z "$SCREENSHOT_BOOK" ]; then
+      echo "Error: --book= is required for screenshot mode" >&2
+      exit 1
+    fi
+    if [ -z "$SCREENSHOT_OUTPUT" ]; then
+      echo "Error: --output= is required for screenshot mode" >&2
+      exit 1
+    fi
+
+    # Build app arguments
+    APP_ARGS="--screenshot-mode --screenshot-book=$SCREENSHOT_BOOK --screenshot-output=$SCREENSHOT_OUTPUT"
+    if [ -n "$SCREENSHOT_CHAPTER" ]; then
+      APP_ARGS="$APP_ARGS --screenshot-chapter=$SCREENSHOT_CHAPTER"
+    fi
+    if [ -n "$SCREENSHOT_CFI" ]; then
+      APP_ARGS="$APP_ARGS --screenshot-cfi=$SCREENSHOT_CFI"
+    fi
+    if [ -n "$SCREENSHOT_RENDERER" ]; then
+      APP_ARGS="$APP_ARGS --screenshot-renderer=$SCREENSHOT_RENDERER"
+    fi
+    if [ -n "$SCREENSHOT_FONT_SCALE" ]; then
+      APP_ARGS="$APP_ARGS --screenshot-font-scale=$SCREENSHOT_FONT_SCALE"
+    fi
+
+    echo "Screenshot mode: book=$SCREENSHOT_BOOK output=$SCREENSHOT_OUTPUT"
+
+    # Terminate any existing instance
+    xcrun simctl terminate "$DEVICE_UDID" "$APP_BUNDLE_ID" 2>/dev/null || true
+
+    # Launch with --console-pty to wait for app exit
+    # shellcheck disable=SC2086
+    xcrun simctl launch --console-pty "$DEVICE_UDID" "$APP_BUNDLE_ID" $APP_ARGS
+
+    # Verify output file exists
+    if [ -f "$SCREENSHOT_OUTPUT" ]; then
+      echo "Screenshot saved: $SCREENSHOT_OUTPUT"
+      exit 0
+    else
+      echo "Error: Screenshot file not found at $SCREENSHOT_OUTPUT" >&2
+      exit 1
+    fi
+  fi
+
+  # Normal launch mode
   xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"
   echo ""
   echo "=== App Logs (com.splap.reader) ==="
