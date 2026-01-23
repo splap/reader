@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+#
+# Visual Comparison Test Orchestration Script
+#
+# Captures screenshots from both the reference server (EPUB.js) and the iOS app,
+# then uses an LLM to compare them and provide feedback on rendering differences.
+#
+# Usage:
+#   ./scripts/visual-test [book] [chapter]
+#   ./scripts/visual-test frankenstein 0
+#   ./scripts/visual-test meditations 3
+#
+# Environment:
+#   ANTHROPIC_API_KEY: Required for LLM comparison
+#   REFERENCE_SERVER_URL: Override reference server URL (default: http://localhost:3000)
+#   SKIP_REFERENCE: Set to 1 to skip reference screenshot capture
+#   SKIP_IOS: Set to 1 to skip iOS screenshot capture
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+# Configuration
+BOOK="${1:-frankenstein}"
+CHAPTER="${2:-0}"
+OUTPUT_DIR="/tmp/reader-tests"
+REFERENCE_SERVER_URL="${REFERENCE_SERVER_URL:-http://localhost:3000}"
+REFERENCE_SERVER_DIR="${REFERENCE_SERVER_DIR:-../reference-server}"
+
+# Paths
+REF_SCREENSHOT="$OUTPUT_DIR/ref_${BOOK}_ch${CHAPTER}.png"
+IOS_SCREENSHOT="$OUTPUT_DIR/ios_${BOOK}_ch${CHAPTER}.png"
+COMPARISON_RESULT="$OUTPUT_DIR/comparison_${BOOK}_ch${CHAPTER}.json"
+
+echo "========================================"
+echo "Visual Comparison Test"
+echo "========================================"
+echo "Book: $BOOK"
+echo "Chapter: $CHAPTER"
+echo "Output directory: $OUTPUT_DIR"
+echo ""
+
+# Create output directory
+mkdir -p "$OUTPUT_DIR"
+
+# Step 1: Capture reference screenshot
+if [ "${SKIP_REFERENCE:-}" != "1" ]; then
+    echo "📸 Step 1: Capturing reference screenshot..."
+
+    if [ -d "$REFERENCE_SERVER_DIR" ]; then
+        # Check if reference server is running
+        if ! curl -s "$REFERENCE_SERVER_URL/health" > /dev/null 2>&1; then
+            echo "   Reference server not running. Starting it..."
+            (cd "$REFERENCE_SERVER_DIR" && ./scripts/run &)
+            echo "   Waiting for reference server to start..."
+            for i in {1..30}; do
+                if curl -s "$REFERENCE_SERVER_URL/health" > /dev/null 2>&1; then
+                    echo "   Reference server is ready."
+                    break
+                fi
+                sleep 1
+            done
+        fi
+
+        # Request screenshot from reference server
+        echo "   Requesting screenshot from reference server..."
+        RESPONSE=$(curl -s "$REFERENCE_SERVER_URL/screenshot?book=$BOOK&chapter=$CHAPTER")
+
+        # Check if response contains path or error
+        if echo "$RESPONSE" | grep -q '"error"'; then
+            echo "   Warning: Reference server returned error: $RESPONSE"
+            echo "   Continuing without reference screenshot..."
+        elif echo "$RESPONSE" | grep -q '"path"'; then
+            REF_PATH=$(echo "$RESPONSE" | grep -o '"path":"[^"]*"' | cut -d'"' -f4)
+            if [ -f "$REF_PATH" ]; then
+                cp "$REF_PATH" "$REF_SCREENSHOT"
+                echo "   Reference screenshot saved to: $REF_SCREENSHOT"
+            else
+                echo "   Warning: Reference screenshot path not found: $REF_PATH"
+            fi
+        else
+            echo "   Warning: Unexpected response from reference server: $RESPONSE"
+        fi
+    else
+        echo "   Warning: Reference server directory not found: $REFERENCE_SERVER_DIR"
+        echo "   Skipping reference screenshot capture."
+    fi
+else
+    echo "📸 Step 1: Skipping reference screenshot (SKIP_REFERENCE=1)"
+fi
+
+echo ""
+
+# Step 2: Capture iOS screenshot
+if [ "${SKIP_IOS:-}" != "1" ]; then
+    echo "📱 Step 2: Capturing iOS screenshot..."
+
+    # Run the UI test to capture screenshot
+    # Export environment variables for the test
+    export BOOK="$BOOK"
+    export CHAPTER="$CHAPTER"
+
+    echo "   Running UI test to capture screenshot..."
+    if ./scripts/test ui:testCaptureForComparison 2>&1 | tail -20; then
+        if [ -f "$IOS_SCREENSHOT" ]; then
+            echo "   iOS screenshot saved to: $IOS_SCREENSHOT"
+        else
+            echo "   Warning: iOS screenshot not found at expected path: $IOS_SCREENSHOT"
+        fi
+    else
+        echo "   Warning: UI test failed. Check simulator and app state."
+    fi
+else
+    echo "📱 Step 2: Skipping iOS screenshot (SKIP_IOS=1)"
+fi
+
+echo ""
+
+# Step 3: Run LLM comparison
+echo "🤖 Step 3: Running LLM comparison..."
+
+if [ ! -f "$REF_SCREENSHOT" ]; then
+    echo "   Warning: Reference screenshot missing, cannot run comparison."
+    echo "   Path: $REF_SCREENSHOT"
+elif [ ! -f "$IOS_SCREENSHOT" ]; then
+    echo "   Warning: iOS screenshot missing, cannot run comparison."
+    echo "   Path: $IOS_SCREENSHOT"
+elif [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "   Warning: ANTHROPIC_API_KEY not set, cannot run LLM comparison."
+    echo "   Set the environment variable and re-run."
+else
+    echo "   Comparing screenshots with Claude..."
+    if uv run --with anthropic scripts/visual-compare.py \
+        "$REF_SCREENSHOT" \
+        "$IOS_SCREENSHOT" \
+        --output "$COMPARISON_RESULT" \
+        --pretty; then
+        RESULT_STATUS="PASS"
+    else
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -eq 1 ]; then
+            RESULT_STATUS="NEEDS_WORK"
+        elif [ $EXIT_CODE -eq 2 ]; then
+            RESULT_STATUS="MAJOR_DIFF"
+        else
+            RESULT_STATUS="ERROR"
+        fi
+    fi
+
+    echo ""
+    echo "========================================"
+    echo "Comparison Result: $RESULT_STATUS"
+    echo "========================================"
+    echo ""
+
+    if [ -f "$COMPARISON_RESULT" ]; then
+        # Show priority issues if any
+        if command -v jq &> /dev/null; then
+            echo "Priority Issues:"
+            jq -r '.priority_issues[]? // "None identified"' "$COMPARISON_RESULT" 2>/dev/null || cat "$COMPARISON_RESULT"
+            echo ""
+            echo "Suggested Tests:"
+            jq -r '.suggested_tests[]? | "  - \(.name): \(.description)"' "$COMPARISON_RESULT" 2>/dev/null || true
+        else
+            cat "$COMPARISON_RESULT"
+        fi
+
+        echo ""
+        echo "Full results: $COMPARISON_RESULT"
+    fi
+fi
+
+echo ""
+echo "========================================"
+echo "Output Files:"
+echo "========================================"
+echo "Reference screenshot: $REF_SCREENSHOT"
+echo "iOS screenshot: $IOS_SCREENSHOT"
+echo "Comparison result: $COMPARISON_RESULT"
+echo ""
+echo "To view screenshots:"
+echo "  open $OUTPUT_DIR"

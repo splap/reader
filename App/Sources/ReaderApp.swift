@@ -20,6 +20,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
         let useWebView = CommandLine.arguments.contains("--uitesting-webview")
         let cleanAllData = CommandLine.arguments.contains("--uitesting-clean-all-data")
+        let uitestingBook = Self.parseArgument("--uitesting-book=")
+        let uitestingSpineItem = Self.parseIntArgument("--uitesting-spine-item=")
 
         if isUITesting && cleanAllData {
             NSLog("🧪 UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
@@ -59,6 +61,18 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 bookId: "ui-test-position",
                 bookTitle: chapter.title,
                 bookAuthor: "UI Test"
+            )
+            navController.pushViewController(readerVC, animated: false)
+        } else if let bookSlug = uitestingBook, let book = findBookBySlug(bookSlug) {
+            NSLog("🚀 UI test opening book by slug: \(bookSlug) -> \(book.title)")
+            BookLibraryService.shared.updateLastOpened(bookId: book.id)
+            let fileURL = BookLibraryService.shared.getFileURL(for: book)
+            let readerVC = ReaderViewController(
+                epubURL: fileURL,
+                bookId: book.id.uuidString,
+                bookTitle: book.title,
+                bookAuthor: book.author,
+                initialSpineItemIndex: uitestingSpineItem
             )
             navController.pushViewController(readerVC, animated: false)
         } else if autoOpenFirstBook, let book = BookLibraryService.shared.getAllBooks().first {
@@ -238,5 +252,28 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             name: .bookLibraryDidChange,
             object: nil
         )
+    }
+
+    // MARK: - Argument Parsing
+
+    private static func parseArgument(_ prefix: String) -> String? {
+        for arg in CommandLine.arguments where arg.hasPrefix(prefix) {
+            return String(arg.dropFirst(prefix.count))
+        }
+        return nil
+    }
+
+    private static func parseIntArgument(_ prefix: String) -> Int? {
+        guard let stringValue = parseArgument(prefix) else { return nil }
+        return Int(stringValue)
+    }
+
+    private func findBookBySlug(_ slug: String) -> Book? {
+        let books = BookLibraryService.shared.getAllBooks()
+        // Try exact match on lowercased slug first (e.g., "frankenstein" -> "Frankenstein...")
+        let slugLower = slug.lowercased()
+        return books.first { book in
+            book.title.lowercased().contains(slugLower)
+        }
     }
 }

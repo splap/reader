@@ -93,7 +93,7 @@ public final class ReaderPreferences {
     public var marginSize: CGFloat {
         get {
             let stored = UserDefaults.standard.float(forKey: Self.marginSizeKey)
-            return stored > 0 ? CGFloat(stored) : 32 // Default to 32px
+            return stored > 0 ? CGFloat(stored) : 80 // Default to 80px (matches EPUB.js reference)
         }
         set {
             let clamped = min(96, max(24, newValue))

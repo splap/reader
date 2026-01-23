@@ -7,8 +7,8 @@ cd "$ROOT_DIR"
 PROJECT="Reader.xcodeproj"
 SCHEME="ReaderApp"
 CONFIGURATION="Debug"
-DESTINATION="generic/platform=iOS Simulator"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
+DESTINATION="generic/platform=iOS Simulator"
 
 if [ ! -d "$PROJECT" ]; then
   echo "$PROJECT not found. Run ./scripts/bootstrap first." >&2

@@ -24,6 +24,8 @@ public final class ReaderViewController: UIViewController {
     private var overlayVisible = false
     private let uiTestTargetPage: Int? = ReaderViewController.parseUITestTargetPage()
     private var hasPerformedUITestJump = false
+    private let initialSpineItemIndex: Int?
+    private var hasNavigatedToInitialSpineItem = false
 
     // Top bar container
     private var topBarContainer: UIView!
@@ -33,20 +35,22 @@ public final class ReaderViewController: UIViewController {
     private var loadingOverlay: UIView?
     private var awaitingRendererReady = false
 
-    public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil) {
+    public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, initialSpineItemIndex: Int? = nil) {
         self.viewModel = ReaderViewModel(chapter: chapter)
         self.chapter = chapter
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
+        self.initialSpineItemIndex = initialSpineItemIndex
         super.init(nibName: nil, bundle: nil)
     }
 
-    public init(epubURL: URL, bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max) {
+    public init(epubURL: URL, bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max, initialSpineItemIndex: Int? = nil) {
         let initStart = CFAbsoluteTimeGetCurrent()
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
+        self.initialSpineItemIndex = initialSpineItemIndex
         do {
             let chapter = try EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)
             self.chapter = chapter
@@ -158,6 +162,7 @@ public final class ReaderViewController: UIViewController {
             self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
             self?.updateScrubber()
             self?.maybePerformUITestJump(totalPages: totalPages)
+            self?.maybeNavigateToInitialSpineItem()
         }
         renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
             self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
@@ -424,6 +429,22 @@ public final class ReaderViewController: UIViewController {
         pageRenderer.navigateToPage(targetIndex, animated: false)
         viewModel.updateCurrentPage(targetIndex, totalPages: totalPages)
         updateScrubber()
+    }
+
+    private func maybeNavigateToInitialSpineItem() {
+        guard let spineIndex = initialSpineItemIndex,
+              !hasNavigatedToInitialSpineItem else { return }
+        hasNavigatedToInitialSpineItem = true
+
+        // Get the spine item ID at the given index
+        guard spineIndex < chapter.htmlSections.count else {
+            Self.logger.error("Initial spine item index \(spineIndex) out of range (max: \(self.chapter.htmlSections.count - 1))")
+            return
+        }
+
+        let spineItemId = chapter.htmlSections[spineIndex].spineItemId
+        Self.logger.info("Navigating to initial spine item index \(spineIndex): \(spineItemId)")
+        pageRenderer.navigateToSpineItem(spineItemId, animated: false)
     }
 
     @objc private func scrubberValueChanged(_ sender: UISlider) {

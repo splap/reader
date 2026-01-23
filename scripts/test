@@ -50,6 +50,19 @@ run_tests() {
     xcodebuild_args+=(-only-testing:"$test_filter")
   fi
 
+  # Write test configuration to temp file for UI tests to read
+  if [ -n "${BOOK:-}" ] || [ -n "${CHAPTER:-}" ] || [ -n "${PAGE:-}" ] || [ -n "${CHAPTER_COUNT:-}" ]; then
+    mkdir -p /tmp/reader-tests
+    cat > /tmp/reader-tests/test-config.json << EOF
+{
+  "book": "${BOOK:-frankenstein}",
+  "chapter": "${CHAPTER:-0}",
+  "page": "${PAGE:-1}",
+  "chapterCount": "${CHAPTER_COUNT:-5}"
+}
+EOF
+  fi
+
   xcodebuild_args+=(test)
 
   xcodebuild "${xcodebuild_args[@]}"
@@ -98,7 +111,22 @@ case "$TEST_TYPE" in
   ui:*)
     # UI test with prefix syntax: ui:testFoo
     TEST_NAME="${TEST_TYPE#ui:}"
-    run_tests "ReaderAppUITests" "ReaderAppUITests/ReaderAppUITests/$TEST_NAME"
+
+    # Search for the test in all UI test files to find the correct class
+    UI_TEST_CLASS=""
+    for file in "$ROOT_DIR/App/UITests"/*.swift; do
+      if grep -q "func $TEST_NAME" "$file" 2>/dev/null; then
+        UI_TEST_CLASS=$(grep -o "class [A-Za-z0-9_]*" "$file" | head -1 | cut -d' ' -f2)
+        break
+      fi
+    done
+
+    if [ -z "$UI_TEST_CLASS" ]; then
+      echo "Error: Could not find UI test '$TEST_NAME' in App/UITests/" >&2
+      exit 1
+    fi
+
+    run_tests "ReaderAppUITests" "ReaderAppUITests/$UI_TEST_CLASS/$TEST_NAME"
     ;;
   *)
     # Default: treat as unit test pattern
