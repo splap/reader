@@ -21,6 +21,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     public var onPageChanged: ((Int, Int) -> Void)?
     public var onBlockPositionChanged: ((String, String?) -> Void)?
     public var onSendToLLM: ((SelectionPayload) -> Void)?
+    public var onRenderReady: (() -> Void)?
 
     // MARK: - Private Properties
 
@@ -268,6 +269,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 }
 
                 self.onPageChanged?(self.currentPageIndex, self.totalPages)
+                self.onRenderReady?()
             }
         }
     }

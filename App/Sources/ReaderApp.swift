@@ -6,6 +6,7 @@ import UIKit
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
+    private var screenshotObserver: NSObjectProtocol?
 
     func application(
         _ application: UIApplication,
@@ -13,6 +14,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
         NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+
+        // Screenshot mode - headless capture and exit
+        if CommandLine.arguments.contains("--screenshot-mode") {
+            return handleScreenshotMode()
+        }
 
         // Clear state if running UI tests unless explicitly told to keep state.
         let isUITesting = CommandLine.arguments.contains("--uitesting")
@@ -274,6 +280,154 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let slugLower = slug.lowercased()
         return books.first { book in
             book.title.lowercased().contains(slugLower)
+        }
+    }
+
+    // MARK: - Screenshot Mode
+
+    private func handleScreenshotMode() -> Bool {
+        NSLog("📸 Screenshot mode activated")
+
+        // Parse screenshot arguments
+        guard let bookSlug = Self.parseArgument("--screenshot-book=") else {
+            NSLog("📸 ERROR: --screenshot-book= is required")
+            exit(1)
+        }
+
+        guard let outputPath = Self.parseArgument("--screenshot-output=") else {
+            NSLog("📸 ERROR: --screenshot-output= is required")
+            exit(1)
+        }
+
+        // Parse optional chapter/cfi/renderer/font-scale
+        let chapterIndex = Self.parseIntArgument("--screenshot-chapter=")
+        let cfiString = Self.parseArgument("--screenshot-cfi=")
+        let rendererArg = Self.parseArgument("--screenshot-renderer=")
+        let fontScaleArg = Self.parseArgument("--screenshot-font-scale=")
+
+        NSLog("📸 Config: book=\(bookSlug), chapter=\(String(describing: chapterIndex)), cfi=\(String(describing: cfiString)), output=\(outputPath), renderer=\(String(describing: rendererArg))")
+
+        // Copy bundled books and scan for test books
+        copyBundledBooksIfNeeded()
+        importTestBooksIfNeeded()
+
+        // Find the book
+        guard let book = findBookBySlug(bookSlug) else {
+            NSLog("📸 ERROR: Book not found: \(bookSlug)")
+            exit(1)
+        }
+
+        // Determine spine item index
+        var spineItemIndex: Int?
+        if let chapter = chapterIndex {
+            spineItemIndex = chapter
+        } else if let cfi = cfiString {
+            if let parsed = CFIParser.parseBaseCFI(cfi) {
+                spineItemIndex = parsed.spineIndex
+                NSLog("📸 Parsed CFI '\(cfi)' -> spine index \(parsed.spineIndex)")
+            } else {
+                NSLog("📸 ERROR: Invalid CFI format: \(cfi)")
+                exit(1)
+            }
+        }
+
+        // Set renderer mode if specified
+        if let renderer = rendererArg {
+            switch renderer.lowercased() {
+            case "native":
+                ReaderPreferences.shared.renderMode = .native
+            case "webview", "html":
+                ReaderPreferences.shared.renderMode = .webView
+            default:
+                NSLog("📸 WARNING: Unknown renderer '\(renderer)', using default")
+            }
+        }
+
+        // Set font scale if specified (default 1.0 for consistent comparison)
+        if let fontScaleStr = fontScaleArg, let scale = Double(fontScaleStr) {
+            ReaderPreferences.shared.fontScale = CGFloat(scale)
+            NSLog("📸 Font scale set to \(scale)")
+        } else {
+            // Default to 1.0 for screenshot mode to match reference
+            ReaderPreferences.shared.fontScale = 1.0
+            NSLog("📸 Font scale defaulting to 1.0")
+        }
+
+        // Create window
+        let window = UIWindow(frame: UIScreen.main.bounds)
+
+        // Apply dark mode for consistent screenshots
+        window.overrideUserInterfaceStyle = .dark
+
+        // Create reader view controller
+        let fileURL = BookLibraryService.shared.getFileURL(for: book)
+        let readerVC = ReaderViewController(
+            epubURL: fileURL,
+            bookId: book.id.uuidString,
+            bookTitle: book.title,
+            bookAuthor: book.author,
+            initialSpineItemIndex: spineItemIndex
+        )
+
+        let navController = UINavigationController(rootViewController: readerVC)
+        window.rootViewController = navController
+        window.makeKeyAndVisible()
+        self.window = window
+
+        // Listen for render ready notification
+        screenshotObserver = NotificationCenter.default.addObserver(
+            forName: ReaderPreferences.readerRenderReadyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.captureScreenshot(outputPath: outputPath)
+        }
+
+        NSLog("📸 Waiting for render ready...")
+        return true
+    }
+
+    private func captureScreenshot(outputPath: String) {
+        NSLog("📸 Render ready, capturing screenshot...")
+
+        // Remove observer
+        if let observer = screenshotObserver {
+            NotificationCenter.default.removeObserver(observer)
+            screenshotObserver = nil
+        }
+
+        // Small delay to ensure rendering is fully complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let window = self?.window else {
+                NSLog("📸 ERROR: No window available")
+                exit(1)
+            }
+
+            // Capture the window content
+            let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+            let image = renderer.image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+
+            // Save to file
+            guard let pngData = image.pngData() else {
+                NSLog("📸 ERROR: Failed to create PNG data")
+                exit(1)
+            }
+
+            let outputURL = URL(fileURLWithPath: outputPath)
+            do {
+                // Create directory if needed
+                let directory = outputURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+                try pngData.write(to: outputURL)
+                NSLog("📸 Screenshot saved to: \(outputPath)")
+                exit(0)
+            } catch {
+                NSLog("📸 ERROR: Failed to save screenshot: \(error)")
+                exit(1)
+            }
         }
     }
 }

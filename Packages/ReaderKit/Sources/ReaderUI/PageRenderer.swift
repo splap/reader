@@ -36,4 +36,8 @@ public protocol PageRenderer: AnyObject {
 
     /// Callback for text selection sent to LLM
     var onSendToLLM: ((SelectionPayload) -> Void)? { get set }
+
+    /// Callback when rendering is complete and content is ready for display
+    /// This is fired after CSS layout is complete (WebView) or after buildPages() completes (Native)
+    var onRenderReady: (() -> Void)? { get set }
 }

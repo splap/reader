@@ -4,26 +4,32 @@ import XCTest
 /// These tests capture screenshots that can be compared with reference screenshots
 /// using the LLM-as-Judge visual comparison system.
 ///
+/// Environment variables:
+///   BOOK - Book slug (default: frankenstein)
+///   CHAPTER - Chapter index (default: 0)
+///   PAGE - Page within chapter (default: 1)
+///   CHAPTER_COUNT - Number of chapters to capture (default: 5)
+///
 /// Usage:
-///   BOOK=frankenstein CHAPTER=0 ./scripts/test ui:testCaptureForComparison
+///   BOOK=frankenstein CHAPTER=1 ./scripts/test ui:testCaptureForComparison
+///   BOOK=meditations CHAPTER=1 ./scripts/test ui:testCaptureBothRenderers
 final class VisualComparisonTests: XCTestCase {
     var app: XCUIApplication!
 
-    /// Test configuration read from /tmp/reader-tests/test-config.json
-    private struct TestConfig: Codable {
+    /// Test configuration from environment variables
+    private struct TestConfig {
         let book: String
         let chapter: String
         let page: String
         let chapterCount: String
 
         static func load() -> TestConfig {
-            let configPath = "/tmp/reader-tests/test-config.json"
-            if let data = FileManager.default.contents(atPath: configPath),
-               let config = try? JSONDecoder().decode(TestConfig.self, from: data) {
-                return config
-            }
-            // Defaults
-            return TestConfig(book: "frankenstein", chapter: "0", page: "1", chapterCount: "5")
+            // Read from environment variables, with defaults
+            let book = ProcessInfo.processInfo.environment["BOOK"] ?? "frankenstein"
+            let chapter = ProcessInfo.processInfo.environment["CHAPTER"] ?? "0"
+            let page = ProcessInfo.processInfo.environment["PAGE"] ?? "1"
+            let chapterCount = ProcessInfo.processInfo.environment["CHAPTER_COUNT"] ?? "5"
+            return TestConfig(book: book, chapter: chapter, page: page, chapterCount: chapterCount)
         }
     }
 

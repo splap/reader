@@ -15,13 +15,17 @@ Start the reference server if needed and capture all screenshots:
 # Ensure reference server is running
 curl -s http://localhost:3000/health || (cd ../reference-server && ./scripts/run &; sleep 5)
 
-# Get dark-mode reference screenshot (834x1194 = iPad)
-REF_RESPONSE=$(curl -s "http://localhost:3000/screenshot?book=<book>&chapter=<chapter>&width=834&height=1194&theme=dark&force=true")
+# Create output directory
+mkdir -p /tmp/reader-tests
+
+# Get dark-mode reference screenshot (768x1024 points = iPad Pro 11" at 2x Retina, fontSize=32 to match iOS)
+REF_RESPONSE=$(curl -s "http://localhost:3000/screenshot?book=<book>&chapter=<chapter>&width=768&height=1024&theme=dark&fontSize=32&force=true")
 REF_PATH=$(echo "$REF_RESPONSE" | grep -o '"path":"[^"]*"' | cut -d'"' -f4)
 cp "$REF_PATH" /tmp/reader-tests/ref_<book>_ch<chapter>.png
 
 # Capture iOS screenshots (both renderers)
-BOOK=<book> CHAPTER=<chapter> ./scripts/test ui:testCaptureBothRenderers
+./scripts/run --screenshot --book=<book> --chapter=<chapter> --output=/tmp/reader-tests/ios_html_<book>_ch<chapter>.png
+./scripts/run --screenshot --book=<book> --chapter=<chapter> --renderer=native --output=/tmp/reader-tests/ios_native_<book>_ch<chapter>.png
 
 # Compose labeled comparison
 uv run --with pillow scripts/compose-comparison.py <book> <chapter>
@@ -45,6 +49,14 @@ Look for discrepancies in:
 | Spacing | Paragraph gaps, section breaks |
 | Decorations | Horizontal rules, borders, dividers |
 | Content | Missing text, truncation, overflow |
+| Theme colors | Background and text match reference theme |
+
+**Theme Colors (from reference):**
+| Theme | Background | Text |
+|-------|------------|------|
+| `light` | #ffffff | #000000 |
+| `dark` | #1a1a1a | #e0e0e0 |
+| `sepia` | #f4ecd8 | #5b4636 |
 
 ### 3. Identify Root Cause
 
@@ -111,6 +123,47 @@ When done, summarize:
 - `frankenstein` - Good for testing: has title pages, chapters, varied formatting
 - `meditations` - Simpler formatting, good baseline test
 - `the-metamorphosis` - Different styling, tests generalization
+- `seven-pillars` - Seven Pillars of Wisdom, longer book for stress testing
+
+## Reference Server API
+
+### Get Spine Info
+
+```bash
+# Get chapter list with CFI data
+curl -s "http://localhost:3000/books/<book>/info"
+```
+
+Returns spine array with `index`, `href`, `label`, `idref`, and `baseCfi` for each chapter.
+
+### Screenshot Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `book` | Yes | Book slug |
+| `chapter` | One of chapter/cfi | 0-based spine index |
+| `cfi` | One of chapter/cfi | EPUB CFI (URL-encoded) |
+| `width` | No | Viewport width (default: 1024) |
+| `height` | No | Viewport height (default: 768) |
+| `theme` | No | `light` (default), `dark`, or `sepia` |
+| `fontSize` | No | Font size in pixels (default: browser default, use 32 to match iOS) |
+| `format` | No | `path` (default) or `base64` |
+| `force` | No | `true` to regenerate cached screenshot |
+
+### CFI-Based Screenshots
+
+For precise location testing, use CFI instead of chapter index:
+
+```bash
+# Get CFI from spine info
+CFI=$(curl -s "http://localhost:3000/books/frankenstein/info" | jq -r '.spine[5].baseCfi')
+
+# Request screenshot by CFI
+curl -G "http://localhost:3000/screenshot" \
+  --data-urlencode "book=frankenstein" \
+  --data-urlencode "cfi=$CFI" \
+  --data "width=834&height=1194&theme=dark"
+```
 
 ## Tips
 
@@ -119,6 +172,7 @@ When done, summarize:
 - HTML renderer is primary focus (should match reference closely)
 - Native renderer may have intentional differences
 - After fixing, consider adding a deterministic UI test to prevent regression
+- Use `/books/<book>/info` to discover spine structure and CFI values
 
 ## Example
 

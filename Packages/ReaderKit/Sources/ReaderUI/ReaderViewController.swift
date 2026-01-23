@@ -167,6 +167,9 @@ public final class ReaderViewController: UIViewController {
         renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
             self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
         }
+        renderer.onRenderReady = {
+            NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
+        }
 
         self.pageRenderer = renderer
 
@@ -656,6 +659,9 @@ public final class ReaderViewController: UIViewController {
         }
         renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
             self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
+        }
+        renderer.onRenderReady = {
+            NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
         }
 
         self.pageRenderer = renderer

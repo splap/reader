@@ -68,6 +68,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     public var onPageChanged: ((Int, Int) -> Void)?
     public var onBlockPositionChanged: ((String, String?) -> Void)?
     public var onSendToLLM: ((SelectionPayload) -> Void)?
+    public var onRenderReady: (() -> Void)?
 
     public init(
         htmlSections: [HTMLSection],
@@ -907,6 +908,7 @@ extension WebPageViewController: WKNavigationDelegate {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                                 self?.updateCurrentPage()
                                 self?.updateBlockPosition()
+                                self?.onRenderReady?()
                             }
                         } else if self.initialPageIndex > 0 {
                             // Fallback to legacy page-based restoration
@@ -915,10 +917,12 @@ extension WebPageViewController: WKNavigationDelegate {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                                 self?.updateCurrentPage()
                                 self?.updateBlockPosition()
+                                self?.onRenderReady?()
                             }
                         } else {
                             self.updateCurrentPage()
                             self.updateBlockPosition()
+                            self.onRenderReady?()
                         }
                     } else {
                         self.updateCurrentPage()

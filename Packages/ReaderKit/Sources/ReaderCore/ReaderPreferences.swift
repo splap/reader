@@ -46,6 +46,7 @@ public final class ReaderPreferences {
     public static let renderModeDidChangeNotification = Notification.Name("ReaderPreferences.renderModeDidChange")
     public static let appearanceModeDidChangeNotification = Notification.Name("ReaderPreferences.appearanceModeDidChange")
     public static let marginSizeDidChangeNotification = Notification.Name("ReaderPreferences.marginSizeDidChange")
+    public static let readerRenderReadyNotification = Notification.Name("ReaderPreferences.readerRenderReady")
 
     // MARK: - Keys
 
