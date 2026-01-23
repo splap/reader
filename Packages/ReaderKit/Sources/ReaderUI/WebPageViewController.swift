@@ -286,9 +286,19 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         }
         Self.logger.info("PERF: HTML combination took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - loadStart))s (image processing: \(String(format: "%.3f", imageProcessTime))s)")
 
-        // Generate CSS using CSSManager (house CSS + sanitized publisher CSS)
+        // Collect publisher CSS from all loaded sections
+        var publisherCSS = ""
+        for sectionIndex in sectionsToLoad {
+            let section = htmlSections[sectionIndex]
+            if let css = section.cssContent, !css.isEmpty {
+                publisherCSS += css + "\n"
+            }
+        }
+        Self.logger.info("Publisher CSS loaded: \(publisherCSS.count) chars")
+
+        // Generate CSS using CSSManager (house CSS + publisher CSS)
         let marginSize = ReaderPreferences.shared.marginSize
-        let css = CSSManager.generateCompleteCSS(fontScale: fontScale, marginSize: marginSize, publisherCSS: nil)
+        let css = CSSManager.generateCompleteCSS(fontScale: fontScale, marginSize: marginSize, publisherCSS: publisherCSS.isEmpty ? nil : publisherCSS)
 
         // Wrap HTML with house CSS
         let wrappedHTML = """
