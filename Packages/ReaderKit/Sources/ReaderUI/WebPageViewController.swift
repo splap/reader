@@ -54,6 +54,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private var urlSchemeHandler: EPUBURLSchemeHandler?  // Handler for serving images
     private let hrefToSpineItemId: [String: String]  // Map from file href to spineItemId for link resolution
 
+    // Progressive loading state
+    private var loadedSectionIndices: Set<Int> = []
+    private var isLoadingSection = false
+    private var backgroundLoadingTask: Task<Void, Never>?
+
     // MARK: - PageRenderer Protocol Properties
 
     public var viewController: UIViewController { self }
@@ -69,6 +74,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     public var onBlockPositionChanged: ((String, String?) -> Void)?
     public var onSendToLLM: ((SelectionPayload) -> Void)?
     public var onRenderReady: (() -> Void)?
+    /// Called when a section is loaded. Parameters: (loadedCount, totalCount)
+    public var onLoadingProgress: ((Int, Int) -> Void)?
 
     public init(
         htmlSections: [HTMLSection],
@@ -265,36 +272,25 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private func loadContent() {
         let loadStart = CFAbsoluteTimeGetCurrent()
 
-        // PERF OPTIMIZATION: Only load sections around the initial position
-        // This dramatically reduces WebView layout time for large books
-        let sectionsToLoad = selectSectionsToLoad()
-        Self.logger.info("PERF: Loading \(sectionsToLoad.count) of \(htmlSections.count) sections")
+        // Find the initial section to load (just ONE section for fast startup)
+        let initialSectionIndex = findInitialSectionIndex()
+        loadedSectionIndices = [initialSectionIndex]
 
-        // Combine selected HTML sections
-        var combinedHTML = ""
-        var imageProcessTime: Double = 0
-        for sectionIndex in sectionsToLoad {
-            let section = htmlSections[sectionIndex]
-            // Use annotatedHTML for block-based position tracking
-            // Extract just the body content, stripping out <html>, <head>, and <body> wrapper tags
-            // This prevents publisher CSS from being loaded via <link> tags
-            let bodyContent = extractBodyContent(from: section.annotatedHTML)
-            let imgStart = CFAbsoluteTimeGetCurrent()
-            let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
-            imageProcessTime += CFAbsoluteTimeGetCurrent() - imgStart
-            combinedHTML += "<div class=\"spine-item-section\">\(processedHTML)</div>\n"
-        }
-        Self.logger.info("PERF: HTML combination took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - loadStart))s (image processing: \(String(format: "%.3f", imageProcessTime))s)")
+        Self.logger.debug("SECTION-LOAD: Starting with section \(initialSectionIndex) of \(htmlSections.count) total")
 
-        // Collect publisher CSS from all loaded sections
+        // Build HTML for just the initial section
+        let section = htmlSections[initialSectionIndex]
+        let bodyContent = extractBodyContent(from: section.annotatedHTML)
+        let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
+        let sectionHTML = "<div class=\"spine-item-section\" data-section-index=\"\(initialSectionIndex)\">\(processedHTML)</div>"
+
+        // Collect publisher CSS from the initial section
         var publisherCSS = ""
-        for sectionIndex in sectionsToLoad {
-            let section = htmlSections[sectionIndex]
-            if let css = section.cssContent, !css.isEmpty {
-                publisherCSS += css + "\n"
-            }
+        if let css = section.cssContent, !css.isEmpty {
+            publisherCSS = css
         }
-        Self.logger.info("Publisher CSS loaded: \(publisherCSS.count) chars")
+
+        Self.logger.debug("SECTION-LOAD: Initial section HTML: \(sectionHTML.count) chars, CSS: \(publisherCSS.count) chars")
 
         // Generate CSS using CSSManager (house CSS + publisher CSS)
         let marginSize = ReaderPreferences.shared.marginSize
@@ -333,29 +329,197 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                         e.preventDefault();
                     }, { passive: false });
                 })();
+
+                // Function to inject a new section at the correct position
+                window.injectSection = function(html, sectionIndex) {
+                    var newDiv = document.createElement('div');
+                    newDiv.innerHTML = html;
+                    var newSection = newDiv.firstElementChild;
+
+                    var body = document.body;
+                    var sections = body.querySelectorAll('.spine-item-section');
+
+                    // Find the right position to insert
+                    var inserted = false;
+                    for (var i = 0; i < sections.length; i++) {
+                        var existingIndex = parseInt(sections[i].getAttribute('data-section-index'));
+                        if (sectionIndex < existingIndex) {
+                            body.insertBefore(newSection, sections[i]);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                    if (!inserted) {
+                        body.appendChild(newSection);
+                    }
+
+                    // Force layout recalculation
+                    body.offsetHeight;
+
+                    // Return new content width for page count update
+                    return document.documentElement.scrollWidth;
+                };
             </script>
         </head>
         <body>
-            \(combinedHTML)
+            \(sectionHTML)
         </body>
         </html>
         """
 
-        Self.logger.info("PERF: Starting WebView load with \(wrappedHTML.count) chars")
+        let prepTime = CFAbsoluteTimeGetCurrent() - loadStart
+        Self.logger.debug("SECTION-LOAD: Prepared initial HTML in \(String(format: "%.3f", prepTime))s, \(wrappedHTML.count) chars")
+
         webViewLoadStartTime = CFAbsoluteTimeGetCurrent()
         webView.loadHTMLString(wrappedHTML, baseURL: nil)
+
+        // Report initial loading progress
+        onLoadingProgress?(1, htmlSections.count)
     }
 
     private var webViewLoadStartTime: CFAbsoluteTime = 0
 
-    /// Select which sections to load
-    /// NOTE: Section-based loading was disabled because it broke pagination -
-    /// totalPages was calculated from only loaded content, making books appear
-    /// to have far fewer pages than they actually do (e.g., Frankenstein showing 3 pages).
-    /// If re-enabling, must estimate total pages from ALL sections, not just loaded ones.
-    private func selectSectionsToLoad() -> [Int] {
-        // Load all sections to ensure correct page count
-        return Array(0..<htmlSections.count)
+    /// Find the section index to load initially (based on saved position or first section)
+    private func findInitialSectionIndex() -> Int {
+        // If we have a saved block ID, find its section
+        if let blockId = initialBlockId {
+            for (index, section) in htmlSections.enumerated() {
+                if section.blocks.contains(where: { $0.id == blockId }) {
+                    Self.logger.debug("SECTION-LOAD: Found initial block \(blockId) in section \(index)")
+                    return index
+                }
+            }
+        }
+        // Default to first section
+        return 0
+    }
+
+    /// Start loading remaining sections in the background
+    public func startBackgroundLoading() {
+        // Cancel any existing background loading
+        backgroundLoadingTask?.cancel()
+
+        let totalSections = htmlSections.count
+        guard totalSections > 1 else {
+            Self.logger.debug("SECTION-LOAD: Only 1 section, no background loading needed")
+            return
+        }
+
+        Self.logger.debug("SECTION-LOAD: Starting background load of \(totalSections - loadedSectionIndices.count) remaining sections")
+
+        backgroundLoadingTask = Task { [weak self] in
+            guard let self = self else { return }
+
+            // Load sections in order, skipping already loaded ones
+            for sectionIndex in 0..<totalSections {
+                if Task.isCancelled { break }
+
+                // Skip already loaded sections
+                if self.loadedSectionIndices.contains(sectionIndex) {
+                    continue
+                }
+
+                // Small delay between sections to avoid overwhelming the device
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+                if Task.isCancelled { break }
+
+                await self.loadSectionInBackground(sectionIndex)
+            }
+
+            Self.logger.debug("SECTION-LOAD: Background loading complete - \(self.loadedSectionIndices.count) sections loaded")
+        }
+    }
+
+    /// Load a single section and inject it into the WebView
+    @MainActor
+    private func loadSectionInBackground(_ sectionIndex: Int) async {
+        guard !loadedSectionIndices.contains(sectionIndex) else { return }
+        guard sectionIndex >= 0 && sectionIndex < htmlSections.count else { return }
+
+        let loadStart = CFAbsoluteTimeGetCurrent()
+
+        let section = htmlSections[sectionIndex]
+        let bodyContent = extractBodyContent(from: section.annotatedHTML)
+        let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
+
+        // Escape the HTML for JavaScript string
+        let escapedHTML = processedHTML
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "'", with: "\\'")
+
+        let sectionDivHTML = "<div class=\\\"spine-item-section\\\" data-section-index=\\\"\(sectionIndex)\\\">\(escapedHTML)</div>"
+
+        let prepTime = CFAbsoluteTimeGetCurrent() - loadStart
+
+        // Inject the section via JavaScript
+        let js = "window.injectSection('\(sectionDivHTML)', \(sectionIndex));"
+
+        let injectStart = CFAbsoluteTimeGetCurrent()
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            webView.evaluateJavaScript(js) { [weak self] result, error in
+                guard let self = self else {
+                    continuation.resume()
+                    return
+                }
+
+                let injectTime = CFAbsoluteTimeGetCurrent() - injectStart
+                let totalTime = CFAbsoluteTimeGetCurrent() - loadStart
+
+                if let error = error {
+                    Self.logger.error("SECTION-LOAD: Failed to inject section \(sectionIndex): \(error.localizedDescription)")
+                } else {
+                    self.loadedSectionIndices.insert(sectionIndex)
+
+                    // Log performance
+                    let htmlSize = processedHTML.count
+                    Self.logger.debug("SECTION-LOAD: Section \(sectionIndex) loaded - prep: \(String(format: "%.3f", prepTime))s, inject: \(String(format: "%.3f", injectTime))s, total: \(String(format: "%.3f", totalTime))s, size: \(htmlSize) chars")
+
+                    // Query memory stats
+                    self.logMemoryStats(afterSection: sectionIndex)
+
+                    // Update page count
+                    self.updatePageCountAfterInjection()
+
+                    // Report progress
+                    let loadedCount = self.loadedSectionIndices.count
+                    let totalCount = self.htmlSections.count
+                    Self.logger.debug("SECTION-LOAD: Reporting progress \(loadedCount)/\(totalCount)")
+                    self.onLoadingProgress?(loadedCount, totalCount)
+                }
+
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Log process memory usage (iOS process memory, not JavaScript)
+    private func logMemoryStats(afterSection sectionIndex: Int) {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+
+        if result == KERN_SUCCESS {
+            let usedMB = Double(info.resident_size) / 1_000_000
+            Self.logger.debug("SECTION-LOAD: Memory after section \(sectionIndex) - process: \(String(format: "%.1f", usedMB))MB")
+        } else {
+            Self.logger.debug("SECTION-LOAD: Memory stats unavailable (section \(sectionIndex))")
+        }
+    }
+
+    /// Update page count after injecting a section
+    private func updatePageCountAfterInjection() {
+        queryCSSColumnWidth { [weak self] in
+            self?.updateCurrentPage()
+        }
     }
 
     private func processHTMLWithImages(_ html: String, basePath: String, imageCache: [String: Data]) -> String {
@@ -445,25 +609,25 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     private func reloadWithNewFontScale() {
-        // Save current scroll position as a percentage
-        let scrollView = webView.scrollView
-        let currentOffset = scrollView.contentOffset.x
-        let contentWidth = scrollView.contentSize.width
-        let scrollPercentage = contentWidth > 0 ? currentOffset / contentWidth : 0
+        // Cancel any existing background loading
+        backgroundLoadingTask?.cancel()
+        backgroundLoadingTask = nil
 
-        // Reload content
+        // Save current position using block ID (not scroll percentage)
+        // This works correctly with progressive loading
+        if let blockId = currentBlockId {
+            initialBlockId = blockId
+            Self.logger.debug("SECTION-LOAD: Font scale changed, will restore to block \(blockId)")
+        }
+
+        // Reset state for fresh load
+        hasRestoredPosition = false
+        loadedSectionIndices.removeAll()
+
+        // Reload content - will load section containing initialBlockId
         loadContent()
 
-        // Restore scroll position after content loads
-        // We'll do this in the navigation delegate
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-            let scrollView = self.webView.scrollView
-            let newContentWidth = scrollView.contentSize.width
-            let newOffset = newContentWidth * scrollPercentage
-            scrollView.setContentOffset(CGPoint(x: newOffset, y: 0), animated: false)
-            self.updateCurrentPage()
-        }
+        // Position restoration happens automatically via initialBlockId in webView(_:didFinish:)
     }
 
     private func currentPageWidth() -> CGFloat {
@@ -653,6 +817,26 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     ///   - spineItemId: The spine item ID to navigate to
     ///   - animated: Whether to animate the scroll
     public func navigateToSpineItem(_ spineItemId: String, animated: Bool = false) {
+        // Find the section index for this spine item
+        guard let sectionIndex = htmlSections.firstIndex(where: { $0.spineItemId == spineItemId }) else {
+            Self.logger.warning("Spine item \(spineItemId) not found in htmlSections")
+            return
+        }
+
+        // If section not loaded, load it first then navigate
+        if !loadedSectionIndices.contains(sectionIndex) {
+            Self.logger.debug("SECTION-LOAD: Loading section \(sectionIndex) for navigation to \(spineItemId)")
+            Task { @MainActor in
+                await self.loadSectionInBackground(sectionIndex)
+                self.performSpineItemNavigation(spineItemId, animated: animated)
+            }
+        } else {
+            performSpineItemNavigation(spineItemId, animated: animated)
+        }
+    }
+
+    /// Actually perform the navigation (section must be loaded)
+    private func performSpineItemNavigation(_ spineItemId: String, animated: Bool) {
         let js = """
         (function() {
             // Find the first element with this spine item ID
@@ -692,7 +876,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                     self?.updateBlockPosition()
                 }
             } else {
-                Self.logger.warning("Spine item \(spineItemId) not found in content")
+                Self.logger.warning("Spine item \(spineItemId) not found in content after loading")
             }
         }
     }
