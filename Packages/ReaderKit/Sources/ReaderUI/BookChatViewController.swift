@@ -29,7 +29,7 @@ public final class BookChatViewController: UIViewController {
     private let sendButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let statusBubble = UIView()
-    private let statusLabel = UILabel()
+    private let statusTextView = UITextView()
 
     private var messages: [ChatMessage] = []
     private var messageTraces: [UUID: AgentExecutionTrace] = [:]
@@ -210,13 +210,17 @@ public final class BookChatViewController: UIViewController {
         statusBubble.isHidden = true
         tableView.addSubview(statusBubble)
 
-        // Status label inside bubble
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = fontManager.captionFont
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .center
-        statusLabel.numberOfLines = 2
-        statusBubble.addSubview(statusLabel)
+        // Status text view inside bubble (selectable)
+        statusTextView.translatesAutoresizingMaskIntoConstraints = false
+        statusTextView.isEditable = false
+        statusTextView.isScrollEnabled = false
+        statusTextView.textContainerInset = .zero
+        statusTextView.textContainer.lineFragmentPadding = 0
+        statusTextView.backgroundColor = .clear
+        statusTextView.font = fontManager.captionFont
+        statusTextView.textColor = .secondaryLabel
+        statusTextView.textAlignment = .center
+        statusBubble.addSubview(statusTextView)
 
         // Layout
         let bottomConstraint = inputContainer.bottomAnchor.constraint(
@@ -274,11 +278,11 @@ public final class BookChatViewController: UIViewController {
             statusBubble.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -60),
             statusBubble.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
 
-            // Status label inside bubble
-            statusLabel.topAnchor.constraint(equalTo: statusBubble.topAnchor, constant: 8),
-            statusLabel.leadingAnchor.constraint(equalTo: statusBubble.leadingAnchor, constant: 12),
-            statusLabel.trailingAnchor.constraint(equalTo: statusBubble.trailingAnchor, constant: -12),
-            statusLabel.bottomAnchor.constraint(equalTo: statusBubble.bottomAnchor, constant: -8)
+            // Status text view inside bubble
+            statusTextView.topAnchor.constraint(equalTo: statusBubble.topAnchor, constant: 8),
+            statusTextView.leadingAnchor.constraint(equalTo: statusBubble.leadingAnchor, constant: 12),
+            statusTextView.trailingAnchor.constraint(equalTo: statusBubble.trailingAnchor, constant: -12),
+            statusTextView.bottomAnchor.constraint(equalTo: statusBubble.bottomAnchor, constant: -8)
         ])
     }
 
@@ -644,7 +648,7 @@ public final class BookChatViewController: UIViewController {
         if loading {
             loadingIndicator.startAnimating()
             // Show status bubble with model name
-            statusLabel.text = "Waiting on \(OpenRouterConfig.modelDisplayName)..."
+            statusTextView.text = "Waiting on \(OpenRouterConfig.modelDisplayName)..."
             statusBubble.isHidden = false
             statusBubble.alpha = 0
             UIView.animate(withDuration: 0.2) {
@@ -955,9 +959,9 @@ private struct ChatMessage {
 private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
     private let contentStack = UIStackView()  // Main vertical stack for all content
-    private let messageLabel = UILabel()
+    private let messageTextView = UITextView()  // UITextView for selectable text
     private let imageContainerView = UIStackView()
-    private let traceLabel = UILabel()
+    private let traceTextView = UITextView()  // UITextView for selectable text
     private let fontManager = FontScaleManager.shared
     var onTap: (() -> Void)?
 
@@ -1001,10 +1005,14 @@ private final class ChatMessageCell: UITableViewCell {
         contentStack.alignment = .fill
         bubbleView.addSubview(contentStack)
 
-        // Message label
-        messageLabel.numberOfLines = 0
-        messageLabel.font = fontManager.bodyFont
-        contentStack.addArrangedSubview(messageLabel)
+        // Message text view (selectable, non-editable)
+        messageTextView.isEditable = false
+        messageTextView.isScrollEnabled = false
+        messageTextView.textContainerInset = .zero
+        messageTextView.textContainer.lineFragmentPadding = 0
+        messageTextView.backgroundColor = .clear
+        messageTextView.font = fontManager.bodyFont
+        contentStack.addArrangedSubview(messageTextView)
 
         // Image container for displaying images/maps
         imageContainerView.axis = .vertical
@@ -1012,12 +1020,16 @@ private final class ChatMessageCell: UITableViewCell {
         imageContainerView.isHidden = true
         contentStack.addArrangedSubview(imageContainerView)
 
-        // Trace label for execution details
-        traceLabel.numberOfLines = 0
-        traceLabel.font = fontManager.monospacedFont(size: 12)
-        traceLabel.textColor = .secondaryLabel
-        traceLabel.isHidden = true
-        contentStack.addArrangedSubview(traceLabel)
+        // Trace text view for execution details (selectable, non-editable)
+        traceTextView.isEditable = false
+        traceTextView.isScrollEnabled = false
+        traceTextView.textContainerInset = .zero
+        traceTextView.textContainer.lineFragmentPadding = 0
+        traceTextView.backgroundColor = .clear
+        traceTextView.font = fontManager.monospacedFont(size: 12)
+        traceTextView.textColor = .secondaryLabel
+        traceTextView.isHidden = true
+        contentStack.addArrangedSubview(traceTextView)
 
         // Simple constraints: bubble in cell, stack in bubble with padding
         NSLayoutConstraint.activate([
@@ -1048,8 +1060,8 @@ private final class ChatMessageCell: UITableViewCell {
         leadingConstraint?.isActive = false
         trailingConstraint?.isActive = false
 
-        // Update trace label font
-        traceLabel.font = fontManager.monospacedFont(size: 12)
+        // Update trace text view font
+        traceTextView.font = fontManager.monospacedFont(size: 12)
 
         // Parse content for images
         let (cleanedContent, images) = parseImagesFromContent(message.content)
@@ -1057,30 +1069,30 @@ private final class ChatMessageCell: UITableViewCell {
         switch message.role {
         case .user:
             bubbleView.backgroundColor = .systemBlue
-            messageLabel.textColor = .white
-            messageLabel.font = fontManager.bodyFont
-            messageLabel.text = cleanedContent
+            messageTextView.textColor = .white
+            messageTextView.font = fontManager.bodyFont
+            messageTextView.text = cleanedContent
             leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
             trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
 
         case .assistant:
             bubbleView.backgroundColor = .secondarySystemBackground
-            messageLabel.textColor = .label
-            messageLabel.font = fontManager.bodyFont
-            messageLabel.text = cleanedContent
+            messageTextView.textColor = .label
+            messageTextView.font = fontManager.bodyFont
+            messageTextView.text = cleanedContent
             leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
             trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
 
         case .system:
             bubbleView.backgroundColor = .tertiarySystemBackground
-            messageLabel.textColor = .secondaryLabel
-            messageLabel.font = fontManager.scaledFont(size: 14)
+            messageTextView.textColor = .secondaryLabel
+            messageTextView.font = fontManager.scaledFont(size: 14)
 
             // Show title with disclosure indicator when collapsed, full content when expanded
             if message.isCollapsed {
-                messageLabel.text = "\(message.title ?? "Context") ▶"
+                messageTextView.text = "\(message.title ?? "Context") ▶"
             } else {
-                messageLabel.text = "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
+                messageTextView.text = "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
             }
 
             // System messages span full width
@@ -1358,26 +1370,26 @@ private final class ChatMessageCell: UITableViewCell {
 
     func setTraceText(_ text: String?) {
         if let text = text {
-            traceLabel.text = text
-            traceLabel.isHidden = false
+            traceTextView.text = text
+            traceTextView.isHidden = false
             // Accessibility identifier includes collapsed/expanded state for testing
             if text.contains("▶") {
-                traceLabel.accessibilityIdentifier = "execution-details-collapsed"
+                traceTextView.accessibilityIdentifier = "execution-details-collapsed"
             } else {
-                traceLabel.accessibilityIdentifier = "execution-details-expanded"
+                traceTextView.accessibilityIdentifier = "execution-details-expanded"
             }
         } else {
-            traceLabel.text = nil
-            traceLabel.isHidden = true
-            traceLabel.accessibilityIdentifier = nil
+            traceTextView.text = nil
+            traceTextView.isHidden = true
+            traceTextView.accessibilityIdentifier = nil
         }
     }
 
-    /// Returns the frame of the trace label in the table view's coordinate system
+    /// Returns the frame of the trace text view in the table view's coordinate system
     /// Used for smart scrolling to keep the "Execution Details" header visible
     func traceLabelFrameInTableView(_ tableView: UITableView) -> CGRect? {
-        guard !traceLabel.isHidden else { return nil }
-        return traceLabel.convert(traceLabel.bounds, to: tableView)
+        guard !traceTextView.isHidden else { return nil }
+        return traceTextView.convert(traceTextView.bounds, to: tableView)
     }
 
     @objc private func mapTapped(_ gesture: MapTapGestureRecognizer) {
