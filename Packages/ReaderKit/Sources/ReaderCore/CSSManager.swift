@@ -61,13 +61,51 @@ public final class CSSManager {
         .spine-item-section:first-child {
             break-before: auto;
         }
+
+        /* Reset anchor styling for non-link anchors (bookmarks, endnote refs) */
+        /* These have id but no href - they're not clickable links */
+        a:not([href]) {
+            color: inherit;
+            text-decoration: none;
+        }
         """
+    }
+
+    // MARK: - CSS Sanitization
+
+    /// Sanitizes publisher CSS to remove rules that break CSS column pagination
+    /// - Parameter css: Raw publisher CSS
+    /// - Returns: Sanitized CSS safe for pagination
+    public static func sanitizePublisherCSS(_ css: String) -> String {
+        var result = css
+
+        // Remove percentage-based horizontal margins (e.g., "margin: 0 45%;" or "margin-left: 56%;")
+        // These break CSS columns by shrinking content to tiny widths
+        // Pattern: margin(-left|-right)?: ... NN% ...
+        let percentMarginPattern = #"margin(-left|-right)?\s*:\s*[^;]*\d+%[^;]*;"#
+        if let regex = try? NSRegularExpression(pattern: percentMarginPattern, options: [.caseInsensitive]) {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "/* [sanitized margin] */")
+        }
+
+        // Remove percentage-based padding that could cause similar issues
+        let percentPaddingPattern = #"padding(-left|-right)?\s*:\s*[^;]*\d+%[^;]*;"#
+        if let regex = try? NSRegularExpression(pattern: percentPaddingPattern, options: [.caseInsensitive]) {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "/* [sanitized padding] */")
+        }
+
+        // Remove explicit width declarations that could conflict with column layout
+        let widthPattern = #"width\s*:\s*\d+%\s*;"#
+        if let regex = try? NSRegularExpression(pattern: widthPattern, options: [.caseInsensitive]) {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "/* [sanitized width] */")
+        }
+
+        return result
     }
 
     // MARK: - Complete CSS Generation
 
     /// Generates complete CSS for the reader (house CSS + publisher CSS)
-    /// Publisher CSS is included as-is - we trust it by default
+    /// Publisher CSS is sanitized to remove rules that break pagination
     /// - Parameters:
     ///   - fontScale: The font size multiplier
     ///   - marginSize: Horizontal margin in pixels (default 32)
@@ -78,8 +116,8 @@ public final class CSSManager {
 
         // Publisher CSS comes first so house CSS can override if needed
         if let publisherCSS = publisherCSS, !publisherCSS.isEmpty {
-            css += "/* Publisher CSS */\n"
-            css += publisherCSS
+            css += "/* Publisher CSS (sanitized) */\n"
+            css += sanitizePublisherCSS(publisherCSS)
             css += "\n\n"
         }
 

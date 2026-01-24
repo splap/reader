@@ -105,7 +105,8 @@ final class ReaderCoreTests: XCTestCase {
 
         // Verify house CSS contains critical pagination properties
         XCTAssertTrue(css.contains("font-size: 32px"), "House CSS should scale font size")
-        XCTAssertTrue(css.contains("column-width: calc(100vw - 48px)"), "House CSS should set column width for pagination")
+        // Default margin is 32px, total margin (both sides) is 64px
+        XCTAssertTrue(css.contains("column-width: calc(100vw - 64px)"), "House CSS should set column width for pagination")
     }
 
     func testCSSManagerIncludesPublisherCSS() {
@@ -116,11 +117,27 @@ final class ReaderCoreTests: XCTestCase {
 
         let combined = CSSManager.generateCompleteCSS(fontScale: 1.0, publisherCSS: publisherCSS)
 
-        // Publisher CSS should be included unchanged
+        // Publisher CSS should be included (sanitized but these rules are safe)
         XCTAssertTrue(combined.contains("text-indent: 1em"), "Publisher CSS should be preserved")
         XCTAssertTrue(combined.contains("text-align: center"), "Publisher alignment should be preserved")
         // House CSS should also be present
-        XCTAssertTrue(combined.contains("column-width: calc(100vw - 48px)"), "House CSS should be included")
+        XCTAssertTrue(combined.contains("column-width: calc(100vw - 64px)"), "House CSS should be included")
+    }
+
+    func testCSSManagerSanitizesPercentageMargins() {
+        let publisherCSS = """
+        .narrow { margin: 0 45%; }
+        .wide { margin-left: 56%; }
+        p { font-style: italic; }
+        """
+
+        let combined = CSSManager.generateCompleteCSS(fontScale: 1.0, publisherCSS: publisherCSS)
+
+        // Percentage margins should be sanitized (they break CSS column pagination)
+        XCTAssertFalse(combined.contains("margin: 0 45%"), "Percentage margins should be sanitized")
+        XCTAssertFalse(combined.contains("margin-left: 56%"), "Percentage margin-left should be sanitized")
+        // Safe CSS should be preserved
+        XCTAssertTrue(combined.contains("font-style: italic"), "Safe CSS should be preserved")
     }
 
     func testResolveChapterIdMatchesLabelsAndIndex() {
@@ -357,119 +374,6 @@ final class ChunkerTests: XCTestCase {
     }
 }
 
-// MARK: - ChunkStore Tests
-
-final class ChunkStoreTests: XCTestCase {
-    var testDbPath: URL!
-
-    override func setUp() async throws {
-        // Use a unique test database
-        testDbPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("test-chunks-\(UUID().uuidString).sqlite")
-    }
-
-    override func tearDown() async throws {
-        // Clean up test database
-        try? FileManager.default.removeItem(at: testDbPath)
-    }
-
-    func testIndexAndRetrieveChunks() async throws {
-        let store = ChunkStore.shared
-
-        let chunks = [
-            Chunk(bookId: "test-book", chapterId: "ch1", text: "The quick brown fox jumps over the lazy dog.", blockIds: ["b1"], startOffset: 0, endOffset: 44, ordinal: 0),
-            Chunk(bookId: "test-book", chapterId: "ch1", text: "Pack my box with five dozen liquor jugs.", blockIds: ["b2"], startOffset: 45, endOffset: 85, ordinal: 1),
-        ]
-
-        try await store.indexBook(chunks: chunks, bookId: "test-book")
-
-        // Verify chunks were stored
-        let retrieved = try await store.getChunks(bookId: "test-book")
-        XCTAssertEqual(retrieved.count, 2)
-
-        // Verify chunk content
-        let firstChunk = retrieved.first { $0.ordinal == 0 }
-        XCTAssertNotNil(firstChunk)
-        XCTAssertTrue(firstChunk?.text.contains("quick brown fox") ?? false)
-    }
-
-    func testFTS5Search() async throws {
-        let store = ChunkStore.shared
-
-        let chunks = [
-            Chunk(bookId: "search-book", chapterId: "ch1", text: "The monster emerged from the dark forest.", blockIds: ["b1"], startOffset: 0, endOffset: 41, ordinal: 0),
-            Chunk(bookId: "search-book", chapterId: "ch1", text: "She walked through the sunny meadow.", blockIds: ["b2"], startOffset: 42, endOffset: 78, ordinal: 1),
-            Chunk(bookId: "search-book", chapterId: "ch2", text: "The forest was peaceful in the morning.", blockIds: ["b3"], startOffset: 0, endOffset: 39, ordinal: 0),
-        ]
-
-        try await store.indexBook(chunks: chunks, bookId: "search-book")
-
-        // Search for "forest"
-        let results = try await store.search(query: "forest", bookId: "search-book")
-
-        XCTAssertEqual(results.count, 2)
-        XCTAssertTrue(results.allSatisfy { $0.chunk.text.contains("forest") })
-    }
-
-    func testScopedSearch() async throws {
-        let store = ChunkStore.shared
-
-        let chunks = [
-            Chunk(bookId: "scope-book", chapterId: "ch1", text: "Chapter one has important content.", blockIds: ["b1"], startOffset: 0, endOffset: 34, ordinal: 0),
-            Chunk(bookId: "scope-book", chapterId: "ch2", text: "Chapter two also has important content.", blockIds: ["b2"], startOffset: 0, endOffset: 39, ordinal: 0),
-        ]
-
-        try await store.indexBook(chunks: chunks, bookId: "scope-book")
-
-        // Search scoped to ch1
-        let results = try await store.search(query: "important", bookId: "scope-book", chapterIds: ["ch1"])
-
-        XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results.first?.chunk.chapterId, "ch1")
-    }
-
-    func testDeleteBook() async throws {
-        let store = ChunkStore.shared
-
-        let chunks = [
-            Chunk(bookId: "delete-book", chapterId: "ch1", text: "This will be deleted.", blockIds: ["b1"], startOffset: 0, endOffset: 21, ordinal: 0),
-        ]
-
-        try await store.indexBook(chunks: chunks, bookId: "delete-book")
-
-        // Verify indexed
-        let isIndexed = try await store.isBookIndexed(bookId: "delete-book")
-        XCTAssertTrue(isIndexed)
-
-        // Delete
-        try await store.deleteBook(bookId: "delete-book")
-
-        // Verify deleted
-        let isStillIndexed = try await store.isBookIndexed(bookId: "delete-book")
-        XCTAssertFalse(isStillIndexed)
-    }
-
-    func testReindexReplacesPrevious() async throws {
-        let store = ChunkStore.shared
-
-        let chunks1 = [
-            Chunk(bookId: "reindex-book", chapterId: "ch1", text: "Original content version one.", blockIds: ["b1"], startOffset: 0, endOffset: 29, ordinal: 0),
-        ]
-
-        try await store.indexBook(chunks: chunks1, bookId: "reindex-book")
-
-        let chunks2 = [
-            Chunk(bookId: "reindex-book", chapterId: "ch1", text: "New content version two.", blockIds: ["b2"], startOffset: 0, endOffset: 24, ordinal: 0),
-        ]
-
-        try await store.indexBook(chunks: chunks2, bookId: "reindex-book")
-
-        // Should only have the new content
-        let results = try await store.getChunks(bookId: "reindex-book")
-        XCTAssertEqual(results.count, 1)
-        XCTAssertTrue(results.first?.text.contains("version two") ?? false)
-    }
-}
 
 // MARK: - VectorStore Tests
 

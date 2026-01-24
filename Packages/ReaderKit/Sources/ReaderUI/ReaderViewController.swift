@@ -21,6 +21,7 @@ public final class ReaderViewController: UIViewController {
     private var scrubberSlider: UISlider!
     private var scrubberReadExtentView: UIView!
     private var pageLabel: UILabel!
+    private var loadingProgressLabel: UILabel!
     private var overlayVisible = false
     private let uiTestTargetPage: Int? = ReaderViewController.parseUITestTargetPage()
     private var hasPerformedUITestJump = false
@@ -56,6 +57,7 @@ public final class ReaderViewController: UIViewController {
             self.chapter = chapter
             self.viewModel = ReaderViewModel(chapter: chapter)
         } catch {
+            Self.logger.error("Failed to load EPUB from \(epubURL.path): \(error)")
             let fallback = SampleChapter.make()
             self.chapter = fallback
             self.viewModel = ReaderViewModel(chapter: fallback)
@@ -73,9 +75,10 @@ public final class ReaderViewController: UIViewController {
 
         view.backgroundColor = .systemBackground
 
-        setupWebPageViewController()
+        // Setup UI elements BEFORE web page VC (which triggers callbacks during viewDidLoad)
         setupFloatingButtons()
         setupScrubber()
+        setupWebPageViewController()
         setupTapGesture()
         setupKeyCommands()
         bindViewModel()
@@ -167,8 +170,17 @@ public final class ReaderViewController: UIViewController {
         renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
             self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
         }
-        renderer.onRenderReady = {
+        renderer.onRenderReady = { [weak self] in
             NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
+            // Start background loading after initial render is ready
+            self?.startBackgroundSectionLoading()
+        }
+
+        // Hook up loading progress callback (WebView renderer only)
+        if let webRenderer = renderer as? WebPageViewController {
+            webRenderer.onLoadingProgress = { [weak self] loaded, total in
+                self?.updateLoadingProgress(loaded: loaded, total: total)
+            }
         }
 
         self.pageRenderer = renderer
@@ -332,6 +344,18 @@ public final class ReaderViewController: UIViewController {
         pageLabel.accessibilityIdentifier = "scrubber-page-label"
         scrubberContainer.addSubview(pageLabel)
 
+        // Loading progress label (shows "Loaded X of Y sections" during background loading)
+        loadingProgressLabel = UILabel()
+        loadingProgressLabel.translatesAutoresizingMaskIntoConstraints = false
+        loadingProgressLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        loadingProgressLabel.textColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? .lightGray : .darkGray
+        }
+        loadingProgressLabel.textAlignment = .center
+        loadingProgressLabel.text = ""
+        loadingProgressLabel.isHidden = true
+        scrubberContainer.addSubview(loadingProgressLabel)
+
         // Shadow for container
         scrubberContainer.layer.shadowColor = UIColor.black.cgColor
         scrubberContainer.layer.shadowOpacity = 0.2
@@ -354,11 +378,15 @@ public final class ReaderViewController: UIViewController {
             blurView.bottomAnchor.constraint(equalTo: scrubberContainer.bottomAnchor),
 
             // Page label at top
-            pageLabel.topAnchor.constraint(equalTo: scrubberContainer.topAnchor, constant: 12),
+            pageLabel.topAnchor.constraint(equalTo: scrubberContainer.topAnchor, constant: 8),
             pageLabel.centerXAnchor.constraint(equalTo: scrubberContainer.centerXAnchor),
 
-            // Slider below page label
-            scrubberSlider.topAnchor.constraint(equalTo: pageLabel.bottomAnchor, constant: 8),
+            // Loading progress label below page label
+            loadingProgressLabel.topAnchor.constraint(equalTo: pageLabel.bottomAnchor, constant: 2),
+            loadingProgressLabel.centerXAnchor.constraint(equalTo: scrubberContainer.centerXAnchor),
+
+            // Slider below loading progress label
+            scrubberSlider.topAnchor.constraint(equalTo: loadingProgressLabel.bottomAnchor, constant: 4),
             scrubberSlider.leadingAnchor.constraint(equalTo: scrubberContainer.leadingAnchor, constant: 16),
             scrubberSlider.trailingAnchor.constraint(equalTo: scrubberContainer.trailingAnchor, constant: -16),
 
@@ -421,6 +449,28 @@ public final class ReaderViewController: UIViewController {
             constraint.isActive = false
         }
         scrubberReadExtentView.widthAnchor.constraint(equalToConstant: max(4, extentWidth)).isActive = true
+    }
+
+    /// Start background loading of remaining sections (WebView renderer only)
+    private func startBackgroundSectionLoading() {
+        guard let webRenderer = pageRenderer as? WebPageViewController else { return }
+        webRenderer.startBackgroundLoading()
+    }
+
+    /// Update the loading progress label
+    private func updateLoadingProgress(loaded: Int, total: Int) {
+        // Guard against being called before UI is set up
+        guard loadingProgressLabel != nil else { return }
+
+        if loaded >= total {
+            // All sections loaded - hide progress label
+            loadingProgressLabel.isHidden = true
+            loadingProgressLabel.text = ""
+        } else {
+            // Show progress
+            loadingProgressLabel.isHidden = false
+            loadingProgressLabel.text = "Loaded \(loaded) of \(total) sections"
+        }
     }
 
     private func maybePerformUITestJump(totalPages: Int) {
@@ -660,8 +710,17 @@ public final class ReaderViewController: UIViewController {
         renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
             self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
         }
-        renderer.onRenderReady = {
+        renderer.onRenderReady = { [weak self] in
             NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
+            // Start background loading after initial render is ready
+            self?.startBackgroundSectionLoading()
+        }
+
+        // Hook up loading progress callback (WebView renderer only)
+        if let webRenderer = renderer as? WebPageViewController {
+            webRenderer.onLoadingProgress = { [weak self] loaded, total in
+                self?.updateLoadingProgress(loaded: loaded, total: total)
+            }
         }
 
         self.pageRenderer = renderer
