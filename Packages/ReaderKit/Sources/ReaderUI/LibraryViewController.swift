@@ -6,7 +6,6 @@ public final class LibraryViewController: UITableViewController {
     private static let logger = Log.logger(category: "library-vc")
     private var books: [Book] = []
     private var isOpeningBook = false
-    private var indexingProgressView: IndexingProgressView?
 
     public init() {
         super.init(style: .plain)
@@ -91,58 +90,14 @@ public final class LibraryViewController: UITableViewController {
     private func openBook(_ book: Book) {
         isOpeningBook = true
 
-        // Skip indexing entirely during UI tests if requested
-        let skipIndexing = CommandLine.arguments.contains("--uitesting-skip-indexing")
-        if skipIndexing {
-            Self.logger.info("UI test skip-indexing mode, opening directly: \(book.title)")
-            navigateToReader(book: book)
-            return
-        }
+        // Always open the book immediately - indexing happens in background
+        // Semantic search will gracefully degrade until embeddings are ready
+        Self.logger.info("Opening book: \(book.title)")
 
-        // Check if book needs indexing
-        Task { @MainActor in
-            let bookId = book.id.uuidString
-            let isIndexed = await BookLibraryService.shared.isFullyIndexed(bookId: bookId)
+        // Kick off background indexing if needed (non-blocking)
+        BookLibraryService.shared.ensureIndexedInBackground(book: book)
 
-            if isIndexed {
-                Self.logger.info("Book already indexed, opening directly: \(book.title)")
-                self.navigateToReader(book: book)
-            } else {
-                Self.logger.info("Book needs indexing, showing progress: \(book.title)")
-                await self.indexAndOpenBook(book)
-            }
-        }
-    }
-
-    @MainActor
-    private func indexAndOpenBook(_ book: Book) async {
-        // Show progress overlay
-        let progressView = IndexingProgressView()
-        indexingProgressView = progressView
-
-        if let window = view.window {
-            progressView.show(in: window)
-        }
-
-        // Index the book with progress updates
-        let success = await BookLibraryService.shared.ensureIndexed(book: book) { [weak self] progress in
-            self?.indexingProgressView?.update(progress: progress)
-            Self.logger.info("Indexing progress: \(progress.stage.rawValue) - \(progress.message)")
-        }
-
-        // Hide progress overlay
-        indexingProgressView?.hide { [weak self] in
-            self?.indexingProgressView = nil
-        }
-
-        if success {
-            Self.logger.info("Indexing complete, opening book: \(book.title)")
-            navigateToReader(book: book)
-        } else {
-            Self.logger.error("Indexing failed for book: \(book.title)")
-            isOpeningBook = false
-            showError("Failed to prepare book for reading. Please try again.")
-        }
+        navigateToReader(book: book)
     }
 
     private func navigateToReader(book: Book) {
