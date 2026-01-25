@@ -1069,31 +1069,27 @@ private final class ChatMessageCell: UITableViewCell {
         switch message.role {
         case .user:
             bubbleView.backgroundColor = .systemBlue
-            messageTextView.textColor = .white
-            messageTextView.font = fontManager.bodyFont
-            messageTextView.text = cleanedContent
+            messageTextView.attributedText = renderMarkdown(cleanedContent, font: fontManager.bodyFont, color: .white)
             leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
             trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
 
         case .assistant:
             bubbleView.backgroundColor = .secondarySystemBackground
-            messageTextView.textColor = .label
-            messageTextView.font = fontManager.bodyFont
-            messageTextView.text = cleanedContent
+            messageTextView.attributedText = renderMarkdown(cleanedContent, font: fontManager.bodyFont, color: .label)
             leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
             trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
 
         case .system:
             bubbleView.backgroundColor = .tertiarySystemBackground
-            messageTextView.textColor = .secondaryLabel
-            messageTextView.font = fontManager.scaledFont(size: 14)
 
             // Show title with disclosure indicator when collapsed, full content when expanded
+            let systemContent: String
             if message.isCollapsed {
-                messageTextView.text = "\(message.title ?? "Context") ▶"
+                systemContent = "\(message.title ?? "Context") ▶"
             } else {
-                messageTextView.text = "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
+                systemContent = "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
             }
+            messageTextView.attributedText = renderMarkdown(systemContent, font: fontManager.scaledFont(size: 14), color: .secondaryLabel)
 
             // System messages span full width
             leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
@@ -1390,6 +1386,76 @@ private final class ChatMessageCell: UITableViewCell {
     func traceLabelFrameInTableView(_ tableView: UITableView) -> CGRect? {
         guard !traceTextView.isHidden else { return nil }
         return traceTextView.convert(traceTextView.bounds, to: tableView)
+    }
+
+    /// Render markdown text to NSAttributedString with proper styling
+    private func renderMarkdown(_ text: String, font: UIFont, color: UIColor) -> NSAttributedString {
+        // Pre-process headers before markdown parsing (convert to bold since AttributedString doesn't handle block elements well)
+        let processedText = preprocessHeaders(text)
+
+        // Try to parse as markdown using iOS 15+ AttributedString
+        if let attributed = try? AttributedString(markdown: processedText, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            let mutable = NSMutableAttributedString(attributed)
+
+            // Apply base font and color to entire range
+            let fullRange = NSRange(location: 0, length: mutable.length)
+            mutable.addAttribute(.font, value: font, range: fullRange)
+            mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
+
+            // Find and style bold text (markdown parser applies .bold trait)
+            mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+                guard let existingFont = value as? UIFont else { return }
+                let traits = existingFont.fontDescriptor.symbolicTraits
+
+                if traits.contains(.traitBold) && traits.contains(.traitItalic) {
+                    // Bold + Italic
+                    if let boldItalicDescriptor = font.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
+                        mutable.addAttribute(.font, value: UIFont(descriptor: boldItalicDescriptor, size: font.pointSize), range: range)
+                    }
+                } else if traits.contains(.traitBold) {
+                    // Bold only
+                    if let boldDescriptor = font.fontDescriptor.withSymbolicTraits(.traitBold) {
+                        mutable.addAttribute(.font, value: UIFont(descriptor: boldDescriptor, size: font.pointSize), range: range)
+                    }
+                } else if traits.contains(.traitItalic) {
+                    // Italic only
+                    if let italicDescriptor = font.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                        mutable.addAttribute(.font, value: UIFont(descriptor: italicDescriptor, size: font.pointSize), range: range)
+                    }
+                }
+            }
+
+            // Style inline code with monospace font and background
+            mutable.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
+                guard let intent = value as? InlinePresentationIntent, intent.contains(.code) else { return }
+                let monoFont = UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular)
+                mutable.addAttribute(.font, value: monoFont, range: range)
+                mutable.addAttribute(.backgroundColor, value: UIColor.systemFill, range: range)
+            }
+
+            return mutable
+        }
+
+        // Fallback to plain text
+        return NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: color
+        ])
+    }
+
+    /// Convert markdown headers to bold text (since AttributedString doesn't handle block elements)
+    private func preprocessHeaders(_ text: String) -> String {
+        var result = text
+
+        // Match headers at start of line: # Header, ## Header, ### Header, etc.
+        // Convert to bold: **Header**
+        let headerPattern = #"(?m)^(#{1,6})\s+(.+)$"#
+        if let regex = try? NSRegularExpression(pattern: headerPattern, options: []) {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "**$2**")
+        }
+
+        return result
     }
 
     @objc private func mapTapped(_ gesture: MapTapGestureRecognizer) {
