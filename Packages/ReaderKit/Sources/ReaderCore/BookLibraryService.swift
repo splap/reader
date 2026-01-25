@@ -509,6 +509,29 @@ public final class BookLibraryService {
         return true
     }
 
+    /// Kicks off background indexing if the book isn't already indexed.
+    /// Returns immediately - does not block the caller.
+    /// - Parameter book: The book to index
+    public func ensureIndexedInBackground(book: Book) {
+        let bookId = book.id.uuidString
+
+        // Check if already indexed (quick synchronous check)
+        let indexPath = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("com.splap.reader/vectors/\(bookId).usearch")
+
+        if FileManager.default.fileExists(atPath: indexPath.path) {
+            Self.logger.debug("Book already indexed, skipping: \(book.title)")
+            return
+        }
+
+        Self.logger.info("Starting background indexing for: \(book.title)")
+
+        // Run indexing in background
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            self?.indexBookSync(book)
+        }
+    }
+
     /// Indexes a specific book by title (for testing/debugging)
     /// - Parameter titleContains: Substring to match in book title
     public func indexBookByTitle(_ titleContains: String) {
