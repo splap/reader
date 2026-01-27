@@ -91,21 +91,57 @@ case "$TEST_TYPE" in
     exit 0
     ;;
   --list|list)
+    # List tests organized by source file
+    # This leverages the file structure - new tests automatically appear in the right place
+
+    list_tests_by_file() {
+      local dir="$1"
+      local prefix="${2:-}"  # e.g., "ui:" for UI tests
+
+      for file in "$dir"/*.swift; do
+        [ -f "$file" ] || continue
+
+        # Skip helper files (no test methods)
+        local tests
+        tests=$(grep -o "func test[A-Za-z0-9_]*" "$file" 2>/dev/null | sed 's/func //' | sort || true)
+        [ -z "$tests" ] && continue
+
+        # Extract category from filename (e.g., "PaginationTests.swift" -> "Pagination")
+        local basename
+        basename=$(basename "$file" .swift)
+        local category="${basename%Tests}"  # Remove "Tests" suffix if present
+        category="${category%UITests}"      # Remove "UITests" suffix if present
+
+        echo "  $category:"
+        echo "$tests" | while read -r test; do
+          echo "    $prefix$test"
+        done
+      done
+    }
+
     echo "Unit tests:"
-    grep -rh "func test[A-Za-z0-9_]*" \
-      "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderCoreTests" \
-      "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderUITests" \
-      "$ROOT_DIR/App/Tests" 2>/dev/null \
-      | grep -o "func test[A-Za-z0-9_]*" \
-      | sed 's/func /  /' \
-      | sort -u
+    echo ""
+
+    # ReaderCore tests (main unit tests)
+    if [ -d "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderCoreTests" ]; then
+      list_tests_by_file "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderCoreTests"
+    fi
+
+    # Snapshot tests
+    if [ -d "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderUITests" ]; then
+      echo ""
+      echo "  Snapshots:"
+      for file in "$ROOT_DIR/Packages/ReaderKit/Tests/ReaderUITests"/*.swift; do
+        [ -f "$file" ] || continue
+        grep -o "func test[A-Za-z0-9_]*" "$file" 2>/dev/null | sed 's/func /    /' | sort || true
+      done
+    fi
 
     echo ""
     echo "UI tests (use ui: prefix):"
-    grep -rh "func test[A-Za-z0-9_]*" "$ROOT_DIR/App/UITests" 2>/dev/null \
-      | grep -o "func test[A-Za-z0-9_]*" \
-      | sed 's/func /  ui:/' \
-      | sort -u
+    echo ""
+    list_tests_by_file "$ROOT_DIR/App/UITests" "ui:"
+
     exit 0
     ;;
   ui:*)
