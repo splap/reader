@@ -90,7 +90,9 @@ Reader/
 └── project.yml                    # XcodeGen project definition
 ```
 
-**Rendering:** Native TextKit pagination by default (HTML → attributed strings). Optional WKWebView fallback for complex publisher styling.
+**Rendering:** WKWebView with CSS multi-column pagination. One spine item (chapter) is loaded at a time for deterministic layout.
+
+**Position Tracking:** Uses EPUB CFI (Canonical Fragment Identifiers) for layout-independent position restore. Positions survive font size changes and device rotation.
 
 ## Development
 
@@ -102,4 +104,4 @@ Reader/
 | `test` | Unit tests (`test ui` for UI tests) |
 | `lint` | SwiftLint + SwiftFormat |
 
-See `AGENTS.md` for AI-assisted development workflow.
+See `CLAUDE.md` for AI-assisted development workflow and architecture details.

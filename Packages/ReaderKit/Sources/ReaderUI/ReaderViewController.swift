@@ -36,8 +36,12 @@ public final class ReaderViewController: UIViewController {
     private var loadingOverlay: UIView?
     private var awaitingRendererReady = false
 
+    // Spine (chapter) tracking for progress display
+    private var currentSpineIndex: Int = 0
+    private var totalSpineItems: Int = 0
+
     public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, initialSpineItemIndex: Int? = nil) {
-        self.viewModel = ReaderViewModel(chapter: chapter)
+        self.viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
         self.chapter = chapter
         self.bookId = bookId
         self.bookTitle = bookTitle
@@ -55,12 +59,12 @@ public final class ReaderViewController: UIViewController {
         do {
             let chapter = try EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)
             self.chapter = chapter
-            self.viewModel = ReaderViewModel(chapter: chapter)
+            self.viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
         } catch {
             Self.logger.error("Failed to load EPUB from \(epubURL.path): \(error)")
             let fallback = SampleChapter.make()
             self.chapter = fallback
-            self.viewModel = ReaderViewModel(chapter: fallback)
+            self.viewModel = ReaderViewModel(chapter: fallback, bookId: bookId)
         }
         super.init(nibName: nil, bundle: nil)
         Self.logger.info("PERF: ReaderViewController init took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - initStart))s")
@@ -123,11 +127,6 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func setupWebPageViewController() {
-        // Set current spine item ID if we have sections
-        if let firstSection = chapter.htmlSections.first {
-            viewModel.setCurrentSpineItem(firstSection.spineItemId)
-        }
-
         // Create renderer based on current preference
         let renderer: PageRenderer
         let renderMode = ReaderPreferences.shared.renderMode
@@ -140,8 +139,7 @@ public final class ReaderViewController: UIViewController {
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale,
-                initialBlockId: viewModel.initialBlockId
+                fontScale: viewModel.fontScale
             )
 
         case .webView:
@@ -151,8 +149,7 @@ public final class ReaderViewController: UIViewController {
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
                 fontScale: viewModel.fontScale,
-                initialPageIndex: viewModel.initialPageIndex,
-                initialBlockId: viewModel.initialBlockId,
+                initialCFI: viewModel.initialCFI,
                 hrefToSpineItemId: chapter.hrefToSpineItemId
             )
         }
@@ -167,13 +164,18 @@ public final class ReaderViewController: UIViewController {
             self?.maybePerformUITestJump(totalPages: totalPages)
             self?.maybeNavigateToInitialSpineItem()
         }
-        renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
-            self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
+        renderer.onSpineChanged = { [weak self] spineIndex, totalSpines in
+            self?.currentSpineIndex = spineIndex
+            self?.totalSpineItems = totalSpines
+            self?.viewModel.setCurrentSpineIndex(spineIndex)
+            self?.updateScrubber()
         }
+        // Block position tracking removed - CFI is the only position mechanism
         renderer.onRenderReady = { [weak self] in
             NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
-            // Start background loading after initial render is ready
-            self?.startBackgroundSectionLoading()
+        }
+        renderer.onCFIPositionChanged = { [weak self] cfi, spineIndex in
+            self?.viewModel.updateCFIPosition(cfi: cfi, spineIndex: spineIndex)
         }
 
         // Hook up loading progress callback (WebView renderer only)
@@ -344,7 +346,7 @@ public final class ReaderViewController: UIViewController {
         pageLabel.accessibilityIdentifier = "scrubber-page-label"
         scrubberContainer.addSubview(pageLabel)
 
-        // Loading progress label (shows "Loaded X of Y sections" during background loading)
+        // Loading progress label (currently hidden; spine-scoped rendering loads one chapter at a time)
         loadingProgressLabel = UILabel()
         loadingProgressLabel.translatesAutoresizingMaskIntoConstraints = false
         loadingProgressLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -429,48 +431,33 @@ public final class ReaderViewController: UIViewController {
 
         let totalPages = viewModel.totalPages
         let currentPage = viewModel.currentPageIndex
-        let maxReadPage = viewModel.maxReadPageIndex
 
         // Update slider position
         let sliderValue = Float(currentPage) / Float(max(1, totalPages - 1))
         scrubberSlider.value = sliderValue
 
-        // Update page label (chapter info shown only if it fits)
-        let pageText = "Page \(currentPage + 1) of \(totalPages)"
+        // Update page label with chapter progress
+        let pageText: String
+        if totalSpineItems > 1 {
+            pageText = "Page \(currentPage + 1) of \(totalPages) · Ch. \(currentSpineIndex + 1) of \(totalSpineItems)"
+        } else {
+            pageText = "Page \(currentPage + 1) of \(totalPages)"
+        }
         pageLabel.text = pageText
 
-        // Update read extent indicator width
-        let maxReadFraction = CGFloat(maxReadPage) / CGFloat(max(1, totalPages - 1))
-        let sliderWidth = scrubberSlider.bounds.width
-        let extentWidth = sliderWidth * maxReadFraction
-
-        // Find the extent view width constraint and update it
-        for constraint in scrubberReadExtentView.constraints where constraint.firstAttribute == .width {
-            constraint.isActive = false
-        }
-        scrubberReadExtentView.widthAnchor.constraint(equalToConstant: max(4, extentWidth)).isActive = true
+        // Hide read extent indicator (CFI-based tracking doesn't use max page)
+        scrubberReadExtentView.isHidden = true
     }
 
-    /// Start background loading of remaining sections (WebView renderer only)
-    private func startBackgroundSectionLoading() {
-        guard let webRenderer = pageRenderer as? WebPageViewController else { return }
-        webRenderer.startBackgroundLoading()
-    }
-
-    /// Update the loading progress label
+    /// Update the loading progress label (shows current spine item position)
     private func updateLoadingProgress(loaded: Int, total: Int) {
         // Guard against being called before UI is set up
         guard loadingProgressLabel != nil else { return }
 
-        if loaded >= total {
-            // All sections loaded - hide progress label
-            loadingProgressLabel.isHidden = true
-            loadingProgressLabel.text = ""
-        } else {
-            // Show progress
-            loadingProgressLabel.isHidden = false
-            loadingProgressLabel.text = "Loaded \(loaded) of \(total) sections"
-        }
+        // With spine-scoped rendering, loaded is the current spine index + 1
+        // We don't show this during normal reading, but it can be useful for debugging
+        loadingProgressLabel.isHidden = true
+        loadingProgressLabel.text = ""
     }
 
     private func maybePerformUITestJump(totalPages: Int) {
@@ -571,14 +558,20 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func openChatWithSelection(_ selection: SelectionPayload?) {
+        // Derive current spine item ID from spine index
+        let spineIndex = viewModel.currentSpineIndex
+        let currentSpineItemId = spineIndex < chapter.htmlSections.count
+            ? chapter.htmlSections[spineIndex].spineItemId
+            : (chapter.htmlSections.first?.spineItemId ?? "")
+
         // Create book context from current state
         let bookContext = ReaderBookContext(
             chapter: chapter,
             bookId: bookId,
             bookTitle: bookTitle ?? "Unknown Book",
             bookAuthor: bookAuthor,
-            currentSpineItemId: viewModel.currentSpineItemId ?? "",
-            currentBlockId: viewModel.currentBlockId
+            currentSpineItemId: currentSpineItemId,
+            currentBlockId: nil  // CFI-based positioning doesn't track block IDs
         )
 
         let chatContainer = ChatContainerViewController(context: bookContext, selection: selection)
@@ -675,8 +668,7 @@ public final class ReaderViewController: UIViewController {
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale,
-                initialBlockId: viewModel.currentBlockId
+                fontScale: viewModel.fontScale
             )
 
         case .webView:
@@ -686,8 +678,7 @@ public final class ReaderViewController: UIViewController {
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
                 fontScale: viewModel.fontScale,
-                initialPageIndex: viewModel.currentPageIndex,
-                initialBlockId: viewModel.currentBlockId,
+                initialCFI: viewModel.currentCFI,
                 hrefToSpineItemId: chapter.hrefToSpineItemId
             )
         }
@@ -707,13 +698,18 @@ public final class ReaderViewController: UIViewController {
                 self?.hideLoadingOverlay()
             }
         }
-        renderer.onBlockPositionChanged = { [weak self] blockId, spineItemId in
-            self?.viewModel.updateBlockPosition(blockId: blockId, spineItemId: spineItemId)
+        renderer.onSpineChanged = { [weak self] spineIndex, totalSpines in
+            self?.currentSpineIndex = spineIndex
+            self?.totalSpineItems = totalSpines
+            self?.viewModel.setCurrentSpineIndex(spineIndex)
+            self?.updateScrubber()
         }
+        // Block position tracking removed - CFI is the only position mechanism
         renderer.onRenderReady = { [weak self] in
             NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
-            // Start background loading after initial render is ready
-            self?.startBackgroundSectionLoading()
+        }
+        renderer.onCFIPositionChanged = { [weak self] cfi, spineIndex in
+            self?.viewModel.updateCFIPosition(cfi: cfi, spineIndex: spineIndex)
         }
 
         // Hook up loading progress callback (WebView renderer only)
