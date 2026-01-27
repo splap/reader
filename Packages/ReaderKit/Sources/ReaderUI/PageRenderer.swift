@@ -19,7 +19,7 @@ public protocol PageRenderer: AnyObject {
     /// Navigate to specific page index
     func navigateToPage(_ pageIndex: Int, animated: Bool)
 
-    /// Navigate to a specific block by ID (preferred for position restoration)
+    /// Navigate to a specific block by ID
     func navigateToBlock(_ blockId: String, animated: Bool)
 
     /// Navigate to the first page of a specific spine item (chapter)
@@ -31,13 +31,16 @@ public protocol PageRenderer: AnyObject {
     /// Callback when page changes (currentPage, totalPages)
     var onPageChanged: ((_ currentPage: Int, _ totalPages: Int) -> Void)? { get set }
 
-    /// Callback when visible block changes
-    var onBlockPositionChanged: ((_ blockId: String, _ spineItemId: String?) -> Void)? { get set }
+    /// Callback when spine item changes (currentSpineIndex, totalSpineItems)
+    var onSpineChanged: ((_ currentSpineIndex: Int, _ totalSpineItems: Int) -> Void)? { get set }
 
     /// Callback for text selection sent to LLM
     var onSendToLLM: ((SelectionPayload) -> Void)? { get set }
 
     /// Callback when rendering is complete and content is ready for display
-    /// This is fired after CSS layout is complete (WebView) or after buildPages() completes (Native)
     var onRenderReady: (() -> Void)? { get set }
+
+    /// Callback when CFI position changes (cfi string, spineIndex)
+    /// Used to save reading position for persistence
+    var onCFIPositionChanged: ((_ cfi: String, _ spineIndex: Int) -> Void)? { get set }
 }

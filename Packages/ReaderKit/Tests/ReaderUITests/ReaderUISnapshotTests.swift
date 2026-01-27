@@ -56,6 +56,19 @@ final class ReaderUISnapshotTests: XCTestCase {
     }
 }
 
+@MainActor
+final class PositionRestorePolicyTests: XCTestCase {
+    func testShouldHideUntilRestoreWithCFI() {
+        // Should hide when there's a CFI to restore
+        XCTAssertTrue(PositionRestorePolicy.shouldHideUntilRestore(initialCFI: "epubcfi(/6/4!/4/2:0)"))
+    }
+
+    func testShouldNotHideUntilRestoreWithoutCFI() {
+        // Should not hide when there's no CFI (start at beginning)
+        XCTAssertFalse(PositionRestorePolicy.shouldHideUntilRestore(initialCFI: nil))
+    }
+}
+
 private struct PageSnapshotView: View {
     let page: Page
     let insets: UIEdgeInsets

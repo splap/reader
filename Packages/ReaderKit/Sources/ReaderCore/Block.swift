@@ -94,34 +94,28 @@ public struct Block: Identifiable, Codable, Equatable {
     }
 }
 
-/// Reading position based on block location (replaces page-based positioning)
-public struct BlockPosition: Codable, Equatable {
+// MARK: - CFI Position
+
+/// Reading position based on EPUB CFI (Canonical Fragment Identifier).
+/// This is the ONLY position tracking mechanism.
+public struct CFIPosition: Codable, Equatable {
     /// Identifier for the book
     public let bookId: String
 
-    /// The spine item (chapter/file) containing the current position
-    public let spineItemId: String
+    /// Full CFI string (e.g., "epubcfi(/6/4[ch02]!/4/2/1:42)")
+    public let cfi: String
 
-    /// The block ID at the current reading position
-    public let blockId: String
+    /// Optional: furthest read position CFI (for progress tracking)
+    public let maxCfi: String?
 
-    /// Optional: furthest block reached (for progress tracking)
-    public let maxBlockId: String?
-
-    /// Optional: furthest spine item reached
-    public let maxSpineItemId: String?
-
-    public init(
-        bookId: String,
-        spineItemId: String,
-        blockId: String,
-        maxBlockId: String? = nil,
-        maxSpineItemId: String? = nil
-    ) {
+    public init(bookId: String, cfi: String, maxCfi: String? = nil) {
         self.bookId = bookId
-        self.spineItemId = spineItemId
-        self.blockId = blockId
-        self.maxBlockId = maxBlockId
-        self.maxSpineItemId = maxSpineItemId
+        self.cfi = cfi
+        self.maxCfi = maxCfi
+    }
+
+    /// Extract the spine index from this position's CFI
+    public var spineIndex: Int? {
+        CFIParser.parseFullCFI(cfi)?.spineIndex
     }
 }

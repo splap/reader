@@ -46,18 +46,21 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private var currentPage: Int = 0
     private var totalPages: Int = 0
     private var cssColumnWidth: CGFloat = 0  // Exact column width from CSS - source of truth for alignment
-    private var initialPageIndex: Int = 0  // Page to navigate to after content loads (legacy)
-    private var initialBlockId: String?  // Block ID to navigate to after content loads (preferred)
     private var hasRestoredPosition = false  // Track if we've restored position
-    private var currentBlockId: String?  // Currently visible block ID
-    private var currentSpineItemId: String?  // Currently visible spine item ID
     private var urlSchemeHandler: EPUBURLSchemeHandler?  // Handler for serving images
     private let hrefToSpineItemId: [String: String]  // Map from file href to spineItemId for link resolution
+    private var isWaitingForInitialRestore = false  // Hide content until restore completes
+    private let spineItemIdToSectionIndex: [String: Int]
+    private var currentSectionIndex: Int?
 
-    // Progressive loading state
-    private var loadedSectionIndices: Set<Int> = []
-    private var isLoadingSection = false
-    private var backgroundLoadingTask: Task<Void, Never>?
+    // Spine-scoped rendering state (one spine item at a time)
+    private var currentSpineIndex: Int = 0  // Currently loaded spine item index
+    private var initialCFI: String?  // CFI to restore after loading
+
+    // Edge scroll tracking for spine transitions
+    private var dragStartOffset: CGFloat = 0
+    private var wasAtEndWhenDragStarted = false
+    private var wasAtStartWhenDragStarted = false
 
     // MARK: - PageRenderer Protocol Properties
 
@@ -71,7 +74,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     public var onPageChanged: ((Int, Int) -> Void)?
-    public var onBlockPositionChanged: ((String, String?) -> Void)?
+    public var onSpineChanged: ((Int, Int) -> Void)?
     public var onSendToLLM: ((SelectionPayload) -> Void)?
     public var onRenderReady: (() -> Void)?
     /// Called when a section is loaded. Parameters: (loadedCount, totalCount)
@@ -83,8 +86,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
         fontScale: CGFloat = 2.0,
-        initialPageIndex: Int = 0,
-        initialBlockId: String? = nil,
+        initialCFI: String? = nil,
         hrefToSpineItemId: [String: String] = [:]
     ) {
         self.htmlSections = htmlSections
@@ -92,9 +94,13 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         self.bookAuthor = bookAuthor
         self.chapterTitle = chapterTitle
         self.fontScale = fontScale
-        self.initialPageIndex = initialPageIndex
-        self.initialBlockId = initialBlockId
+        self.initialCFI = initialCFI
         self.hrefToSpineItemId = hrefToSpineItemId
+        var sectionIndexMap: [String: Int] = [:]
+        for (index, section) in htmlSections.enumerated() where !section.spineItemId.isEmpty {
+            sectionIndexMap[section.spineItemId] = index
+        }
+        self.spineItemIdToSectionIndex = sectionIndexMap
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -134,7 +140,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         webView.scrollView.isPagingEnabled = false  // Use custom snapping for precise alignment
         webView.scrollView.decelerationRate = .fast
         webView.scrollView.bounces = true
-        webView.scrollView.alwaysBounceHorizontal = false
+        webView.scrollView.alwaysBounceHorizontal = true  // Allow horizontal bounce even for single-page content
         webView.scrollView.alwaysBounceVertical = false
         webView.scrollView.isDirectionalLockEnabled = true
         webView.scrollView.showsHorizontalScrollIndicator = false
@@ -270,27 +276,59 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     private func loadContent() {
+        let spineIndex = findInitialSpineIndex()
+
+        // Parse initialCFI to get DOM path for position restoration within the chapter
+        var restoreCFI: (domPath: [Int], charOffset: Int?)?
+        if let cfi = initialCFI, let parsed = CFIParser.parseFullCFI(cfi), !parsed.domPath.isEmpty {
+            restoreCFI = (domPath: parsed.domPath, charOffset: parsed.charOffset)
+            Self.logger.debug("SPINE: Will restore to CFI path \(parsed.domPath) offset \(parsed.charOffset ?? -1)")
+        }
+
+        loadSpineItem(at: spineIndex, restoreCFI: restoreCFI)
+    }
+
+    /// Load a specific spine item into the WebView
+    /// - Parameters:
+    ///   - index: The spine item index to load
+    ///   - restoreCFI: Optional CFI to scroll to after loading (domPath and charOffset)
+    ///   - atEnd: If true, scroll to the last page instead of the first
+    public func loadSpineItem(at index: Int, restoreCFI: (domPath: [Int], charOffset: Int?)? = nil, atEnd: Bool = false) {
         let loadStart = CFAbsoluteTimeGetCurrent()
 
-        // Find the initial section to load (just ONE section for fast startup)
-        let initialSectionIndex = findInitialSectionIndex()
-        loadedSectionIndices = [initialSectionIndex]
+        guard index >= 0 && index < htmlSections.count else {
+            Self.logger.error("SPINE: Invalid spine index \(index), max is \(htmlSections.count - 1)")
+            return
+        }
 
-        Self.logger.debug("SECTION-LOAD: Starting with section \(initialSectionIndex) of \(htmlSections.count) total")
+        prepareForPositionRestore()
 
-        // Build HTML for just the initial section
-        let section = htmlSections[initialSectionIndex]
+        // Reset CSS column width - will be re-queried after new content loads
+        // This prevents using stale width values from the previous spine
+        cssColumnWidth = 0
+
+        // Reset edge scroll tracking state
+        wasAtEndWhenDragStarted = false
+        wasAtStartWhenDragStarted = false
+        dragStartOffset = 0
+
+        currentSpineIndex = index
+        currentSectionIndex = index
+
+        Self.logger.info("SPINE: Loading spine item \(index) of \(htmlSections.count)")
+
+        // Build HTML for just this spine item
+        let section = htmlSections[index]
         let bodyContent = extractBodyContent(from: section.annotatedHTML)
         let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
-        let sectionHTML = "<div class=\"spine-item-section\" data-section-index=\"\(initialSectionIndex)\">\(processedHTML)</div>"
 
-        // Collect publisher CSS from the initial section
+        // Collect publisher CSS from this section
         var publisherCSS = ""
         if let css = section.cssContent, !css.isEmpty {
             publisherCSS = css
         }
 
-        Self.logger.debug("SECTION-LOAD: Initial section HTML: \(sectionHTML.count) chars, CSS: \(publisherCSS.count) chars")
+        Self.logger.debug("SPINE: Section HTML: \(processedHTML.count) chars, CSS: \(publisherCSS.count) chars")
 
         // Generate CSS using CSSManager (house CSS + publisher CSS)
         let marginSize = ReaderPreferences.shared.marginSize
@@ -330,195 +368,222 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                     }, { passive: false });
                 })();
 
-                // Function to inject a new section at the correct position
-                window.injectSection = function(html, sectionIndex) {
-                    var newDiv = document.createElement('div');
-                    newDiv.innerHTML = html;
-                    var newSection = newDiv.firstElementChild;
+                // CFI (Canonical Fragment Identifier) functions for position tracking
 
-                    var body = document.body;
-                    var sections = body.querySelectorAll('.spine-item-section');
-
-                    // Find the right position to insert
-                    var inserted = false;
-                    for (var i = 0; i < sections.length; i++) {
-                        var existingIndex = parseInt(sections[i].getAttribute('data-section-index'));
-                        if (sectionIndex < existingIndex) {
-                            body.insertBefore(newSection, sections[i]);
-                            inserted = true;
-                            break;
+                // Build DOM path from an element to the body
+                window.buildDOMPath = function(element) {
+                    var path = [];
+                    var current = element;
+                    while (current && current !== document.body && current.parentElement) {
+                        var parent = current.parentElement;
+                        var children = Array.from(parent.children);
+                        var index = children.indexOf(current);
+                        if (index >= 0) {
+                            path.unshift(index);
                         }
+                        current = parent;
                     }
-                    if (!inserted) {
-                        body.appendChild(newSection);
+                    return path;
+                };
+
+                // Convert DOM path array to CFI path string (using EPUB even-number convention)
+                window.domPathToCFI = function(path) {
+                    return path.map(function(idx) {
+                        return '/' + ((idx + 1) * 2);
+                    }).join('');
+                };
+
+                // Generate CFI for the first visible text position
+                // Accepts optional page number from Swift (more reliable than calculating from scrollX)
+                window.generateCFIForCurrentPosition = function(pageFromSwift) {
+                    var currentPage = pageFromSwift || 0;
+
+                    // Find the first content container (pagination-container or body)
+                    var container = document.body.querySelector('#pagination-container') || document.body;
+
+                    // For the test chapter and most EPUBs, each page is a direct child of the container
+                    // The domPath should be [containerIndex, pageIndex]
+                    var containerPath = window.buildDOMPath(container);
+
+                    // Find the child element at the current page position
+                    // This assumes one element per CSS column page
+                    var pageElements = container.children;
+                    var pageIndex = Math.min(currentPage, pageElements.length - 1);
+
+                    // Build full path: container path + page index
+                    var path = containerPath.concat([pageIndex]);
+                    var charOffset = 0;
+
+                    // Get the actual page element for spine item lookup
+                    var pageElement = pageElements[pageIndex];
+
+                    // Get spine item ID if available
+                    var spineItemEl = pageElement ? pageElement.closest('[data-spine-item-id]') : null;
+                    var spineItemId = spineItemEl ? spineItemEl.dataset.spineItemId : null;
+
+                    return {
+                        domPath: path,
+                        charOffset: charOffset,
+                        spineItemId: spineItemId
+                    };
+                };
+
+                // Navigate an element from DOM path
+                window.getElementFromPath = function(path) {
+                    var current = document.body;
+                    for (var i = 0; i < path.length; i++) {
+                        var children = current.children;
+                        if (path[i] >= children.length) {
+                            return null;
+                        }
+                        current = children[path[i]];
                     }
+                    return current;
+                };
 
-                    // Force layout recalculation
-                    body.offsetHeight;
+                // Resolve a CFI and scroll to that position
+                // Input: { domPath: [int], charOffset: int }
+                window.resolveCFI = function(cfiData) {
+                    if (!cfiData || !cfiData.domPath) return false;
 
-                    // Return new content width for page count update
-                    return document.documentElement.scrollWidth;
+                    var element = window.getElementFromPath(cfiData.domPath);
+                    if (!element) return false;
+
+                    var rect = element.getBoundingClientRect();
+                    var scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+                    var viewportWidth = window.innerWidth;
+                    var elementLeft = rect.left + scrollLeft;
+                    var targetPage = Math.floor(elementLeft / viewportWidth);
+                    var targetX = targetPage * viewportWidth;
+
+                    window.scrollTo(targetX, 0);
+                    return true;
+                };
+
+                // Scroll to end of document (last page)
+                window.scrollToEnd = function() {
+                    var contentWidth = document.documentElement.scrollWidth;
+                    var viewportWidth = window.innerWidth;
+                    var lastPageX = Math.max(0, contentWidth - viewportWidth);
+                    // Align to page boundary
+                    var targetPage = Math.floor(lastPageX / viewportWidth);
+                    window.scrollTo(targetPage * viewportWidth, 0);
+                    return true;
+                };
+
+                // Get current page info for boundary detection
+                window.getPageInfo = function() {
+                    var viewportWidth = window.innerWidth;
+                    var contentWidth = document.documentElement.scrollWidth;
+                    var scrollX = window.scrollX || document.documentElement.scrollLeft;
+                    var currentPage = Math.round(scrollX / viewportWidth);
+                    var totalPages = Math.ceil(contentWidth / viewportWidth);
+                    return {
+                        currentPage: currentPage,
+                        totalPages: totalPages,
+                        isFirstPage: currentPage === 0,
+                        isLastPage: currentPage >= totalPages - 1
+                    };
                 };
             </script>
         </head>
         <body>
-            \(sectionHTML)
+            \(processedHTML)
         </body>
         </html>
         """
 
+        // Store restore parameters for use after content loads
+        self.pendingCFIRestore = restoreCFI
+        self.pendingScrollToEnd = atEnd
+
         let prepTime = CFAbsoluteTimeGetCurrent() - loadStart
-        Self.logger.debug("SECTION-LOAD: Prepared initial HTML in \(String(format: "%.3f", prepTime))s, \(wrappedHTML.count) chars")
+        Self.logger.debug("SPINE: Prepared HTML in \(String(format: "%.3f", prepTime))s, \(wrappedHTML.count) chars")
 
         webViewLoadStartTime = CFAbsoluteTimeGetCurrent()
         webView.loadHTMLString(wrappedHTML, baseURL: nil)
 
-        // Report initial loading progress
-        onLoadingProgress?(1, htmlSections.count)
+        // Report loading progress (spine-scoped: always 1/total until locations list is built)
+        onLoadingProgress?(index + 1, htmlSections.count)
+
+        // Report spine change
+        onSpineChanged?(index, htmlSections.count)
     }
+
+    // Pending restore state (used after WebView finishes loading)
+    private var pendingCFIRestore: (domPath: [Int], charOffset: Int?)?
+    private var pendingScrollToEnd: Bool = false
 
     private var webViewLoadStartTime: CFAbsoluteTime = 0
 
-    /// Find the section index to load initially (based on saved position or first section)
-    private func findInitialSectionIndex() -> Int {
-        // If we have a saved block ID, find its section
-        if let blockId = initialBlockId {
-            for (index, section) in htmlSections.enumerated() {
-                if section.blocks.contains(where: { $0.id == blockId }) {
-                    Self.logger.debug("SECTION-LOAD: Found initial block \(blockId) in section \(index)")
-                    return index
-                }
-            }
+    /// Find the spine index to load initially (based on saved CFI, block ID, or first section)
+    private func findInitialSpineIndex() -> Int {
+        // Use CFI to find spine index
+        if let cfi = initialCFI, let parsed = CFIParser.parseFullCFI(cfi) {
+            Self.logger.debug("SPINE: Initial CFI points to spine \(parsed.spineIndex)")
+            return min(parsed.spineIndex, htmlSections.count - 1)
         }
-        // Default to first section
+
+        // No saved position - start at beginning
         return 0
     }
 
-    /// Start loading remaining sections in the background
-    public func startBackgroundLoading() {
-        // Cancel any existing background loading
-        backgroundLoadingTask?.cancel()
+    // MARK: - Spine Navigation
 
-        let totalSections = htmlSections.count
-        guard totalSections > 1 else {
-            Self.logger.debug("SECTION-LOAD: Only 1 section, no background loading needed")
-            return
+    /// Navigate to the next spine item
+    /// - Returns: true if navigation occurred, false if already at end
+    @discardableResult
+    public func navigateToNextSpineItem() -> Bool {
+        guard currentSpineIndex < htmlSections.count - 1 else {
+            Self.logger.debug("SPINE: Already at last spine item (\(currentSpineIndex))")
+            return false
         }
 
-        Self.logger.debug("SECTION-LOAD: Starting background load of \(totalSections - loadedSectionIndices.count) remaining sections")
+        Self.logger.info("SPINE: Navigating to next spine item (\(currentSpineIndex) -> \(currentSpineIndex + 1))")
+        loadSpineItem(at: currentSpineIndex + 1)
+        return true
+    }
 
-        backgroundLoadingTask = Task { [weak self] in
+    /// Navigate to the previous spine item
+    /// - Returns: true if navigation occurred, false if already at beginning
+    @discardableResult
+    public func navigateToPreviousSpineItem() -> Bool {
+        guard currentSpineIndex > 0 else {
+            Self.logger.debug("SPINE: Already at first spine item (0)")
+            return false
+        }
+
+        Self.logger.info("SPINE: Navigating to previous spine item (\(currentSpineIndex) -> \(currentSpineIndex - 1))")
+        loadSpineItem(at: currentSpineIndex - 1, atEnd: true)
+        return true
+    }
+
+
+    /// Check if we're at a page boundary and should transition to adjacent spine
+    private func checkPageBoundaryAndTransition(goingForward: Bool) {
+        let js = "window.getPageInfo();"
+
+        webView.evaluateJavaScript(js) { [weak self] result, error in
             guard let self = self else { return }
 
-            // Load sections in order, skipping already loaded ones
-            for sectionIndex in 0..<totalSections {
-                if Task.isCancelled { break }
-
-                // Skip already loaded sections
-                if self.loadedSectionIndices.contains(sectionIndex) {
-                    continue
-                }
-
-                // Small delay between sections to avoid overwhelming the device
-                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-
-                if Task.isCancelled { break }
-
-                await self.loadSectionInBackground(sectionIndex)
+            if let error = error {
+                Self.logger.error("Failed to get page info: \(error.localizedDescription)")
+                return
             }
 
-            Self.logger.debug("SECTION-LOAD: Background loading complete - \(self.loadedSectionIndices.count) sections loaded")
-        }
-    }
-
-    /// Load a single section and inject it into the WebView
-    @MainActor
-    private func loadSectionInBackground(_ sectionIndex: Int) async {
-        guard !loadedSectionIndices.contains(sectionIndex) else { return }
-        guard sectionIndex >= 0 && sectionIndex < htmlSections.count else { return }
-
-        let loadStart = CFAbsoluteTimeGetCurrent()
-
-        let section = htmlSections[sectionIndex]
-        let bodyContent = extractBodyContent(from: section.annotatedHTML)
-        let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
-
-        // Escape the HTML for JavaScript string
-        let escapedHTML = processedHTML
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "'", with: "\\'")
-
-        let sectionDivHTML = "<div class=\\\"spine-item-section\\\" data-section-index=\\\"\(sectionIndex)\\\">\(escapedHTML)</div>"
-
-        let prepTime = CFAbsoluteTimeGetCurrent() - loadStart
-
-        // Inject the section via JavaScript
-        let js = "window.injectSection('\(sectionDivHTML)', \(sectionIndex));"
-
-        let injectStart = CFAbsoluteTimeGetCurrent()
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            webView.evaluateJavaScript(js) { [weak self] result, error in
-                guard let self = self else {
-                    continuation.resume()
-                    return
-                }
-
-                let injectTime = CFAbsoluteTimeGetCurrent() - injectStart
-                let totalTime = CFAbsoluteTimeGetCurrent() - loadStart
-
-                if let error = error {
-                    Self.logger.error("SECTION-LOAD: Failed to inject section \(sectionIndex): \(error.localizedDescription)")
-                } else {
-                    self.loadedSectionIndices.insert(sectionIndex)
-
-                    // Log performance
-                    let htmlSize = processedHTML.count
-                    Self.logger.debug("SECTION-LOAD: Section \(sectionIndex) loaded - prep: \(String(format: "%.3f", prepTime))s, inject: \(String(format: "%.3f", injectTime))s, total: \(String(format: "%.3f", totalTime))s, size: \(htmlSize) chars")
-
-                    // Query memory stats
-                    self.logMemoryStats(afterSection: sectionIndex)
-
-                    // Update page count
-                    self.updatePageCountAfterInjection()
-
-                    // Report progress
-                    let loadedCount = self.loadedSectionIndices.count
-                    let totalCount = self.htmlSections.count
-                    Self.logger.debug("SECTION-LOAD: Reporting progress \(loadedCount)/\(totalCount)")
-                    self.onLoadingProgress?(loadedCount, totalCount)
-                }
-
-                continuation.resume()
+            guard let info = result as? [String: Any],
+                  let isFirstPage = info["isFirstPage"] as? Bool,
+                  let isLastPage = info["isLastPage"] as? Bool else {
+                return
             }
-        }
-    }
 
-    /// Log process memory usage (iOS process memory, not JavaScript)
-    private func logMemoryStats(afterSection sectionIndex: Int) {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            if goingForward && isLastPage {
+                // At last page going forward -> next spine item
+                self.navigateToNextSpineItem()
+            } else if !goingForward && isFirstPage {
+                // At first page going backward -> previous spine item
+                self.navigateToPreviousSpineItem()
             }
-        }
-
-        if result == KERN_SUCCESS {
-            let usedMB = Double(info.resident_size) / 1_000_000
-            Self.logger.debug("SECTION-LOAD: Memory after section \(sectionIndex) - process: \(String(format: "%.1f", usedMB))MB")
-        } else {
-            Self.logger.debug("SECTION-LOAD: Memory stats unavailable (section \(sectionIndex))")
-        }
-    }
-
-    /// Update page count after injecting a section
-    private func updatePageCountAfterInjection() {
-        queryCSSColumnWidth { [weak self] in
-            self?.updateCurrentPage()
         }
     }
 
@@ -609,25 +674,21 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     private func reloadWithNewFontScale() {
-        // Cancel any existing background loading
-        backgroundLoadingTask?.cancel()
-        backgroundLoadingTask = nil
+        // Query current CFI before reloading
+        queryCurrentCFI { [weak self] _, domPath, charOffset, _ in
+            guard let self = self else { return }
 
-        // Save current position using block ID (not scroll percentage)
-        // This works correctly with progressive loading
-        if let blockId = currentBlockId {
-            initialBlockId = blockId
-            Self.logger.debug("SECTION-LOAD: Font scale changed, will restore to block \(blockId)")
+            // Store position for restore after reload
+            let restoreCFI: (domPath: [Int], charOffset: Int?)? = domPath.map { ($0, charOffset) }
+
+            // Reset state for fresh load
+            self.hasRestoredPosition = false
+
+            Self.logger.debug("SPINE: Font scale changed, reloading spine \(self.currentSpineIndex) with CFI restore")
+
+            // Reload current spine item with CFI restore
+            self.loadSpineItem(at: self.currentSpineIndex, restoreCFI: restoreCFI)
         }
-
-        // Reset state for fresh load
-        hasRestoredPosition = false
-        loadedSectionIndices.removeAll()
-
-        // Reload content - will load section containing initialBlockId
-        loadContent()
-
-        // Position restoration happens automatically via initialBlockId in webView(_:didFinish:)
     }
 
     private func currentPageWidth() -> CGFloat {
@@ -648,20 +709,61 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             totalPages = newTotalPages
             currentPage = max(0, min(newCurrentPage, totalPages - 1))
             onPageChanged?(currentPage, totalPages)
+
+            // Save CFI position when page changes
+            updateCFIPosition()
         }
     }
 
     public func navigateToNextPage() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
-        let nextOffset = min(scrollView.contentOffset.x + pageWidth, scrollView.contentSize.width - pageWidth)
-        scrollView.setContentOffset(CGPoint(x: nextOffset, y: 0), animated: true)
+        guard pageWidth > 0 else { return }
+
+        let currentOffset = scrollView.contentOffset.x
+        let contentWidth = scrollView.contentSize.width
+        let boundsWidth = scrollView.bounds.width
+
+        // Calculate the target offset
+        let nextOffset = currentOffset + pageWidth
+        let maxOffset = max(0, contentWidth - boundsWidth)
+
+        Self.logger.info("NAV: next - current=\(currentOffset), next=\(nextOffset), max=\(maxOffset), pageWidth=\(pageWidth), contentWidth=\(contentWidth)")
+
+        // If we're already at max and trying to go further, transition to next spine
+        if currentOffset >= maxOffset - 1 && nextOffset > maxOffset + 1 {
+            Self.logger.debug("NAV: at last page, trying next spine")
+            if navigateToNextSpineItem() {
+                return
+            }
+            return
+        }
+
+        // Normal navigation - clamp to max
+        let clampedOffset = min(nextOffset, maxOffset)
+        scrollView.setContentOffset(CGPoint(x: clampedOffset, y: 0), animated: true)
     }
 
     public func navigateToPreviousPage() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
-        let prevOffset = max(scrollView.contentOffset.x - pageWidth, 0)
+        guard pageWidth > 0 else { return }
+
+        let currentOffset = scrollView.contentOffset.x
+
+        Self.logger.debug("NAV: prev - current=\(currentOffset), pageWidth=\(pageWidth)")
+
+        // If at first page and trying to go back, transition to previous spine
+        if currentOffset <= 1 {
+            Self.logger.debug("NAV: at first page, trying previous spine")
+            if navigateToPreviousSpineItem() {
+                return
+            }
+            return
+        }
+
+        // Normal navigation
+        let prevOffset = max(currentOffset - pageWidth, 0)
         scrollView.setContentOffset(CGPoint(x: prevOffset, y: 0), animated: true)
     }
 
@@ -672,8 +774,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         guard pageWidth > 0 else { return }
 
         let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let totalPages = Int(ceil(scrollView.contentSize.width / pageWidth))
         let targetX = CGFloat(max(0, pageIndex)) * pageWidth
         let clampedX = min(targetX, maxX)
+
+        Self.logger.info("SLIDER: jumping to page \(pageIndex)/\(totalPages-1) on spine \(self.currentSpineIndex)")
 
         scrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: animated)
 
@@ -682,7 +787,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         if !animated {
             DispatchQueue.main.async { [weak self] in
                 self?.updateCurrentPage()
-                self?.updateBlockPosition()
+                self?.logCurrentPosition("slider")
             }
         }
     }
@@ -813,93 +918,152 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     /// Navigate to the first page of a specific spine item (chapter)
+    /// With spine-scoped rendering, this loads the spine item as the current document
     /// - Parameters:
     ///   - spineItemId: The spine item ID to navigate to
-    ///   - animated: Whether to animate the scroll
+    ///   - animated: Whether to animate (ignored with spine-scoped rendering)
     public func navigateToSpineItem(_ spineItemId: String, animated: Bool = false) {
-        // Find the section index for this spine item
-        guard let sectionIndex = htmlSections.firstIndex(where: { $0.spineItemId == spineItemId }) else {
+        // Find the spine index for this spine item
+        guard let spineIndex = htmlSections.firstIndex(where: { $0.spineItemId == spineItemId }) else {
             Self.logger.warning("Spine item \(spineItemId) not found in htmlSections")
             return
         }
 
-        // If section not loaded, load it first then navigate
-        if !loadedSectionIndices.contains(sectionIndex) {
-            Self.logger.debug("SECTION-LOAD: Loading section \(sectionIndex) for navigation to \(spineItemId)")
-            Task { @MainActor in
-                await self.loadSectionInBackground(sectionIndex)
-                self.performSpineItemNavigation(spineItemId, animated: animated)
-            }
-        } else {
-            performSpineItemNavigation(spineItemId, animated: animated)
+        // If already on this spine item, just scroll to start
+        if spineIndex == currentSpineIndex {
+            Self.logger.debug("SPINE: Already on spine item \(spineItemId), scrolling to start")
+            webView.scrollView.setContentOffset(.zero, animated: animated)
+            updateCurrentPage()
+            return
         }
+
+        // Load the new spine item
+        Self.logger.info("SPINE: Loading spine item \(spineItemId) (index \(spineIndex))")
+        loadSpineItem(at: spineIndex)
     }
 
-    /// Actually perform the navigation (section must be loaded)
-    private func performSpineItemNavigation(_ spineItemId: String, animated: Bool) {
-        let js = """
-        (function() {
-            // Find the first element with this spine item ID
-            const element = document.querySelector('[data-spine-item-id="\(spineItemId)"]');
-            if (!element) return null;
+    // MARK: - CFI Position Tracking
 
-            const rect = element.getBoundingClientRect();
-            const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+    /// Callback when CFI position changes (cfi string, spineIndex)
+    /// Used to save reading position for persistence
+    public var onCFIPositionChanged: ((_ cfi: String, _ spineIndex: Int) -> Void)?
 
-            // Calculate the page that contains this element
-            const viewportWidth = window.innerWidth;
-            const elementLeft = rect.left + scrollLeft;
-            const targetPage = Math.floor(elementLeft / viewportWidth);
+    /// Query the current CFI position from the WebView
+    /// Returns: (spineItemId, domPath, charOffset, spineItemId) via callback
+    public func queryCurrentCFI(completion: @escaping (String?, [Int]?, Int?, String?) -> Void) {
+        // Pass current page from Swift since it's already calculated from scroll position
+        let js = "window.generateCFIForCurrentPosition(\(currentPage));"
 
-            return targetPage * viewportWidth;
-        })();
-        """
-
-        webView.evaluateJavaScript(js) { [weak self] result, error in
-            guard let self = self else { return }
-
+        webView.evaluateJavaScript(js) { result, error in
             if let error = error {
-                Self.logger.error("Failed to navigate to spine item: \(error.localizedDescription)")
+                Self.logger.error("Failed to query CFI position: \(error.localizedDescription)")
+                completion(nil, nil, nil, nil)
                 return
             }
 
-            if let targetX = result as? Double {
-                Self.logger.info("Navigating to spine item \(spineItemId) at x=\(targetX)")
-                self.webView.scrollView.setContentOffset(
-                    CGPoint(x: CGFloat(targetX), y: 0),
-                    animated: animated
-                )
+            guard let dict = result as? [String: Any],
+                  let domPath = dict["domPath"] as? [Int] else {
+                completion(nil, nil, nil, nil)
+                return
+            }
 
+            let charOffset = dict["charOffset"] as? Int
+            let spineItemId = dict["spineItemId"] as? String
+
+            completion(spineItemId, domPath, charOffset, spineItemId)
+        }
+    }
+
+    /// Navigate to a CFI position within the current document
+    /// - Parameters:
+    ///   - domPath: Array of 0-based element indices
+    ///   - charOffset: Optional character offset within text node
+    ///   - animated: Whether to animate the scroll
+    public func navigateToCFI(domPath: [Int], charOffset: Int?, animated: Bool = false) {
+        var cfiData: [String: Any] = ["domPath": domPath]
+        if let offset = charOffset {
+            cfiData["charOffset"] = offset
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: cfiData),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            Self.logger.error("Failed to serialize CFI data")
+            return
+        }
+
+        let js = "window.resolveCFI(\(jsonString));"
+
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            if let error = error {
+                Self.logger.error("Failed to navigate to CFI: \(error.localizedDescription)")
+                return
+            }
+
+            if let success = result as? Bool, success {
+                Self.logger.info("Navigated to CFI path: \(domPath)")
                 // Update page and block position after navigation
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                     self?.updateCurrentPage()
-                    self?.updateBlockPosition()
-                }
+                    }
             } else {
-                Self.logger.warning("Spine item \(spineItemId) not found in content after loading")
+                Self.logger.warning("CFI navigation failed - element not found")
             }
         }
     }
 
-    /// Update block position and notify callback if changed
-    private func updateBlockPosition() {
-        guard onBlockPositionChanged != nil else { return }
+    /// Update CFI position and notify callback if changed
+    private func updateCFIPosition() {
+        guard onCFIPositionChanged != nil else { return }
 
-        queryFirstVisibleBlock { [weak self] blockId, spineItemId in
-            guard let self = self, let blockId = blockId else { return }
+        queryCurrentCFI { [weak self] _, domPath, charOffset, spineItemId in
+            guard let self = self, let domPath = domPath else { return }
 
-            // Notify if either block ID or spine item ID changed
-            if blockId != self.currentBlockId || spineItemId != self.currentSpineItemId {
-                self.currentBlockId = blockId
-                self.currentSpineItemId = spineItemId
-                self.onBlockPositionChanged?(blockId, spineItemId)
-            }
+            // Generate full CFI string from components
+            let spineItemIdref = spineItemId ?? self.htmlSections[self.currentSpineIndex].spineItemId
+            let cfi = CFIParser.generateFullCFI(
+                spineIndex: self.currentSpineIndex,
+                idref: spineItemIdref,
+                domPath: domPath,
+                charOffset: charOffset
+            )
+
+            Self.logger.debug("CFI: Generated \(cfi) at spine \(self.currentSpineIndex)")
+            self.onCFIPositionChanged?(cfi, self.currentSpineIndex)
         }
+    }
+
+    private func prepareForPositionRestore() {
+        let shouldHide = PositionRestorePolicy.shouldHideUntilRestore(initialCFI: initialCFI)
+        isWaitingForInitialRestore = shouldHide
+        webView.isHidden = shouldHide
+    }
+
+    private func finishPositionRestoreIfNeeded() {
+        guard isWaitingForInitialRestore else { return }
+        isWaitingForInitialRestore = false
+        webView.isHidden = false
     }
 }
 
 // MARK: - UIScrollViewDelegate
 extension WebPageViewController: UIScrollViewDelegate {
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // Record initial state for edge detection
+        let currentOffset = scrollView.contentOffset.x
+        let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+
+        dragStartOffset = currentOffset
+
+        // For single-page chapters (maxOffset near 0), both start and end are true
+        // This allows spine transitions in either direction
+        let isSinglePage = maxOffset < 10
+
+        wasAtEndWhenDragStarted = isSinglePage || currentOffset >= maxOffset - 2
+        wasAtStartWhenDragStarted = isSinglePage || currentOffset <= 2
+
+        Self.logger.debug("DRAG START: offset=\(Int(currentOffset)), max=\(Int(maxOffset)), singlePage=\(isSinglePage), atEnd=\(wasAtEndWhenDragStarted), atStart=\(wasAtStartWhenDragStarted)")
+    }
+
     public func scrollViewWillEndDragging(
         _ scrollView: UIScrollView,
         withVelocity velocity: CGPoint,
@@ -909,38 +1073,157 @@ extension WebPageViewController: UIScrollViewDelegate {
         let pageWidth = currentPageWidth()
         guard pageWidth > 0 else { return }
 
-        let rawPage = scrollView.contentOffset.x / pageWidth
-        let maxPage = max(0, floor((scrollView.contentSize.width - scrollView.bounds.width) / pageWidth))
+        let currentOffset = scrollView.contentOffset.x
+        let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let maxPage = max(0, round(maxOffset / pageWidth))
+
+        Self.logger.debug("DRAG END: offset=\(Int(currentOffset)), max=\(Int(maxOffset)), velocity=\(velocity.x), atEnd=\(wasAtEndWhenDragStarted), atStart=\(wasAtStartWhenDragStarted)")
+
+        // Check for edge-based spine transitions:
+        // If we started at an edge and tried to scroll beyond it, trigger transition
+        if wasAtEndWhenDragStarted && velocity.x > 0.05 {
+            Self.logger.info("EDGE: Was at end, swiped forward -> transition to next spine")
+            if navigateToNextSpineItem() {
+                targetContentOffset.pointee = CGPoint(x: currentOffset, y: 0)
+                wasAtEndWhenDragStarted = false
+                wasAtStartWhenDragStarted = false
+                return
+            }
+        }
+
+        if wasAtStartWhenDragStarted && velocity.x < -0.05 {
+            Self.logger.info("EDGE: Was at start, swiped backward -> transition to prev spine")
+            if navigateToPreviousSpineItem() {
+                targetContentOffset.pointee = CGPoint(x: currentOffset, y: 0)
+                wasAtEndWhenDragStarted = false
+                wasAtStartWhenDragStarted = false
+                return
+            }
+        }
+
+        // Use floor to get the page we're currently ON (not transitioning to)
+        let currentPage = max(0, floor(currentOffset / pageWidth))
         let targetPage: CGFloat
 
         if velocity.x > 0.2 {
-            targetPage = min(maxPage, floor(rawPage) + 1)
+            // Swiping forward
+            let nextPage = currentPage + 1
+            if nextPage > maxPage {
+                // Trying to go past last page - transition to next spine
+                Self.logger.info("SWIPE: page \(Int(currentPage))/\(Int(maxPage)), forward past end -> next spine")
+                if navigateToNextSpineItem() {
+                    // Stop scroll deceleration by setting target to current position
+                    // The new spine will load and handle its own positioning
+                    targetContentOffset.pointee = CGPoint(x: currentOffset, y: 0)
+                    return
+                }
+                targetPage = maxPage
+            } else {
+                targetPage = nextPage
+            }
         } else if velocity.x < -0.2 {
-            targetPage = max(0, ceil(rawPage) - 1)
+            // Swiping backward
+            let prevPage = currentPage - 1
+            if prevPage < 0 {
+                // Trying to go before first page - transition to previous spine
+                Self.logger.info("SWIPE: page \(Int(currentPage))/\(Int(maxPage)), back past start -> prev spine")
+                if navigateToPreviousSpineItem() {
+                    // Stop scroll deceleration by setting target to current position
+                    // The new spine will load and handle its own positioning
+                    targetContentOffset.pointee = CGPoint(x: currentOffset, y: 0)
+                    return
+                }
+                targetPage = 0
+            } else {
+                targetPage = prevPage
+            }
         } else {
-            targetPage = min(maxPage, max(0, round(rawPage)))
+            // No significant velocity, snap to nearest
+            targetPage = min(maxPage, max(0, round(currentOffset / pageWidth)))
         }
 
+        Self.logger.info("SWIPE: page \(Int(currentPage))/\(Int(maxPage)) -> \(Int(targetPage))")
         targetContentOffset.pointee = CGPoint(x: targetPage * pageWidth, y: 0)
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        let pageWidth = currentPageWidth()
+
+        // Check if we landed at an edge and might need to transition
+        if pageWidth > 0 {
+            let currentOffset = scrollView.contentOffset.x
+            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+
+            Self.logger.info("DECEL: offset=\(Int(currentOffset)), max=\(Int(maxOffset)), pageWidth=\(Int(pageWidth))")
+
+            // At the very end - check if we should transition forward
+            if currentOffset >= maxOffset - 2 && maxOffset > 0 {
+                let currentPage = Int(round(currentOffset / pageWidth))
+                let totalPages = Int(ceil(scrollView.contentSize.width / pageWidth))
+                Self.logger.info("DECEL: At end (page \(currentPage)/\(totalPages-1)), may need forward transition")
+            }
+
+            // At the very beginning - check if we should transition backward
+            if currentOffset <= 2 {
+                Self.logger.info("DECEL: At start, may need backward transition")
+            }
+        }
+
         snapToNearestPage()
         updateCurrentPage()
-        updateBlockPosition()
+        logCurrentPosition("decelerate")
     }
 
     public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         updateCurrentPage()
-        updateBlockPosition()
+        logCurrentPosition("scroll-anim")
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            // Check if we're at an edge and should transition to another spine
+            let pageWidth = currentPageWidth()
+            guard pageWidth > 0 else {
+                snapToNearestPage()
+                updateCurrentPage()
+                logCurrentPosition("drag-end")
+                return
+            }
+
+            let currentOffset = scrollView.contentOffset.x
+            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+
+            // If user is at/past the end and trying to go forward (offset > max)
+            if currentOffset >= maxOffset - 1 {
+                Self.logger.info("EDGE: At end of spine, checking for forward transition")
+                if navigateToNextSpineItem() {
+                    return
+                }
+            }
+
+            // If user is at/before the start and trying to go backward (offset < 0)
+            if currentOffset <= 1 {
+                Self.logger.info("EDGE: At start of spine, checking for backward transition")
+                if navigateToPreviousSpineItem() {
+                    return
+                }
+            }
+
             snapToNearestPage()
             updateCurrentPage()
-            updateBlockPosition()
+            logCurrentPosition("drag-end")
         }
+    }
+
+    private func logCurrentPosition(_ source: String) {
+        let pageWidth = currentPageWidth()
+        guard pageWidth > 0 else { return }
+        let scrollView = webView.scrollView
+        let currentOffset = scrollView.contentOffset.x
+        let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let currentPage = Int(round(currentOffset / pageWidth))
+        let totalPages = Int(ceil(scrollView.contentSize.width / pageWidth))
+        Self.logger.info("PAGE[\(source)]: spine=\(self.currentSpineIndex)/\(self.htmlSections.count-1), page=\(currentPage)/\(totalPages-1), offset=\(Int(currentOffset))/\(Int(maxOffset))")
     }
 }
 
@@ -1045,8 +1328,7 @@ extension WebPageViewController: WKNavigationDelegate {
                 // Update page and block position after navigation
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                     self?.updateCurrentPage()
-                    self?.updateBlockPosition()
-                }
+                    }
             } else {
                 Self.logger.warning("Anchor \(anchor) not found, navigating to spine item start")
                 self.navigateToSpineItem(spineItemId, animated: false)
@@ -1094,33 +1376,56 @@ extension WebPageViewController: WKNavigationDelegate {
                         let totalLoadTime = self.webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - self.webViewLoadStartTime : 0
                         Self.logger.info("PERF: Content ready in \(String(format: "%.3f", totalLoadTime))s total")
 
-                        // Prefer block-based restoration over page-based
-                        if let blockId = self.initialBlockId {
-                            Self.logger.info("Restoring position to block \(blockId)")
-                            self.navigateToBlock(blockId, animated: false)
-                            // Wait for scroll to complete before updating position
+                        // Priority 1: CFI-based restoration (most precise)
+                        if let cfiRestore = self.pendingCFIRestore {
+                            Self.logger.info("SPINE: Restoring position via CFI path")
+                            self.pendingCFIRestore = nil
+                            self.navigateToCFI(domPath: cfiRestore.domPath, charOffset: cfiRestore.charOffset, animated: false)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                                 self?.updateCurrentPage()
-                                self?.updateBlockPosition()
+                                                self?.finishPositionRestoreIfNeeded()
                                 self?.onRenderReady?()
                             }
-                        } else if self.initialPageIndex > 0 {
-                            // Fallback to legacy page-based restoration
-                            Self.logger.info("Restoring position to page \(self.initialPageIndex)")
-                            self.navigateToPage(self.initialPageIndex, animated: false)
+                        }
+                        // Scroll to end (for navigating backward through spine)
+                        else if self.pendingScrollToEnd {
+                            self.pendingScrollToEnd = false
+                            // Use scrollView directly - JS scrollTo doesn't work with WKWebView
+                            let scrollView = self.webView.scrollView
+                            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+                            Self.logger.info("SPINE: Scrolling to end (first load), maxOffset=\(Int(maxOffset))")
+                            scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                                 self?.updateCurrentPage()
-                                self?.updateBlockPosition()
+                                self?.logCurrentPosition("scroll-to-end")
+                                self?.finishPositionRestoreIfNeeded()
                                 self?.onRenderReady?()
                             }
-                        } else {
+                        }
+                        // Default: Start at beginning
+                        else {
                             self.updateCurrentPage()
-                            self.updateBlockPosition()
+                            self.finishPositionRestoreIfNeeded()
                             self.onRenderReady?()
                         }
                     } else {
-                        self.updateCurrentPage()
-                        self.updateBlockPosition()
+                        // Handle scrollToEnd for subsequent spine navigations (not first load)
+                        if self.pendingScrollToEnd {
+                            self.pendingScrollToEnd = false
+                            // Use scrollView directly - JS scrollTo doesn't work with WKWebView
+                            let scrollView = self.webView.scrollView
+                            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+                            Self.logger.info("SPINE: Scrolling to end, maxOffset=\(Int(maxOffset))")
+                            scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                                self?.updateCurrentPage()
+                                self?.logCurrentPosition("scroll-to-end")
+                                self?.finishPositionRestoreIfNeeded()
+                            }
+                        } else {
+                            self.updateCurrentPage()
+                            self.finishPositionRestoreIfNeeded()
+                        }
                     }
                 }
             }

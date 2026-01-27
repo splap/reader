@@ -19,9 +19,10 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     }
 
     public var onPageChanged: ((Int, Int) -> Void)?
-    public var onBlockPositionChanged: ((String, String?) -> Void)?
+    public var onSpineChanged: ((Int, Int) -> Void)?
     public var onSendToLLM: ((SelectionPayload) -> Void)?
     public var onRenderReady: (() -> Void)?
+    public var onCFIPositionChanged: ((String, Int) -> Void)?
 
     // MARK: - Private Properties
 
@@ -30,7 +31,6 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     private let bookTitle: String?
     private let bookAuthor: String?
     private let chapterTitle: String?
-    private let initialBlockId: String?
 
     private var scrollView: UIScrollView!
     private var pageViews: [UIView] = []
@@ -58,8 +58,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         bookTitle: String? = nil,
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
-        fontScale: CGFloat = 1.4,
-        initialBlockId: String? = nil
+        fontScale: CGFloat = 1.4
     ) {
         self.htmlSections = htmlSections
         self.bookId = bookId
@@ -67,7 +66,6 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         self.bookAuthor = bookAuthor
         self.chapterTitle = chapterTitle
         self.fontScale = fontScale
-        self.initialBlockId = initialBlockId
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -152,7 +150,6 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
         let fontScale = self.fontScale
         let viewBounds = self.view.bounds
-        let initialBlockId = self.initialBlockId
         let bookId = self.bookId
 
         // PERF OPTIMIZATION: Only load sections around the initial position
@@ -261,12 +258,6 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
                 // Hide loading overlay
                 self.hideLoadingOverlay()
-
-                // Restore position
-                if let blockId = initialBlockId {
-                    Self.logger.info("Restoring to block: \(blockId)")
-                    self.navigateToBlock(blockId, animated: false)
-                }
 
                 self.onPageChanged?(self.currentPageIndex, self.totalPages)
                 self.onRenderReady?()
@@ -851,11 +842,6 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
     private func reportPositionChange() {
         onPageChanged?(currentPageIndex, totalPages)
-
-        queryFirstVisibleBlock { [weak self] blockId, spineItemId in
-            guard let blockId = blockId else { return }
-            self?.onBlockPositionChanged?(blockId, spineItemId)
-        }
     }
 }
 
