@@ -42,31 +42,26 @@ public actor EmbeddingService {
         if modelLoadFailed { return false }
 
         do {
-            // If explicit URL provided, use it directly
+            let loadURL: URL
+
             if let url = modelURL {
-                let loadURL = try await compileIfNeeded(url: url)
-                model = try await MLModel.load(contentsOf: loadURL, configuration: modelConfig)
-                Self.logger.info("Loaded embedding model from provided URL")
-                return true
-            }
-
-            // Look for the model in the app bundle
-            guard let compiledURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlmodelc") else {
-                // Try .mlpackage format
-                if let packageURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlpackage") {
-                    let loadURL = try await compileIfNeeded(url: packageURL)
-                    model = try await MLModel.load(contentsOf: loadURL, configuration: modelConfig)
-                    Self.logger.info("Loaded embedding model from mlpackage")
-                    return true
-                }
-
+                // Explicit URL provided (testing) - compile to stable path if needed
+                loadURL = try await stableModelURL(for: url)
+            } else if let bundleURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlmodelc") {
+                // Pre-compiled in bundle - copy to stable path so CoreML cache doesn't
+                // create a new 128MB entry every reinstall
+                loadURL = try stableCopy(of: bundleURL)
+            } else if let packageURL = Bundle.main.url(forResource: "bge-small-en", withExtension: "mlpackage") {
+                // Uncompiled in bundle - compile to stable path
+                loadURL = try await stableModelURL(for: packageURL)
+            } else {
                 Self.logger.warning("Embedding model not found in bundle")
                 modelLoadFailed = true
                 return false
             }
 
-            model = try await MLModel.load(contentsOf: compiledURL, configuration: modelConfig)
-            Self.logger.info("Loaded embedding model successfully")
+            model = try await MLModel.load(contentsOf: loadURL, configuration: modelConfig)
+            Self.logger.info("Loaded embedding model from \(loadURL.path)")
             return true
         } catch {
             Self.logger.error("Failed to load embedding model: \(error.localizedDescription)")
@@ -75,18 +70,49 @@ public actor EmbeddingService {
         }
     }
 
-    /// Compiles an mlpackage to mlmodelc if needed
-    private func compileIfNeeded(url: URL) async throws -> URL {
-        // If already compiled, return as-is
-        if url.pathExtension == "mlmodelc" {
-            return url
+    /// Directory for stable model storage. Using a fixed path prevents CoreML's
+    /// internal e5bundlecache from creating a new 128MB optimized copy every app reinstall.
+    private static var stableModelsDir: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("models", isDirectory: true)
+    }
+
+    /// Copies a pre-compiled .mlmodelc to a stable path outside the app container.
+    private func stableCopy(of bundleURL: URL) throws -> URL {
+        let fm = FileManager.default
+        let dest = Self.stableModelsDir.appendingPathComponent(bundleURL.lastPathComponent)
+
+        if fm.fileExists(atPath: dest.path) {
+            return dest
         }
 
-        // Compile the mlpackage
+        try fm.createDirectory(at: Self.stableModelsDir, withIntermediateDirectories: true)
+        try fm.copyItem(at: bundleURL, to: dest)
+        Self.logger.info("Copied model to stable path: \(dest.path)")
+        return dest
+    }
+
+    /// Returns a stable URL for a model, compiling from .mlpackage if needed.
+    private func stableModelURL(for url: URL) async throws -> URL {
+        if url.pathExtension == "mlmodelc" {
+            return try stableCopy(of: url)
+        }
+
+        let fm = FileManager.default
+        let dest = Self.stableModelsDir.appendingPathComponent("\(url.deletingPathExtension().lastPathComponent).mlmodelc")
+
+        if fm.fileExists(atPath: dest.path) {
+            Self.logger.info("Using cached compiled model at \(dest.path)")
+            return dest
+        }
+
+        try fm.createDirectory(at: Self.stableModelsDir, withIntermediateDirectories: true)
+
         Self.logger.info("Compiling model at \(url.path)")
-        let compiledURL = try await MLModel.compileModel(at: url)
-        Self.logger.info("Model compiled to \(compiledURL.path)")
-        return compiledURL
+        let tempCompiledURL = try await MLModel.compileModel(at: url)
+        try fm.moveItem(at: tempCompiledURL, to: dest)
+        Self.logger.info("Model compiled to stable path: \(dest.path)")
+        return dest
     }
 
     /// Resets the model state (for testing)
