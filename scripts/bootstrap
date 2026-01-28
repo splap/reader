@@ -30,7 +30,7 @@ fi
 ML_MODEL_PATH="$ROOT_DIR/App/Resources/bge-small-en.mlpackage"
 if [ ! -d "$ML_MODEL_PATH" ]; then
   echo "Embedding model not found, generating..."
-  uv run --with transformers --with torch --with coremltools --with "numpy<2" --with scipy \
+  uv run --with "transformers<5" --with "torch>=2.7,<2.8" --with coremltools --with "numpy<2" --with scipy \
     python "$ROOT_DIR/scripts/convert_bge_to_coreml.py"
 fi
 

@@ -88,8 +88,24 @@ if [ "$USE_SIMULATOR" = "1" ]; then
       .udid' | head -1)
 
     if [ -z "$DEVICE_UDID" ]; then
-      echo "No available (shutdown) simulator for $DEVICE_NAME. All may be in use." >&2
-      exit 1
+      echo "No available (shutdown) simulator for $DEVICE_NAME. All may be in use."
+      WORKSPACE_NAME="$(basename "$ROOT_DIR")"
+      printf "Create a new simulator named '%s'? [y/N] " "$WORKSPACE_NAME"
+      read -r REPLY
+      if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        RUNTIME=$(xcrun simctl list runtimes available -j | jq -r '
+          .runtimes[] | select(.name | test("iOS")) | .identifier' | sort -rV | head -1)
+        if [ -z "$RUNTIME" ]; then
+          echo "No iOS runtime found." >&2
+          exit 1
+        fi
+        echo "Creating simulator '$WORKSPACE_NAME' with runtime $RUNTIME..."
+        DEVICE_UDID=$(xcrun simctl create "$WORKSPACE_NAME" "$DEVICE_NAME" "$RUNTIME")
+        echo "Created simulator: $DEVICE_UDID"
+      else
+        echo "Aborted." >&2
+        exit 1
+      fi
     fi
 
     echo "Booting new simulator: $DEVICE_UDID"
@@ -156,7 +172,7 @@ fi
 ML_MODEL_PATH="$ROOT_DIR/App/Resources/bge-small-en.mlpackage"
 if [ ! -d "$ML_MODEL_PATH" ]; then
   echo "Embedding model missing. Generating..."
-  uv run --with transformers --with torch --with coremltools \
+  uv run --with "transformers<5" --with "torch>=2.7,<2.8" --with coremltools --with "numpy<2" --with scipy \
     python "$ROOT_DIR/scripts/convert_bge_to_coreml.py"
 fi
 
