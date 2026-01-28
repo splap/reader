@@ -707,12 +707,17 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         return lastPage * pageWidth
     }
 
-    private func updateCurrentPage() {
+    /// Lightweight page display update — fires onPageChanged but skips expensive CFI save.
+    /// Safe to call from scrollViewDidScroll for real-time label updates.
+    private func updatePageDisplay() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
         guard pageWidth > 0 else { return }
 
         let contentWidth = scrollView.contentSize.width
+        // Skip during spine transitions when content is being replaced
+        guard contentWidth >= pageWidth else { return }
+
         let newTotalPages = Int(ceil(contentWidth / pageWidth))
         let newCurrentPage = Int(round(scrollView.contentOffset.x / pageWidth))
 
@@ -720,10 +725,14 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             totalPages = newTotalPages
             currentPage = max(0, min(newCurrentPage, totalPages - 1))
             onPageChanged?(currentPage, totalPages)
-
-            // Save CFI position when page changes
-            updateCFIPosition()
         }
+    }
+
+    /// Full page update — updates display and saves CFI position.
+    /// Call only when scrolling settles to avoid flooding the JavaScript bridge.
+    private func updateCurrentPage() {
+        updatePageDisplay()
+        updateCFIPosition()
     }
 
     public func navigateToNextPage() {
@@ -1067,6 +1076,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
 // MARK: - UIScrollViewDelegate
 extension WebPageViewController: UIScrollViewDelegate {
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Update page number display in real-time during scroll animations
+        updatePageDisplay()
+    }
+
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // Record initial state for edge detection
         let currentOffset = scrollView.contentOffset.x
