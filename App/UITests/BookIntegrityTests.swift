@@ -15,16 +15,16 @@ final class BookIntegrityTests: XCTestCase {
     }
 
     func testFrankensteinBookIntegrity() {
-        // This test verifies that Frankenstein loads with the correct number of pages.
-        // Frankenstein is a full novel (~75,000 words) and should have 100+ pages
-        // at any reasonable text size. If it shows only a few pages, pagination is broken.
+        // This test verifies that Frankenstein loads correctly with proper chapter structure.
+        // Frankenstein is a full novel (~75,000 words) and should have 25+ chapters.
+        // With spine-scoped rendering, we verify chapter count and page navigation works.
         //
         // This catches regressions where book loading optimizations break pagination.
 
         // Open Frankenstein
         let webView = openFrankenstein(in: app)
 
-        print("Book loaded, revealing overlay to check page count...")
+        print("Book loaded, revealing overlay to check chapter count...")
         webView.tap()
         sleep(1)
 
@@ -38,62 +38,62 @@ final class BookIntegrityTests: XCTestCase {
         let initialPageText = pageLabel.label
         print("Initial page label: \(initialPageText)")
 
-        // Extract total page count
-        let totalPages = extractTotalPages(from: initialPageText)
-        print("Total pages: \(totalPages)")
-
-        // CRITICAL ASSERTION: Frankenstein must have a reasonable number of pages
-        // The novel is ~75,000 words. Even with large text, it should be 100+ pages.
-        // If this fails with a very low number (like 3), pagination is broken.
-        XCTAssertGreaterThan(totalPages, 100,
-            "Frankenstein should have at least 100 pages (got \(totalPages)). " +
-            "If this is a very small number, book loading/pagination is broken.")
-
-        // Navigate to the last page
-        print("Scrubbing to last page...")
-        scrubber.adjust(toNormalizedSliderPosition: 1.0)
-        sleep(2) // Wait for page load
-
-        // Verify we're on the last page
-        let finalPageText = pageLabel.label
-        print("Final page label: \(finalPageText)")
-
-        if let currentPage = extractCurrentPage(from: finalPageText) {
-            let finalTotalPages = extractTotalPages(from: finalPageText)
-            print("At page \(currentPage) of \(finalTotalPages)")
-
-            // Verify we're near the end of the book (within last 5%)
-            // Scrubber precision can vary due to slider control mechanics
-            let minExpectedPage = Int(Double(finalTotalPages) * 0.95)
-            XCTAssertGreaterThanOrEqual(currentPage, minExpectedPage,
-                "Should be near the last page after scrubbing to 100% (expected >= \(minExpectedPage), got \(currentPage))")
-
-            // Double-check total pages is still reasonable
-            XCTAssertGreaterThan(finalTotalPages, 100,
-                "Total pages should still be > 100 at end of book")
+        // Parse scrubber info
+        guard let scrubberInfo = parseScrubberLabel(initialPageText) else {
+            XCTFail("Could not parse scrubber label: \(initialPageText)")
+            return
         }
 
-        // Take screenshot of the final page for visual verification
+        print("Parsed: Chapter \(scrubberInfo.currentChapter) of \(scrubberInfo.totalChapters), " +
+              "Page \(scrubberInfo.currentPage) of \(scrubberInfo.pagesInChapter)")
+
+        // CRITICAL ASSERTION: Frankenstein must have a reasonable number of chapters
+        // The novel has 32 spine items (letters + chapters). Verify we have substantial content.
+        XCTAssertGreaterThan(scrubberInfo.totalChapters, 25,
+            "Frankenstein should have at least 25 chapters (got \(scrubberInfo.totalChapters)). " +
+            "If this is a very small number, book loading is broken.")
+
+        // Note: The scrubber controls pages within the current chapter, not cross-chapter navigation
+        // To navigate between chapters, use the TOC or swipe through the book
+        // Here we verify the scrubber navigates within the chapter correctly
+        if scrubberInfo.pagesInChapter > 1 {
+            print("Scrubbing to last page of current chapter...")
+            scrubber.adjust(toNormalizedSliderPosition: 1.0)
+            sleep(1)
+
+            let afterScrubText = pageLabel.label
+            print("After scrub: \(afterScrubText)")
+
+            if let afterInfo = parseScrubberLabel(afterScrubText) {
+                // Should be at the last page of the same chapter
+                XCTAssertEqual(afterInfo.currentChapter, scrubberInfo.currentChapter,
+                    "Scrubber should navigate within same chapter")
+                XCTAssertEqual(afterInfo.currentPage, afterInfo.pagesInChapter,
+                    "Should be on last page after scrubbing to 100%")
+            }
+        }
+
+        // Take screenshot for visual verification
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "Frankenstein Final Page"
+        attachment.name = "Frankenstein Book Integrity"
         attachment.lifetime = .keepAlways
         add(attachment)
 
         // Save to temp for inspection
         try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
-        let screenshotPath = "/tmp/reader-tests/frankenstein-final-page.png"
+        let screenshotPath = "/tmp/reader-tests/frankenstein-book-integrity.png"
         try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: screenshotPath))
-        print("Final page screenshot saved to: \(screenshotPath)")
+        print("Screenshot saved to: \(screenshotPath)")
 
-        // Verify webview has substantial text content on the last page
+        // Verify webview has text content
         let webViewStaticTexts = app.webViews.firstMatch.staticTexts
         let textElementCount = webViewStaticTexts.count
-        print("Text elements on final page: \(textElementCount)")
+        print("Text elements: \(textElementCount)")
         XCTAssertGreaterThan(textElementCount, 0,
-            "Last page should have some text content rendered")
+            "Should have text content rendered")
 
-        print("Frankenstein book integrity test passed - \(totalPages) pages, last page verified")
+        print("Frankenstein book integrity test passed - \(scrubberInfo.totalChapters) chapters verified")
     }
 
     func testVectorIndexBuildingOnBookOpen() {

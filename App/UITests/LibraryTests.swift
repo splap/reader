@@ -107,12 +107,26 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: 3), "Back button should exist in reader")
         print("Back button found - confirmed in reader view")
 
-        // Check that we have substantial text content (book text)
-        // Note: With section-based loading, we only load ~5 sections around initial position
-        let staticTextCount = app.staticTexts.count
-        print("Static text elements found: \(staticTextCount)")
-        XCTAssertGreaterThan(staticTextCount, 30, "Should have substantial book content loaded (section-based loading)")
+        // Check that we have book content by verifying scrubber shows valid chapter info
+        // With spine-scoped rendering, we load one chapter at a time
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
 
-        print("Book content verified successfully - \(staticTextCount) text elements")
+        let pageLabelText = pageLabel.label
+        print("Scrubber label: \(pageLabelText)")
+
+        guard let scrubberInfo = parseScrubberLabel(pageLabelText) else {
+            XCTFail("Could not parse scrubber label: \(pageLabelText)")
+            return
+        }
+
+        // Verify we have substantial book content (Frankenstein has 32 chapters)
+        XCTAssertGreaterThan(scrubberInfo.totalChapters, 20,
+            "Should have substantial book content loaded (got \(scrubberInfo.totalChapters) chapters)")
+        XCTAssertGreaterThan(scrubberInfo.pagesInChapter, 0,
+            "Current chapter should have pages")
+
+        print("Book content verified successfully - \(scrubberInfo.totalChapters) chapters, " +
+              "page \(scrubberInfo.currentPage) of \(scrubberInfo.pagesInChapter) in chapter \(scrubberInfo.currentChapter)")
     }
 }
