@@ -696,6 +696,17 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         return cssColumnWidth > 0 ? cssColumnWidth : webView.scrollView.bounds.width
     }
 
+    /// Page-aligned scroll offset for the last page.
+    /// Uses content size to determine page count, then returns the exact page boundary.
+    private func lastPageAlignedOffset() -> CGFloat {
+        let scrollView = webView.scrollView
+        let pageWidth = currentPageWidth()
+        guard pageWidth > 0 else { return 0 }
+        let rawMax = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let lastPage = max(0, round(rawMax / pageWidth))
+        return lastPage * pageWidth
+    }
+
     private func updateCurrentPage() {
         let scrollView = webView.scrollView
         let pageWidth = currentPageWidth()
@@ -739,8 +750,10 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             return
         }
 
-        // Normal navigation - clamp to max
-        let clampedOffset = min(nextOffset, maxOffset)
+        // Normal navigation - clamp to inset-adjusted max so the last page
+        // can reach the correct column boundary
+        let adjustedMax = max(0, contentWidth - boundsWidth + scrollView.contentInset.right)
+        let clampedOffset = min(nextOffset, adjustedMax)
         scrollView.setContentOffset(CGPoint(x: clampedOffset, y: 0), animated: true)
     }
 
@@ -773,7 +786,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         let pageWidth = currentPageWidth()
         guard pageWidth > 0 else { return }
 
-        let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width + scrollView.contentInset.right)
         let totalPages = Int(ceil(scrollView.contentSize.width / pageWidth))
         let targetX = CGFloat(max(0, pageIndex)) * pageWidth
         let clampedX = min(targetX, maxX)
@@ -799,7 +812,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
         let targetPage = round(scrollView.contentOffset.x / pageWidth)
         let targetX = targetPage * pageWidth
-        let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+        let maxX = max(0, scrollView.contentSize.width - scrollView.bounds.width + scrollView.contentInset.right)
         let clampedX = min(max(0, targetX), maxX)
 
         if abs(scrollView.contentOffset.x - clampedX) > 0.5 {
@@ -824,6 +837,13 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                 self?.cssColumnWidth = CGFloat(width)
                 Self.logger.info("CSS column width: \(width)")
             }
+            // WebKit does not include the body's right padding in the scrollable
+            // overflow width of CSS multi-column layouts. This means the last page
+            // of each spine can't scroll to the correct column boundary, causing
+            // text to appear shifted right. Adding a right content inset extends
+            // the scrollable range to compensate.
+            let marginSize = ReaderPreferences.shared.marginSize
+            self?.webView.scrollView.contentInset.right = marginSize
             completion()
         }
     }
@@ -1390,9 +1410,9 @@ extension WebPageViewController: WKNavigationDelegate {
                         // Scroll to end (for navigating backward through spine)
                         else if self.pendingScrollToEnd {
                             self.pendingScrollToEnd = false
-                            // Use scrollView directly - JS scrollTo doesn't work with WKWebView
+                            // Use page-aligned offset so the last page lands on a column boundary
                             let scrollView = self.webView.scrollView
-                            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+                            let maxOffset = self.lastPageAlignedOffset()
                             Self.logger.info("SPINE: Scrolling to end (first load), maxOffset=\(Int(maxOffset))")
                             scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -1412,9 +1432,9 @@ extension WebPageViewController: WKNavigationDelegate {
                         // Handle scrollToEnd for subsequent spine navigations (not first load)
                         if self.pendingScrollToEnd {
                             self.pendingScrollToEnd = false
-                            // Use scrollView directly - JS scrollTo doesn't work with WKWebView
+                            // Use page-aligned offset so the last page lands on a column boundary
                             let scrollView = self.webView.scrollView
-                            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+                            let maxOffset = self.lastPageAlignedOffset()
                             Self.logger.info("SPINE: Scrolling to end, maxOffset=\(Int(maxOffset))")
                             scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in

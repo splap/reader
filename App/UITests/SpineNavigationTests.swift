@@ -70,16 +70,36 @@ final class SpineNavigationTests: XCTestCase {
         }
         print("After TOC navigation: \(pageLabel.label)")
 
-        // Use scrubber to go near end of this spine
+        // Use scrubber to go to end of this spine
         let scrubber = app.sliders["Page scrubber"]
         XCTAssertTrue(scrubber.waitForExistence(timeout: 3), "Scrubber should exist")
-        print("Moving scrubber to 90%...")
-        scrubber.adjust(toNormalizedSliderPosition: 0.90)
+        print("Moving scrubber to 100% (last page)...")
+        scrubber.adjust(toNormalizedSliderPosition: 1.0)
         sleep(2)
+
+        // Hide overlay to get a clean screenshot of the last page
+        webView.tap()
+        sleep(1)
+
+        // Verify right margin is clean on the last page (text must not bleed into margin)
+        let lastPageScreenshot = XCUIScreen.main.screenshot()
+        let lastPageAttachment = XCTAttachment(screenshot: lastPageScreenshot)
+        lastPageAttachment.name = "Last Page Margin Check"
+        lastPageAttachment.lifetime = .keepAlways
+        add(lastPageAttachment)
+
+        let rightEdgeClean = checkRightEdgeUniform(screenshot: lastPageScreenshot)
+        XCTAssertTrue(rightEdgeClean,
+            "Right margin should be clean on the last page of the spine (text should not extend into right margin)")
+        print("Last page margin check passed")
+
+        // Show overlay again to read page info
+        webView.tap()
+        sleep(1)
 
         // Check position after scrub
         let afterScrubText = pageLabel.label
-        print("After scrub to 90%: \(afterScrubText)")
+        print("After scrub to end: \(afterScrubText)")
         let pageAfterScrub = extractCurrentPage(from: afterScrubText) ?? 0
         let totalAfterScrub = extractTotalPages(from: afterScrubText)
 
@@ -87,57 +107,43 @@ final class SpineNavigationTests: XCTestCase {
         webView.tap()
         sleep(1)
 
-        // Swipe forward until we reach the last page
-        print("Swiping forward to reach last page...")
-        var swipeCount = 0
-        var previousPage = pageAfterScrub
-        while swipeCount < 15 {
-            webView.swipeLeft()
-            usleep(500000) // 0.5s
+        // Swipe forward to transition to next spine
+        print("Swiping forward from last page to next spine...")
+        webView.swipeLeft()
+        sleep(3)
 
-            // Check if we transitioned to next spine
+        // Reveal overlay to check transition
+        webView.tap()
+        sleep(2)
+
+        if !pageLabel.waitForExistence(timeout: 5) {
             webView.tap()
-            sleep(1)
-            let currentText = pageLabel.label
-            let currentPage = extractCurrentPage(from: currentText) ?? 0
-            let currentTotal = extractTotalPages(from: currentText)
-
-            print("After swipe \(swipeCount + 1): \(currentText)")
-
-            // If total pages changed significantly, we transitioned
-            if currentTotal != totalAfterScrub {
-                print("Transitioned to next spine! Total pages changed from \(totalAfterScrub) to \(currentTotal)")
-                break
-            }
-
-            // If we're still at the same page after swipe, we're stuck
-            if currentPage == previousPage && currentPage == currentTotal {
-                print("At last page (\(currentPage)/\(currentTotal)), next swipe should transition")
-            }
-
-            previousPage = currentPage
-            webView.tap() // Hide overlay
-            sleep(1)
-            swipeCount += 1
+            sleep(2)
         }
 
-        // Now we need to go back to first page of current spine first
-        print("Navigating to first page of current spine...")
-        for backSwipe in 0..<20 {
-            webView.tap() // Ensure overlay hidden
-            usleep(300000)
-            webView.swipeRight()
-            usleep(500000)
+        let afterForwardText = pageLabel.label
+        let afterForwardTotal = extractTotalPages(from: afterForwardText)
+        print("After forward swipe: \(afterForwardText)")
 
-            webView.tap() // Show overlay
+        if afterForwardTotal != totalAfterScrub {
+            print("Transitioned to next spine! Total pages changed from \(totalAfterScrub) to \(afterForwardTotal)")
+        }
+
+        // Go to first page of current spine via scrubber, then swipe backward
+        print("Navigating to first page of current spine...")
+        scrubber.adjust(toNormalizedSliderPosition: 0.0)
+        sleep(2)
+
+        // Re-show overlay if it auto-hidden during wait
+        webView.tap()
+        sleep(1)
+        if !pageLabel.waitForExistence(timeout: 3) {
+            webView.tap()
             sleep(1)
-            if let current = extractCurrentPage(from: pageLabel.label), current == 1 {
-                print("Reached first page after \(backSwipe + 1) swipes: \(pageLabel.label)")
-                break
-            }
-            if backSwipe == 19 {
-                print("Warning: Could not reach first page after 20 swipes")
-            }
+        }
+
+        if pageLabel.exists, let current = extractCurrentPage(from: pageLabel.label) {
+            print("At page \(current): \(pageLabel.label)")
         }
 
         // Now swipe backward from first page - should transition to previous spine and land on LAST page
@@ -146,6 +152,18 @@ final class SpineNavigationTests: XCTestCase {
         sleep(1)
         webView.swipeRight()
         sleep(3)
+
+        // Check margin on the last page we landed on (overlay is hidden, clean screenshot)
+        let backwardScreenshot = XCUIScreen.main.screenshot()
+        let backwardAttachment = XCTAttachment(screenshot: backwardScreenshot)
+        backwardAttachment.name = "Backward Navigation Last Page"
+        backwardAttachment.lifetime = .keepAlways
+        add(backwardAttachment)
+
+        let backwardRightClean = checkRightEdgeUniform(screenshot: backwardScreenshot)
+        XCTAssertTrue(backwardRightClean,
+            "Right margin should be clean after backward spine navigation to last page")
+        print("Backward navigation margin check passed")
 
         // Reveal overlay
         webView.tap()
@@ -178,14 +196,76 @@ final class SpineNavigationTests: XCTestCase {
             print("Correctly landed on page \(backPage)/\(backTotal) of previous spine")
         }
 
-        // Take final screenshot
-        let screenshot = XCUIScreen.main.screenshot()
-        let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "Spine Navigation Result"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-
         print("Spine boundary navigation test complete")
+    }
+
+    // MARK: - Margin Check Helpers
+
+    /// Checks that the right edge of the screenshot is uniform (no text bleeding into margin).
+    /// Examines a narrow strip at the right edge of the content area.
+    private func checkRightEdgeUniform(screenshot: XCUIScreenshot) -> Bool {
+        guard let cgImage = screenshot.image.cgImage else {
+            print("Could not get CGImage from screenshot")
+            return false
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            print("Could not create CGContext")
+            return false
+        }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let data = context.data else {
+            print("Could not get pixel data")
+            return false
+        }
+
+        let pixelData = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+
+        // Check the rightmost column of pixels
+        let column = width - 1
+
+        // Sample the first pixel as reference color
+        let firstPixelOffset = column * 4
+        let refR = pixelData[firstPixelOffset]
+        let refG = pixelData[firstPixelOffset + 1]
+        let refB = pixelData[firstPixelOffset + 2]
+
+        let tolerance: UInt8 = 10
+        var nonUniformCount = 0
+        let maxAllowedNonUniform = height / 20 // Allow 5% for status bar / home indicator
+
+        for y in 0..<height {
+            let offset = (y * width + column) * 4
+            let r = pixelData[offset]
+            let g = pixelData[offset + 1]
+            let b = pixelData[offset + 2]
+
+            let diffR = abs(Int(r) - Int(refR))
+            let diffG = abs(Int(g) - Int(refG))
+            let diffB = abs(Int(b) - Int(refB))
+
+            if diffR > Int(tolerance) || diffG > Int(tolerance) || diffB > Int(tolerance) {
+                nonUniformCount += 1
+            }
+        }
+
+        let uniformPercent = 100.0 * Double(height - nonUniformCount) / Double(height)
+        print("Right edge column: \(String(format: "%.1f", uniformPercent))% uniform (\(nonUniformCount) non-uniform pixels)")
+
+        return nonUniformCount <= maxAllowedNonUniform
     }
 
     func testFrankensteinFirstSpineToSecond() {
