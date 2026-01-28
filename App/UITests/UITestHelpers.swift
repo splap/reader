@@ -41,53 +41,102 @@ extension XCTestCase {
         return webView
     }
 
+    // MARK: - Scrubber Label Parsing
+
+    /// Parsed scrubber label information
+    /// Format: "Page X of Y · Ch. A of B"
+    struct ScrubberInfo {
+        let currentPage: Int       // X - current page within chapter
+        let pagesInChapter: Int    // Y - total pages in current chapter
+        let currentChapter: Int    // A - current chapter number
+        let totalChapters: Int     // B - total chapters in book
+
+        /// Estimates a global page position for comparison purposes
+        /// This is approximate since chapters have varying page counts
+        var estimatedGlobalPosition: Double {
+            guard totalChapters > 0, pagesInChapter > 0 else { return 0 }
+            let chapterProgress = Double(currentPage) / Double(pagesInChapter)
+            return (Double(currentChapter - 1) + chapterProgress) / Double(totalChapters)
+        }
+    }
+
+    /// Parses the scrubber label into structured info
+    /// - Parameter text: The scrubber label text (e.g., "Page 1 of 4 · Ch. 5 of 32")
+    /// - Returns: Parsed ScrubberInfo, or nil if parsing fails
+    func parseScrubberLabel(_ text: String) -> ScrubberInfo? {
+        // Pattern matches: "Page X of Y · Ch. A of B" or "Page X of Y"
+        // The chapter part is optional for backwards compatibility
+        let pattern = #"Page\s+(\d+)\s+of\s+(\d+)(?:\s*·\s*Ch\.\s*(\d+)\s+of\s+(\d+))?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
+            return nil
+        }
+
+        func extractInt(at index: Int) -> Int? {
+            guard let range = Range(match.range(at: index), in: text) else { return nil }
+            return Int(text[range])
+        }
+
+        guard let currentPage = extractInt(at: 1),
+              let pagesInChapter = extractInt(at: 2) else {
+            return nil
+        }
+
+        let currentChapter = extractInt(at: 3) ?? 1
+        let totalChapters = extractInt(at: 4) ?? 1
+
+        return ScrubberInfo(
+            currentPage: currentPage,
+            pagesInChapter: pagesInChapter,
+            currentChapter: currentChapter,
+            totalChapters: totalChapters
+        )
+    }
+
+    /// Extracts total chapters from page label text
+    /// - Parameter text: The page label text (e.g., "Page 1 of 4 · Ch. 5 of 32")
+    /// - Returns: The total chapter count, or 0 if parsing fails
+    func extractTotalChapters(from text: String) -> Int {
+        parseScrubberLabel(text)?.totalChapters ?? 0
+    }
+
+    /// Extracts pages in current chapter from page label text
+    /// - Parameter text: The page label text (e.g., "Page 1 of 4 · Ch. 5 of 32")
+    /// - Returns: The page count in current chapter, or 0 if parsing fails
+    func extractPagesInChapter(from text: String) -> Int {
+        parseScrubberLabel(text)?.pagesInChapter ?? 0
+    }
+
     /// Extracts total page count from page label text
-    /// - Parameter text: The page label text (e.g., "Page 1 of 185" or "total pages: 185")
-    /// - Returns: The total page count, or 0 if parsing fails
+    /// For spine-scoped rendering, this returns pages in the current chapter
+    /// - Parameter text: The page label text
+    /// - Returns: The page count (per-chapter), or 0 if parsing fails
     func extractTotalPages(from text: String) -> Int {
-        // Handle "total pages: N" format from debug overlay
+        // Handle "total pages: N" format from debug overlay (legacy)
         if text.contains("total pages:") {
             let components = text.components(separatedBy: "total pages:")
             guard components.count >= 2 else { return 0 }
             let numberPart = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            // Extract just the number (might be followed by other text)
             let digits = numberPart.components(separatedBy: .whitespacesAndNewlines).first ?? ""
             return Int(digits) ?? 0
         }
 
-        // Legacy: Handle "Page X of Y" format if it exists
-        let components = text.components(separatedBy: " of ")
-        guard components.count == 2 else { return 0 }
-        // Extract just the number part before any additional text
-        let numberPart = components[1].components(separatedBy: CharacterSet.decimalDigits.inverted).first ?? ""
-        return Int(numberPart) ?? 0
+        // Use the structured parser
+        return parseScrubberLabel(text)?.pagesInChapter ?? 0
     }
 
     /// Extracts current page number from page label text
-    /// - Parameter text: The page label text (e.g., "Page 5 of 185")
-    /// - Returns: The current page number, or nil if parsing fails
+    /// - Parameter text: The page label text (e.g., "Page 5 of 10 · Ch. 3 of 32")
+    /// - Returns: The current page number within chapter, or nil if parsing fails
     func extractCurrentPage(from text: String) -> Int? {
-        // Handle "Page X of Y" format
-        let pattern = #"Page\s+(\d+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else {
-            return nil
-        }
-        return Int(text[range])
+        parseScrubberLabel(text)?.currentPage
     }
 
     /// Extracts chapter number from page label text
-    /// - Parameter text: The page label text (e.g., "Page 1 of 4 Ch. 5 of 32")
+    /// - Parameter text: The page label text (e.g., "Page 1 of 4 · Ch. 5 of 32")
     /// - Returns: The chapter number, or 0 if parsing fails
     func extractChapter(from text: String) -> Int {
-        let pattern = #"Ch\.\s*(\d+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else {
-            return 0
-        }
-        return Int(text[range]) ?? 0
+        parseScrubberLabel(text)?.currentChapter ?? 0
     }
 
     /// Helper to navigate back to library from reader

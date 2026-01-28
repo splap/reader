@@ -197,7 +197,6 @@ final class PaginationUITests: XCTestCase {
 
         // Tap top third of webview to reveal floating buttons (they start hidden)
         print("Tapping top of webview to reveal buttons...")
-        // Get webview frame and tap at top third
         let topThirdPoint = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
         topThirdPoint.tap()
         sleep(1) // Wait for fade-in animation
@@ -209,10 +208,13 @@ final class PaginationUITests: XCTestCase {
         let initialPageText = pageLabel.label
         print("Initial page label: \(initialPageText)")
 
-        // Extract initial total page count from "Page X of Y"
-        let initialTotalPages = extractTotalPages(from: initialPageText)
-        print("Initial total pages: \(initialTotalPages)")
-        XCTAssertGreaterThan(initialTotalPages, 0, "Should have valid initial page count")
+        // Parse initial scrubber info (uses per-chapter page count)
+        guard let initialInfo = parseScrubberLabel(initialPageText) else {
+            XCTFail("Could not parse initial scrubber label: \(initialPageText)")
+            return
+        }
+        print("Initial: Page \(initialInfo.currentPage) of \(initialInfo.pagesInChapter) in chapter \(initialInfo.currentChapter)")
+        XCTAssertGreaterThan(initialInfo.pagesInChapter, 0, "Should have valid initial page count in chapter")
 
         // Open settings
         let settingsButton = app.buttons["Settings"]
@@ -229,7 +231,7 @@ final class PaginationUITests: XCTestCase {
         XCTAssertTrue(slider.waitForExistence(timeout: 5), "Font size slider should exist")
         print("Found font size slider")
 
-        // INCREASE font size (should result in MORE pages)
+        // INCREASE font size (should result in MORE pages per chapter)
         print("Increasing font size...")
         slider.adjust(toNormalizedSliderPosition: 0.8) // Increase to 80% of max
 
@@ -244,16 +246,26 @@ final class PaginationUITests: XCTestCase {
         webView.tap()
         sleep(1)
 
-        // Check new page count using scrubber page label by accessibility ID
+        // Check new page count using scrubber page label
         let scrubberLabel = app.staticTexts["scrubber-page-label"]
         XCTAssertTrue(scrubberLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
         let increasedPageText = scrubberLabel.label
         print("After increase: \(increasedPageText)")
-        let increasedTotalPages = extractTotalPages(from: increasedPageText)
-        print("Total pages after increase: \(increasedTotalPages)")
 
-        XCTAssertGreaterThan(increasedTotalPages, initialTotalPages,
-                            "Increasing font size should INCREASE page count (was \(initialTotalPages), now \(increasedTotalPages))")
+        guard let increasedInfo = parseScrubberLabel(increasedPageText) else {
+            XCTFail("Could not parse increased scrubber label: \(increasedPageText)")
+            return
+        }
+        print("After increase: Page \(increasedInfo.currentPage) of \(increasedInfo.pagesInChapter) in chapter \(increasedInfo.currentChapter)")
+
+        // Verify we're still in the same chapter (font change shouldn't change chapter)
+        XCTAssertEqual(increasedInfo.currentChapter, initialInfo.currentChapter,
+                      "Should still be in the same chapter after font resize")
+
+        // Increasing font size should increase pages in this chapter
+        XCTAssertGreaterThan(increasedInfo.pagesInChapter, initialInfo.pagesInChapter,
+                            "Increasing font size should INCREASE page count in chapter " +
+                            "(was \(initialInfo.pagesInChapter), now \(increasedInfo.pagesInChapter))")
 
         print("Text resize increases page count - test passed!")
     }
