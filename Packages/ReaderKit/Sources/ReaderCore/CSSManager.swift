@@ -31,6 +31,8 @@ public final class CSSManager {
             margin: 0;
             padding: \(margin)px; /* Equal padding on all sides */
             box-sizing: border-box;
+            overflow: hidden; /* Prevent content bleeding into margins */
+            overflow-x: clip; /* Hard clip horizontal overflow (stronger than hidden) */
 
             /* CSS columns for pagination */
             column-width: calc(100vw - \(totalMargin)px); /* Account for padding */
@@ -41,8 +43,16 @@ public final class CSSManager {
         /* Dark mode support */
         @media (prefers-color-scheme: dark) {
             body {
-                color: #FFFFFF;
-                background-color: #000000;
+                color: #FFFFFF !important;
+                background-color: #000000 !important;
+            }
+            /* Override publisher hardcoded text colors (e.g. color:#000000)
+               which would be invisible on a dark background */
+            body * {
+                color: inherit !important;
+            }
+            a[href] {
+                color: #6db3f2 !important;
             }
         }
 
