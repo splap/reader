@@ -17,6 +17,7 @@ public enum OpenRouterConfig {
         Model(id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash", inputCost: 0.30, outputCost: 2.50, contextLength: 1_048_576),
         Model(id: "google/gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", inputCost: 0.10, outputCost: 0.40, contextLength: 1_048_576),
         Model(id: "google/gemini-3-flash-preview", name: "Gemini 3 Flash", inputCost: 0.50, outputCost: 3.00, contextLength: 1_048_576),
+        Model(id: "moonshotai/kimi-k2.5", name: "Kimi K2.5", inputCost: 0.60, outputCost: 3.00, contextLength: 262_144),
         Model(id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", inputCost: 0.40, outputCost: 1.60, contextLength: 1_047_576),
         Model(id: "openai/gpt-4.1-nano", name: "GPT-4.1 Nano", inputCost: 0.10, outputCost: 0.40, contextLength: 1_047_576),
         Model(id: "openai/gpt-5-mini", name: "GPT-5 Mini", inputCost: 0.25, outputCost: 2.00, contextLength: 400_000),
