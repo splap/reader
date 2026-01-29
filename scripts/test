@@ -62,17 +62,16 @@ run_tests() {
   fi
 
   # Write test configuration to temp file for UI tests to read
-  if [ -n "${BOOK:-}" ] || [ -n "${CHAPTER:-}" ] || [ -n "${PAGE:-}" ] || [ -n "${CHAPTER_COUNT:-}" ]; then
-    mkdir -p /tmp/reader-tests
-    cat > /tmp/reader-tests/test-config.json << EOF
+  mkdir -p /tmp/reader-tests
+  cat > /tmp/reader-tests/test-config.json << EOF
 {
   "book": "${BOOK:-frankenstein}",
   "chapter": "${CHAPTER:-0}",
   "page": "${PAGE:-1}",
-  "chapterCount": "${CHAPTER_COUNT:-5}"
+  "chapterCount": "${CHAPTER_COUNT:-5}",
+  "renderer": "${RENDERER:-html}"
 }
 EOF
-  fi
 
   xcodebuild_args+=(test)
 

@@ -1,16 +1,55 @@
 import XCTest
 
 extension XCTestCase {
+    /// Reads the renderer setting from test config file written by scripts/test
+    /// - Returns: The renderer type ("native" or "html")
+    private var configuredRenderer: String {
+        let configPath = "/tmp/reader-tests/test-config.json"
+        guard FileManager.default.fileExists(atPath: configPath),
+              let data = FileManager.default.contents(atPath: configPath),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let renderer = json["renderer"] as? String
+        else {
+            return "html"
+        }
+        return renderer.lowercased()
+    }
+
+    /// Whether tests should use the native renderer (set via RENDERER=native environment variable)
+    var isNativeRenderer: Bool {
+        configuredRenderer == "native"
+    }
+
     /// Launches the Reader app with standard UI testing arguments
     /// - Parameter extraArgs: Additional launch arguments to append
     /// - Returns: The launched XCUIApplication instance
     func launchReaderApp(extraArgs: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        var args = ["--uitesting", "--uitesting-skip-indexing", "--uitesting-webview"]
+        var args = ["--uitesting", "--uitesting-skip-indexing"]
+
+        // Check config file for renderer selection (RENDERER env var passed via scripts/test)
+        if isNativeRenderer {
+            args.append("--uitesting-native")
+        } else {
+            args.append("--uitesting-webview")
+        }
+
         args.append(contentsOf: extraArgs)
         app.launchArguments = args
         app.launch()
         return app
+    }
+
+    /// Returns the reader content view based on the current renderer mode
+    /// For native renderer, uses the accessibility identifier; for WebView, uses webViews query
+    /// - Parameter app: The XCUIApplication instance
+    /// - Returns: The reader content view element
+    func getReaderView(in app: XCUIApplication) -> XCUIElement {
+        if isNativeRenderer {
+            app.otherElements["reader-content-view"].firstMatch
+        } else {
+            app.webViews.firstMatch
+        }
     }
 
     /// Helper to find a book cell by partial title match
@@ -24,7 +63,7 @@ extension XCTestCase {
 
     /// Helper to open Frankenstein book and wait for it to load
     /// - Parameter app: The XCUIApplication instance
-    /// - Returns: The WebView element containing the book content
+    /// - Returns: The reader content view element (WebView or native view)
     func openFrankenstein(in app: XCUIApplication) -> XCUIElement {
         let libraryNavBar = app.navigationBars["Library"]
         XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
@@ -35,10 +74,10 @@ extension XCTestCase {
         bookCell.tap()
 
         // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist after opening book")
+        let readerView = getReaderView(in: app)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5), "Reader view should exist after opening book")
         sleep(2) // Let content render
-        return webView
+        return readerView
     }
 
     // MARK: - Scrubber Label Parsing
@@ -155,10 +194,10 @@ extension XCTestCase {
 
         // First tap to reveal overlay (buttons start hidden)
         if !backButton.isHittable {
-            // Try tapping the webview or screen to reveal overlay
-            let webView = app.webViews.firstMatch
-            if webView.exists {
-                webView.tap()
+            // Try tapping the reader view or screen to reveal overlay
+            let readerView = getReaderView(in: app)
+            if readerView.exists {
+                readerView.tap()
             } else {
                 app.tap()
             }
@@ -179,7 +218,7 @@ extension XCTestCase {
     /// - Parameters:
     ///   - app: The XCUIApplication instance
     ///   - bookName: The name of the book to open
-    /// - Returns: The WebView element, or nil if opening failed
+    /// - Returns: The reader content view element (WebView or native), or nil if opening failed
     func openBook(in app: XCUIApplication, named bookName: String) -> XCUIElement? {
         let bookCell = findBook(in: app, containing: bookName)
         guard bookCell.waitForExistence(timeout: 5) else {
@@ -188,12 +227,12 @@ extension XCTestCase {
         bookCell.tap()
 
         // Wait for book to load
-        let webView = app.webViews.firstMatch
-        guard webView.waitForExistence(timeout: 10) else {
+        let readerView = getReaderView(in: app)
+        guard readerView.waitForExistence(timeout: 10) else {
             return nil
         }
         sleep(2) // Let content render
-        return webView
+        return readerView
     }
 
     /// Waits for a label element to contain specific text

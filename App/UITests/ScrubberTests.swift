@@ -24,9 +24,9 @@ final class ScrubberTests: XCTestCase {
         XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let readerView = getReaderView(in: app)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(3) // Let content render
 
         print("Book loaded, verifying overlay is initially hidden...")
@@ -37,7 +37,7 @@ final class ScrubberTests: XCTestCase {
         XCTAssertFalse(scrubber.isHittable, "Scrubber should not be hittable when overlay is hidden")
 
         print("Tapping to reveal overlay...")
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         // Now verify scrubber is visible
@@ -59,7 +59,7 @@ final class ScrubberTests: XCTestCase {
 
         // Tap again to hide
         print("Tapping to hide overlay...")
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         XCTAssertFalse(scrubber.isHittable, "Scrubber should not be hittable after hiding overlay")

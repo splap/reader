@@ -25,6 +25,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let keepUIState = CommandLine.arguments.contains("--uitesting-keep-state")
         let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
         let useWebView = CommandLine.arguments.contains("--uitesting-webview")
+        let useNative = CommandLine.arguments.contains("--uitesting-native")
         let cleanAllData = CommandLine.arguments.contains("--uitesting-clean-all-data")
         let uitestingBook = Self.parseArgument("--uitesting-book=")
         let uitestingSpineItem = Self.parseIntArgument("--uitesting-spine-item=")
@@ -40,6 +41,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // Set render mode for UI testing
         if useWebView {
             ReaderPreferences.shared.renderMode = .webView
+        } else if useNative {
+            ReaderPreferences.shared.renderMode = .native
         }
 
         // Copy bundled books on first launch, then scan for all test books

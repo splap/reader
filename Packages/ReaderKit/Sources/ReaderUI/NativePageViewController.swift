@@ -78,6 +78,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        view.accessibilityIdentifier = "reader-content-view"
         setupScrollView()
         setupKeyboardNavigation()
     }

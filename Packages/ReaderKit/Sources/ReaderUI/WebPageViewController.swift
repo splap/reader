@@ -115,6 +115,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         super.viewDidLoad()
 
         view.backgroundColor = .clear
+        view.accessibilityIdentifier = "reader-content-view"
 
         Self.logger.debug("WebPageViewController viewDidLoad")
 
