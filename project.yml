@@ -6,7 +6,6 @@ options:
 settings:
   base:
     PRODUCT_BUNDLE_IDENTIFIER: com.splap.reader
-    DEVELOPMENT_TEAM: ""
 packages:
   ReaderKit:
     path: Packages/ReaderKit
