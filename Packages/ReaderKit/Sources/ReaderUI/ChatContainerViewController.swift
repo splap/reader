@@ -12,7 +12,6 @@ public final class ChatContainerViewController: UIViewController {
     private let topBar = UIView()
     private let sidebarButton = UIButton(type: .system)
     private let titleLabel = UILabel()
-    private let debugButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
 
     // Content area (below top bar)
@@ -58,77 +57,94 @@ public final class ChatContainerViewController: UIViewController {
     // MARK: - Setup
 
     private func setupTopBar() {
+        // Container for the floating bar (holds blur + shadow)
         topBar.translatesAutoresizingMaskIntoConstraints = false
-        topBar.backgroundColor = .systemBackground
+        topBar.backgroundColor = .clear
         view.addSubview(topBar)
 
-        // Sidebar toggle button (left)
+        // Blur background - match reader's style
+        let blurEffect = UIBlurEffect(style: .systemThinMaterial)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        blurView.layer.cornerRadius = 16
+        blurView.clipsToBounds = true
+        topBar.addSubview(blurView)
+
+        // Shadow for container - match reader's style
+        topBar.layer.shadowColor = UIColor.black.cgColor
+        topBar.layer.shadowOpacity = 0.2
+        topBar.layer.shadowOffset = CGSize(width: 0, height: 2)
+        topBar.layer.shadowRadius = 4
+
+        // Sidebar toggle button (left) - match reader's FloatingButton style
         sidebarButton.translatesAutoresizingMaskIntoConstraints = false
-        sidebarButton.setImage(UIImage(systemName: "sidebar.left"), for: .normal)
+        var sidebarConfig = UIButton.Configuration.plain()
+        sidebarConfig.image = UIImage(systemName: "sidebar.left")
+        sidebarConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        let iconColor = UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? .white : .black
+        }
+        sidebarConfig.baseForegroundColor = iconColor
+        sidebarButton.configuration = sidebarConfig
         sidebarButton.addTarget(self, action: #selector(toggleDrawer), for: .touchUpInside)
         topBar.addSubview(sidebarButton)
 
         // Centered title (book name)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.text = context.bookTitle
-        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .label
         titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         topBar.addSubview(titleLabel)
 
-        // Close button (right)
+        // Done button (right) - standard iOS modal pattern
         closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.tintColor = .tertiaryLabel
+        var closeConfig = UIButton.Configuration.plain()
+        closeConfig.title = "Done"
+        closeConfig.baseForegroundColor = .systemBlue
+        closeConfig.contentInsets = .zero
+        // Use attributed title for proper font control
+        closeConfig.attributedTitle = AttributedString("Done", attributes: AttributeContainer([
+            .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
+        ]))
+        closeButton.configuration = closeConfig
         closeButton.addTarget(self, action: #selector(dismissChat), for: .touchUpInside)
         topBar.addSubview(closeButton)
 
-        // Debug button (right, before close)
-        debugButton.translatesAutoresizingMaskIntoConstraints = false
-        debugButton.setImage(UIImage(systemName: "doc.on.clipboard"), for: .normal)
-        debugButton.tintColor = .secondaryLabel
-        debugButton.addTarget(self, action: #selector(copyDebugTranscript), for: .touchUpInside)
-        topBar.addSubview(debugButton)
-
-        // Separator line (standard iOS nav bar style)
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        topBar.addSubview(separator)
-
-        let topBarHeight: CGFloat = 44
+        let topBarHeight: CGFloat = 64
 
         NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // Floating bar with insets from edges
+            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            topBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            topBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             topBar.heightAnchor.constraint(equalToConstant: topBarHeight),
 
-            sidebarButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 8),
+            // Blur fills container
+            blurView.topAnchor.constraint(equalTo: topBar.topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
+
+            // Sidebar button - vertically centered
             sidebarButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            sidebarButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 8),
             sidebarButton.widthAnchor.constraint(equalToConstant: 44),
             sidebarButton.heightAnchor.constraint(equalToConstant: 44),
 
-            // Title centered, with padding from buttons
+            // Done button - vertically centered, close to right edge
+            closeButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -12),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+
+            // Title centered in the entire bar
             titleLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: sidebarButton.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: debugButton.leadingAnchor, constant: -8),
-
-            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -8),
-            closeButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 44),
-            closeButton.heightAnchor.constraint(equalToConstant: 44),
-
-            debugButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
-            debugButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            debugButton.widthAnchor.constraint(equalToConstant: 44),
-            debugButton.heightAnchor.constraint(equalToConstant: 44),
-
-            separator.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -8),
         ])
     }
 
@@ -137,7 +153,8 @@ public final class ChatContainerViewController: UIViewController {
         view.addSubview(contentContainer)
 
         NSLayoutConstraint.activate([
-            contentContainer.topAnchor.constraint(equalTo: topBar.bottomAnchor),
+            // Content starts below the floating bar (with a small gap)
+            contentContainer.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
             contentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -240,19 +257,6 @@ public final class ChatContainerViewController: UIViewController {
     @objc private func dismissChat() {
         chatViewController.saveConversation()
         dismiss(animated: true)
-    }
-
-    @objc private func copyDebugTranscript() {
-        let transcript = chatViewController.buildDebugTranscript()
-        UIPasteboard.general.string = transcript
-
-        let alert = UIAlertController(
-            title: "Copied",
-            message: "Debug transcript copied to clipboard (\(transcript.count) chars)",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
     }
 
     private func loadConversation(id: UUID) {

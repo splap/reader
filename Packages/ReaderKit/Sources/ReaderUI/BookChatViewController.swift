@@ -908,8 +908,8 @@ extension BookChatViewController: UITableViewDataSource {
         let message = messages[indexPath.row]
         cell.configure(with: message)
 
-        // Display trace if available
-        if message.hasTrace, let trace = messageTraces[message.id] {
+        // Display trace only if showsExecutionDetails is true
+        if message.hasTrace, message.showsExecutionDetails, let trace = messageTraces[message.id] {
             let traceText = formatTraceForDisplay(trace, collapsed: message.isCollapsed)
             cell.setTraceText(traceText)
 
@@ -917,7 +917,7 @@ extension BookChatViewController: UITableViewDataSource {
             let maps = extractMapsFromTrace(trace)
             cell.setMaps(maps)
 
-            // Set up tap handler to toggle trace
+            // Set up tap handler to toggle trace collapsed/expanded state
             cell.onTap = { [weak self] in
                 guard let self else { return }
                 let wasCollapsed = messages[indexPath.row].isCollapsed
@@ -980,6 +980,30 @@ extension BookChatViewController: UITableViewDataSource {
             cell.onTap = nil
         }
 
+        // Set up context menu for all messages
+        cell.onCopyMessage = { [weak self] in
+            guard let self else { return }
+            UIPasteboard.general.string = messages[indexPath.row].content
+        }
+
+        // Set up context menu callbacks for assistant messages with traces
+        if message.role == .assistant, message.hasTrace {
+            cell.onShowExecutionDetails = { [weak self] in
+                guard let self else { return }
+                messages[indexPath.row].showsExecutionDetails = true
+                messages[indexPath.row].isCollapsed = false // Start expanded
+                self.tableView.reloadRows(at: [indexPath], with: .none)
+            }
+            cell.onCopyDebugTranscript = { [weak self] in
+                guard let self else { return }
+                let transcript = self.buildDebugTranscript()
+                UIPasteboard.general.string = transcript
+            }
+        } else {
+            cell.onShowExecutionDetails = nil
+            cell.onCopyDebugTranscript = nil
+        }
+
         return cell
     }
 }
@@ -1037,14 +1061,16 @@ private struct ChatMessage {
     let title: String? // For collapsed system messages
     var isCollapsed: Bool // For system messages
     let hasTrace: Bool // Whether this message has an execution trace
+    var showsExecutionDetails: Bool // Whether to show execution details (hidden by default)
 
-    init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false, hasTrace: Bool = false) {
+    init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false, hasTrace: Bool = false, showsExecutionDetails: Bool = false) {
         id = UUID()
         self.role = role
         self.content = content
         self.title = title
         self.isCollapsed = isCollapsed
         self.hasTrace = hasTrace
+        self.showsExecutionDetails = showsExecutionDetails
     }
 }
 
@@ -1058,6 +1084,11 @@ private final class ChatMessageCell: UITableViewCell {
     private let traceTextView = UITextView() // UITextView for selectable text
     private let fontManager = FontScaleManager.shared
     var onTap: (() -> Void)?
+
+    // Context menu callbacks
+    var onCopyMessage: (() -> Void)?
+    var onShowExecutionDetails: (() -> Void)?
+    var onCopyDebugTranscript: (() -> Void)?
 
     // Track active image loading tasks
     private var imageLoadTasks: [URLSessionDataTask] = []
@@ -1080,6 +1111,11 @@ private final class ChatMessageCell: UITableViewCell {
         // Clear images
         imageContainerView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         imageContainerView.isHidden = true
+        // Reset callbacks
+        onTap = nil
+        onCopyMessage = nil
+        onShowExecutionDetails = nil
+        onCopyDebugTranscript = nil
     }
 
     private func setupUI() {
@@ -1141,6 +1177,10 @@ private final class ChatMessageCell: UITableViewCell {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         bubbleView.addGestureRecognizer(tap)
         bubbleView.isUserInteractionEnabled = true
+
+        // Add context menu interaction for long-press
+        let contextMenuInteraction = UIContextMenuInteraction(delegate: self)
+        bubbleView.addInteraction(contextMenuInteraction)
     }
 
     @objc private func handleTap() {
@@ -1562,6 +1602,54 @@ private final class ChatMessageCell: UITableViewCell {
             MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: coordinate),
             MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)),
         ])
+    }
+}
+
+// MARK: - ChatMessageCell Context Menu
+
+extension ChatMessageCell: UIContextMenuInteractionDelegate {
+    func contextMenuInteraction(
+        _: UIContextMenuInteraction,
+        configurationForMenuAtLocation _: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self else { return nil }
+
+            var actions: [UIAction] = []
+
+            // Copy action - always available
+            let copyAction = UIAction(
+                title: "Copy",
+                image: UIImage(systemName: "doc.on.doc")
+            ) { [weak self] _ in
+                self?.onCopyMessage?()
+            }
+            actions.append(copyAction)
+
+            // Execution Details - only for assistant messages with traces
+            if let showDetails = onShowExecutionDetails {
+                let detailsAction = UIAction(
+                    title: "Execution Details",
+                    image: UIImage(systemName: "text.alignleft")
+                ) { _ in
+                    showDetails()
+                }
+                actions.append(detailsAction)
+            }
+
+            // Copy Debug Transcript - only for assistant messages with traces
+            if let copyTranscript = onCopyDebugTranscript {
+                let transcriptAction = UIAction(
+                    title: "Copy Debug Transcript",
+                    image: UIImage(systemName: "doc.on.clipboard")
+                ) { _ in
+                    copyTranscript()
+                }
+                actions.append(transcriptAction)
+            }
+
+            return UIMenu(title: "", children: actions)
+        }
     }
 }
 
