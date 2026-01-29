@@ -41,7 +41,7 @@ public actor PageLayoutStore {
         }
 
         try createTables()
-        Self.logger.info("PageLayoutStore opened at \(dbPath.path)")
+        Self.logger.info("PageLayoutStore opened at \(self.dbPath.path)")
     }
 
     /// Closes the database

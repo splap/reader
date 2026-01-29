@@ -155,7 +155,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         // PERF OPTIMIZATION: Only load sections around the initial position
         let sectionsToLoad = selectSectionsToLoad()
         let selectedSections = sectionsToLoad.map { htmlSections[$0] }
-        Self.logger.info("PERF: Loading \(sectionsToLoad.count) of \(htmlSections.count) sections for native renderer")
+        Self.logger.info("PERF: Loading \(sectionsToLoad.count) of \(self.htmlSections.count) sections for native renderer")
 
         // Get spine item ID from first selected section
         let spineItemId = selectedSections.first?.spineItemId ?? "unknown"
@@ -470,7 +470,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         scrollView.contentSize = CGSize(width: pageWidth * CGFloat(pages.count), height: pageHeight)
         totalPages = pages.count
 
-        Self.logger.info("Created \(totalPages) page views")
+        Self.logger.info("Created \(self.totalPages) page views")
     }
 
     private func createTextView(for range: NSRange, in fullText: NSAttributedString, padding: UIEdgeInsets) -> UITextView {
@@ -594,7 +594,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         // Use section-based loading for rebuilds too
         let sectionsToLoad = selectSectionsToLoad()
         let selectedSections = sectionsToLoad.map { htmlSections[$0] }
-        Self.logger.info("PERF (rebuild): Loading \(sectionsToLoad.count) of \(htmlSections.count) sections")
+        Self.logger.info("PERF (rebuild): Loading \(sectionsToLoad.count) of \(self.htmlSections.count) sections")
 
         let spineItemId = selectedSections.first?.spineItemId ?? "unknown"
 
