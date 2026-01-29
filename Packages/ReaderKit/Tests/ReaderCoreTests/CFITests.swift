@@ -1,5 +1,5 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class CFITests: XCTestCase {
     func testParseBaseCFI() {
@@ -17,7 +17,7 @@ final class CFITests: XCTestCase {
 
         // Test invalid CFI
         XCTAssertNil(CFIParser.parseBaseCFI("invalid"))
-        XCTAssertNil(CFIParser.parseBaseCFI("epubcfi(/5/4!)"))  // Wrong step (5 instead of 6)
+        XCTAssertNil(CFIParser.parseBaseCFI("epubcfi(/5/4!)")) // Wrong step (5 instead of 6)
     }
 
     func testGenerateBaseCFI() {
@@ -37,7 +37,7 @@ final class CFITests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result?.spineIndex, 1)
         XCTAssertEqual(result?.idref, "ch02")
-        XCTAssertEqual(result?.domPath, [1, 0])  // /4/2 -> [1, 0] (even steps to 0-based)
+        XCTAssertEqual(result?.domPath, [1, 0]) // /4/2 -> [1, 0] (even steps to 0-based)
         XCTAssertEqual(result?.charOffset, 42)
 
         // Test without character offset

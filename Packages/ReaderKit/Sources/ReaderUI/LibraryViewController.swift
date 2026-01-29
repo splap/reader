@@ -1,6 +1,6 @@
-import UIKit
-import ReaderCore
 import OSLog
+import ReaderCore
+import UIKit
 
 public final class LibraryViewController: UITableViewController {
     private static let logger = Log.logger(category: "library-vc")
@@ -11,11 +11,12 @@ public final class LibraryViewController: UITableViewController {
         super.init(style: .plain)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    public override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
 
         title = "Library"
@@ -39,7 +40,7 @@ public final class LibraryViewController: UITableViewController {
         )
     }
 
-    public override func viewWillAppear(_ animated: Bool) {
+    override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         loadBooks()
     }
@@ -58,11 +59,11 @@ public final class LibraryViewController: UITableViewController {
 
     // MARK: - Table View Data Source
 
-    public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return books.count
+    override public func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
+        books.count
     }
 
-    public override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    override public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "BookCell", for: indexPath) as! BookTableViewCell
         cell.configure(with: books[indexPath.row])
         return cell
@@ -70,7 +71,7 @@ public final class LibraryViewController: UITableViewController {
 
     // MARK: - Table View Delegate
 
-    public override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    override public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
         // Prevent multiple taps while opening a book
@@ -80,7 +81,7 @@ public final class LibraryViewController: UITableViewController {
         openBook(book)
     }
 
-    public override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+    override public func tableView(_: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
         if editingStyle == .delete {
             let book = books[indexPath.row]
             showDeleteConfirmation(for: book, at: indexPath)
@@ -115,13 +116,13 @@ public final class LibraryViewController: UITableViewController {
         navigationController?.pushViewController(readerVC, animated: true)
     }
 
-    public override func viewDidAppear(_ animated: Bool) {
+    override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         // Reset the flag when returning to the library
         isOpeningBook = false
     }
 
-    private func showDeleteConfirmation(for book: Book, at indexPath: IndexPath) {
+    private func showDeleteConfirmation(for book: Book, at _: IndexPath) {
         let alert = UIAlertController(
             title: "Delete Book",
             message: "Are you sure you want to delete \"\(book.title)\"?",
@@ -153,8 +154,9 @@ public final class LibraryViewController: UITableViewController {
 }
 
 // MARK: - Document Picker Delegate
+
 extension LibraryViewController: UIDocumentPickerDelegate {
-    public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    public func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
 
         do {
@@ -167,6 +169,7 @@ extension LibraryViewController: UIDocumentPickerDelegate {
 }
 
 // MARK: - Book Table View Cell
+
 private final class BookTableViewCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .subtitle, reuseIdentifier: reuseIdentifier)
@@ -175,7 +178,8 @@ private final class BookTableViewCell: UITableViewCell {
         accessoryType = .disclosureIndicator
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -198,6 +202,7 @@ private final class BookTableViewCell: UITableViewCell {
 }
 
 // MARK: - Notification Extension
+
 public extension Notification.Name {
     static let bookLibraryDidChange = Notification.Name("bookLibraryDidChange")
 }

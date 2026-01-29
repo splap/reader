@@ -13,38 +13,38 @@ public struct DebugLogger {
     private let logger: Logger
 
     init(category: String) {
-        self.logger = Logger(subsystem: Log.subsystem, category: category)
+        logger = Logger(subsystem: Log.subsystem, category: category)
     }
 
     public func debug(_ message: String) {
         #if DEBUG
-        logger.debug("\(message, privacy: .public)")
+            logger.debug("\(message, privacy: .public)")
         #else
-        logger.debug("\(message)")
+            logger.debug("\(message)")
         #endif
     }
 
     public func info(_ message: String) {
         #if DEBUG
-        logger.info("\(message, privacy: .public)")
+            logger.info("\(message, privacy: .public)")
         #else
-        logger.info("\(message)")
+            logger.info("\(message)")
         #endif
     }
 
     public func warning(_ message: String) {
         #if DEBUG
-        logger.warning("\(message, privacy: .public)")
+            logger.warning("\(message, privacy: .public)")
         #else
-        logger.warning("\(message)")
+            logger.warning("\(message)")
         #endif
     }
 
     public func error(_ message: String) {
         #if DEBUG
-        logger.error("\(message, privacy: .public)")
+            logger.error("\(message, privacy: .public)")
         #else
-        logger.error("\(message)")
+            logger.error("\(message)")
         #endif
     }
 }

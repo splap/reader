@@ -1,11 +1,11 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class ChapterResolverTests: XCTestCase {
     func testResolveChapterIdMatchesLabelsAndIndex() {
         let sections = [
             SectionInfo(spineItemId: "s1", title: "Chapter I", ncxLabel: "I", blockCount: 10),
-            SectionInfo(spineItemId: "s2", title: "Chapter II", ncxLabel: "II", blockCount: 12)
+            SectionInfo(spineItemId: "s2", title: "Chapter II", ncxLabel: "II", blockCount: 12),
         ]
         let context = TestHelpers.StubBookContext(currentSpineItemId: "s1", sections: sections)
 

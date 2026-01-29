@@ -29,13 +29,13 @@ final class ReaderUISnapshotTests: XCTestCase {
 
     private func makeChapter() -> Chapter {
         let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 24, weight: .bold)
+            .font: UIFont.systemFont(ofSize: 24, weight: .bold),
         ]
         let bodyAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 16)
+            .font: UIFont.systemFont(ofSize: 16),
         ]
         let italicAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.italicSystemFont(ofSize: 16)
+            .font: UIFont.italicSystemFont(ofSize: 16),
         ]
 
         let text = NSMutableAttributedString(string: "Sample Chapter\n", attributes: titleAttributes)
@@ -97,7 +97,7 @@ private struct PageSnapshotView: View {
 private struct PageSnapshotTextView: UIViewRepresentable {
     let page: Page
 
-    func makeUIView(context: Context) -> UITextView {
+    func makeUIView(context _: Context) -> UITextView {
         let containerSize = page.textContainer.size
         let frame = CGRect(origin: .zero, size: containerSize)
         let textView = UITextView(frame: frame, textContainer: page.textContainer)
@@ -111,7 +111,7 @@ private struct PageSnapshotTextView: UIViewRepresentable {
         return textView
     }
 
-    func updateUIView(_ uiView: UITextView, context: Context) {
+    func updateUIView(_: UITextView, context _: Context) {
         // No updates needed for snapshot
     }
 }

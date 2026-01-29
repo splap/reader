@@ -1,5 +1,5 @@
-import UIKit
 import ReaderCore
+import UIKit
 
 /// Protocol defining the interface for page renderers
 /// Both WebView and native attributed string renderers implement this protocol

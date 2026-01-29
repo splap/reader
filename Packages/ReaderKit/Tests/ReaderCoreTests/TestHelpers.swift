@@ -1,7 +1,7 @@
-import XCTest
-import UIKit
-import ZIPFoundation
 @testable import ReaderCore
+import UIKit
+import XCTest
+import ZIPFoundation
 
 /// Shared test utilities for ReaderCore tests
 enum TestHelpers {
@@ -9,7 +9,7 @@ enum TestHelpers {
     static func makeChapter() -> Chapter {
         let text = String(repeating: "Lorem ipsum dolor sit amet. ", count: 400)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 14)
+            .font: UIFont.systemFont(ofSize: 14),
         ]
         let attributedText = NSAttributedString(string: text, attributes: attributes)
         return Chapter(id: "sample", attributedText: attributedText, title: "Sample")
@@ -26,42 +26,42 @@ enum TestHelpers {
             to: archive,
             path: "META-INF/container.xml",
             contents: """
-<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-  </rootfiles>
-</container>
-"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <rootfiles>
+                <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+              </rootfiles>
+            </container>
+            """
         )
         try addFile(
             to: archive,
             path: "OEBPS/content.opf",
             contents: """
-<?xml version="1.0" encoding="UTF-8"?>
-<package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>Sample EPUB</dc:title>
-  </metadata>
-  <manifest>
-    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
-  </manifest>
-  <spine>
-    <itemref idref="chapter1"/>
-  </spine>
-</package>
-"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:title>Sample EPUB</dc:title>
+              </metadata>
+              <manifest>
+                <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine>
+                <itemref idref="chapter1"/>
+              </spine>
+            </package>
+            """
         )
         try addFile(
             to: archive,
             path: "OEBPS/chapter1.xhtml",
             contents: """
-<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml">
-  <head><title>Sample EPUB</title></head>
-  <body><p>Hello from EPUB</p></body>
-</html>
-"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>Sample EPUB</title></head>
+              <body><p>Hello from EPUB</p></body>
+            </html>
+            """
         )
 
         return tempURL
@@ -78,7 +78,7 @@ enum TestHelpers {
         ) { position, size in
             let start = Int(position)
             let end = min(start + Int(size), data.count)
-            return data[start..<end]
+            return data[start ..< end]
         }
     }
 
@@ -91,19 +91,19 @@ enum TestHelpers {
         var currentBlockId: String? = nil
         var sections: [SectionInfo]
 
-        func chapterText(spineItemId: String) -> String? {
+        func chapterText(spineItemId _: String) -> String? {
             nil
         }
 
-        func searchChapter(query: String) -> [SearchResult] {
+        func searchChapter(query _: String) -> [SearchResult] {
             []
         }
 
-        func searchBook(query: String) -> [SearchResult] {
+        func searchBook(query _: String) -> [SearchResult] {
             []
         }
 
-        func blocksAround(blockId: String, count: Int) -> [Block] {
+        func blocksAround(blockId _: String, count _: Int) -> [Block] {
             []
         }
     }

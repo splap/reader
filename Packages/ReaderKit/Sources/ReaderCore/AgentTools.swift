@@ -6,7 +6,7 @@ import Foundation
 public enum AgentTools {
     /// All tool definitions for the API request
     public static var allTools: [ToolDefinition] {
-        return [
+        [
             getCurrentPositionTool,
             lexicalSearchTool,
             semanticSearchTool,
@@ -18,7 +18,7 @@ public enum AgentTools {
             getBookSynopsisTool,
             wikipediaLookupTool,
             showMapTool,
-            renderImageTool
+            renderImageTool,
         ]
     }
 
@@ -29,9 +29,9 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_current_position",
             description: """
-                Get the reader's current position: chapter name, progress percentage, and block location.
-                Use this to understand where the reader is in the book before answering context-dependent questions.
-                """,
+            Get the reader's current position: chapter name, progress percentage, and block location.
+            Use this to understand where the reader is in the book before answering context-dependent questions.
+            """,
             parameters: JSONSchema(
                 properties: [:],
                 required: []
@@ -44,14 +44,14 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "lexical_search",
             description: """
-                Search for exact word or phrase matches in the book text. Uses full-text indexing with BM25 ranking.
-                Use this for:
-                - Finding specific names, terms, or phrases
-                - Locating exact quotes
-                - Counting occurrences of a word
-                Does NOT find conceptual matches — use semantic_search for that.
-                Returns: matching passages with surrounding context.
-                """,
+            Search for exact word or phrase matches in the book text. Uses full-text indexing with BM25 ranking.
+            Use this for:
+            - Finding specific names, terms, or phrases
+            - Locating exact quotes
+            - Counting occurrences of a word
+            Does NOT find conceptual matches — use semantic_search for that.
+            Returns: matching passages with surrounding context.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "query": PropertySchema(
@@ -62,7 +62,7 @@ public enum AgentTools {
                         type: "string",
                         description: "Where to search: 'current_chapter' or 'full_book'",
                         enumValues: ["current_chapter", "full_book"]
-                    )
+                    ),
                 ],
                 required: ["query"]
             )
@@ -74,13 +74,13 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "semantic_search",
             description: """
-                Search for passages by meaning, even without exact word matches. Uses vector embeddings to find conceptually similar text.
-                Use this for:
-                - Abstract questions ("passages about betrayal")
-                - Thematic queries ("where does the book discuss mortality?")
-                - When lexical_search returns no results but the concept should exist
-                Returns: passages ranked by semantic similarity with relevance scores.
-                """,
+            Search for passages by meaning, even without exact word matches. Uses vector embeddings to find conceptually similar text.
+            Use this for:
+            - Abstract questions ("passages about betrayal")
+            - Thematic queries ("where does the book discuss mortality?")
+            - When lexical_search returns no results but the concept should exist
+            Returns: passages ranked by semantic similarity with relevance scores.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "query": PropertySchema(
@@ -101,7 +101,7 @@ public enum AgentTools {
                     "limit": PropertySchema(
                         type: "integer",
                         description: "Maximum results to return (default: 10)"
-                    )
+                    ),
                 ],
                 required: ["query"]
             )
@@ -113,22 +113,22 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "book_concept_map_lookup",
             description: """
-                Look up the book's concept map to find which chapters discuss a topic. The concept map contains pre-extracted:
-                - Entities (characters, places, organizations)
-                - Themes (abstract concepts)
-                - Events (significant plot points)
-                Use this tool, 
-                    ONLY when you need a chapter list to narrow a subsequent semantic_search or get_chapter_summary, 
-                    AND your query is a single concept term (1–2 words) likely to be an entity/theme/event label.
-                If the query is a quote, a long phrase, or a specific 3+ word name, prefer lexical_search first.
-                Returns: matching entities/themes/events with their chapter locations.
-                """,
+            Look up the book's concept map to find which chapters discuss a topic. The concept map contains pre-extracted:
+            - Entities (characters, places, organizations)
+            - Themes (abstract concepts)
+            - Events (significant plot points)
+            Use this tool, 
+                ONLY when you need a chapter list to narrow a subsequent semantic_search or get_chapter_summary, 
+                AND your query is a single concept term (1–2 words) likely to be an entity/theme/event label.
+            If the query is a quote, a long phrase, or a specific 3+ word name, prefer lexical_search first.
+            Returns: matching entities/themes/events with their chapter locations.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "query": PropertySchema(
                         type: "string",
                         description: "Entity name, theme, or concept to look up"
-                    )
+                    ),
                 ],
                 required: ["query"]
             )
@@ -140,12 +140,12 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_surrounding_context",
             description: """
-                Get text blocks before and after a specific position. Use this for positional expansion:
-                - "What happens next?" — expand forward from current position
-                - "What led to this?" — expand backward from current position
-                - Understanding context around a user's selection
-                NOT for finding things — use lexical_search or semantic_search for that.
-                """,
+            Get text blocks before and after a specific position. Use this for positional expansion:
+            - "What happens next?" — expand forward from current position
+            - "What led to this?" — expand backward from current position
+            - Understanding context around a user's selection
+            NOT for finding things — use lexical_search or semantic_search for that.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "block_id": PropertySchema(
@@ -155,7 +155,7 @@ public enum AgentTools {
                     "radius": PropertySchema(
                         type: "integer",
                         description: "Number of blocks to include before and after (default: 5)"
-                    )
+                    ),
                 ],
                 required: ["block_id"]
             )
@@ -167,12 +167,12 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_book_structure",
             description: """
-                Get the book's table of contents: title, author, and all chapter names with IDs.
-                Use this to:
-                - Answer "how many chapters?" or "what are the chapter names?"
-                - Get chapter IDs for scoped searches
-                - Understand the book's organization
-                """,
+            Get the book's table of contents: title, author, and all chapter names with IDs.
+            Use this to:
+            - Answer "how many chapters?" or "what are the chapter names?"
+            - Get chapter IDs for scoped searches
+            - Understand the book's organization
+            """,
             parameters: JSONSchema(
                 properties: [:],
                 required: []
@@ -185,17 +185,17 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_chapter_summary",
             description: """
-                Get a summary of a specific chapter including key plot points and characters mentioned.
-                Use for questions like "what happens in chapter 3?" or to understand a chapter without searching through it.
-                Returns: narrative summary, key points, characters mentioned.
-                NOTE: If the user asks for specific examples, quotes, or detailed passages after seeing a summary, use get_chapter_full_text instead — summaries don't contain that level of detail.
-                """,
+            Get a summary of a specific chapter including key plot points and characters mentioned.
+            Use for questions like "what happens in chapter 3?" or to understand a chapter without searching through it.
+            Returns: narrative summary, key points, characters mentioned.
+            NOTE: If the user asks for specific examples, quotes, or detailed passages after seeing a summary, use get_chapter_full_text instead — summaries don't contain that level of detail.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "chapter_id": PropertySchema(
                         type: "string",
                         description: "The chapter ID to summarize (from get_book_structure). Use 'current' for the current chapter."
-                    )
+                    ),
                 ],
                 required: ["chapter_id"]
             )
@@ -207,20 +207,20 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_chapter_full_text",
             description: """
-                Get the complete text of a chapter. Use this when:
-                - User asks for specific examples, quotes, or passages from a chapter
-                - User asks "what exactly does it say about X?" or "show me the part where..."
-                - User wants more detail after seeing a summary
-                - You need the actual text to answer a question (not just a summary)
-                NOT for initial exploration — use search tools or summaries first.
-                Returns: the complete chapter text.
-                """,
+            Get the complete text of a chapter. Use this when:
+            - User asks for specific examples, quotes, or passages from a chapter
+            - User asks "what exactly does it say about X?" or "show me the part where..."
+            - User wants more detail after seeing a summary
+            - You need the actual text to answer a question (not just a summary)
+            NOT for initial exploration — use search tools or summaries first.
+            Returns: the complete chapter text.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "chapter_id": PropertySchema(
                         type: "string",
                         description: "The chapter ID (from get_book_structure). Use 'current' for the current chapter."
-                    )
+                    ),
                 ],
                 required: ["chapter_id"]
             )
@@ -232,11 +232,11 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "get_book_synopsis",
             description: """
-                Get a high-level synopsis of the entire book including main characters and themes.
-                Use for broad questions like "what is this book about?" or "who are the main characters?"
-                NOT for specific plot details — use chapter summaries or searches for those.
-                Returns: plot overview, main characters with descriptions, key themes.
-                """,
+            Get a high-level synopsis of the entire book including main characters and themes.
+            Use for broad questions like "what is this book about?" or "who are the main characters?"
+            NOT for specific plot details — use chapter summaries or searches for those.
+            Returns: plot overview, main characters with descriptions, key themes.
+            """,
             parameters: JSONSchema(
                 properties: [:],
                 required: []
@@ -249,20 +249,20 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "wikipedia_lookup",
             description: """
-                Look up factual information on Wikipedia. Use this for:
-                - Public figures (politicians, celebrities, historical figures)
-                - Places (cities, countries, landmarks)
-                - Historical events and dates
-                - Scientific concepts and terminology
-                - Organizations and companies
-                Returns a summary with key facts. Great for verifying factual claims or getting background info on real-world topics mentioned in the book.
-                """,
+            Look up factual information on Wikipedia. Use this for:
+            - Public figures (politicians, celebrities, historical figures)
+            - Places (cities, countries, landmarks)
+            - Historical events and dates
+            - Scientific concepts and terminology
+            - Organizations and companies
+            Returns a summary with key facts. Great for verifying factual claims or getting background info on real-world topics mentioned in the book.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "query": PropertySchema(
                         type: "string",
                         description: "The topic to look up (e.g., 'Albert Einstein', 'World War II', 'Tokyo')"
-                    )
+                    ),
                 ],
                 required: ["query"]
             )
@@ -274,10 +274,10 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "render_image",
             description: """
-                Display an image inline in chat.
-                Use when the user asks what something looks like and you have an image URL (typically from wikipedia_lookup).
-                Use sparingly — only when a visual genuinely helps answer the question.
-                """,
+            Display an image inline in chat.
+            Use when the user asks what something looks like and you have an image URL (typically from wikipedia_lookup).
+            Use sparingly — only when a visual genuinely helps answer the question.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "url": PropertySchema(
@@ -287,7 +287,7 @@ public enum AgentTools {
                     "caption": PropertySchema(
                         type: "string",
                         description: "A brief caption describing the image"
-                    )
+                    ),
                 ],
                 required: ["url"]
             )
@@ -299,16 +299,16 @@ public enum AgentTools {
         function: FunctionDefinition(
             name: "show_map",
             description: """
-                Display an inline map for a real-world location.
-                Use when the user asks "where is X?" or wants to see a place on a map.
-                Only works for real places — not fictional locations from the book.
-                """,
+            Display an inline map for a real-world location.
+            Use when the user asks "where is X?" or wants to see a place on a map.
+            Only works for real places — not fictional locations from the book.
+            """,
             parameters: JSONSchema(
                 properties: [
                     "place": PropertySchema(
                         type: "string",
                         description: "The place to show on the map (e.g., 'Eiffel Tower', 'Honduras', 'Baker Street London')"
-                    )
+                    ),
                 ],
                 required: ["place"]
             )
@@ -374,7 +374,8 @@ public struct ToolExecutor {
             // Calculate percentage through chapter
             if let blockId = context.currentBlockId,
                let block = context.blocksAround(blockId: blockId, count: 0).first,
-               currentSection.blockCount > 0 {
+               currentSection.blockCount > 0
+            {
                 let percentage = Int(round(Double(block.ordinal + 1) / Double(currentSection.blockCount) * 100))
                 output += "Position in chapter: \(percentage)% through\n"
                 output += "Block \(block.ordinal + 1) of \(currentSection.blockCount)"
@@ -394,12 +395,10 @@ public struct ToolExecutor {
         }
 
         let scope = args["scope"] as? String ?? "current_chapter"
-        let results: [SearchResult]
-
-        if scope == "full_book" {
-            results = await context.searchBook(query: query)
+        let results: [SearchResult] = if scope == "full_book" {
+            await context.searchBook(query: query)
         } else {
-            results = await context.searchChapter(query: query)
+            await context.searchChapter(query: query)
         }
 
         if results.isEmpty {
@@ -424,11 +423,10 @@ public struct ToolExecutor {
         let blockId = args["block_id"] as? String ?? "current"
         let radius = args["radius"] as? Int ?? 5
 
-        let targetBlockId: String
-        if blockId == "current" {
-            targetBlockId = context.currentBlockId ?? ""
+        let targetBlockId: String = if blockId == "current" {
+            context.currentBlockId ?? ""
         } else {
-            targetBlockId = blockId
+            blockId
         }
 
         if targetBlockId.isEmpty {

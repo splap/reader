@@ -1,5 +1,5 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class EmbeddingServiceTests: XCTestCase {
     /// Path to the mlpackage in the source tree (for testing without bundling)
@@ -69,7 +69,7 @@ final class EmbeddingServiceTests: XCTestCase {
         let texts = [
             "The quick brown fox jumps over the lazy dog.",
             "Pack my box with five dozen liquor jugs.",
-            "How vexingly quick daft zebras jump!"
+            "How vexingly quick daft zebras jump!",
         ]
 
         let embeddings = try await service.embedBatch(texts: texts)
@@ -91,7 +91,7 @@ final class EmbeddingServiceTests: XCTestCase {
 
         // Generate realistic book-like chunks (similar to what Chunker produces)
         let chunkCount = 100
-        let texts = (0..<chunkCount).map { i in
+        let texts = (0 ..< chunkCount).map { i in
             // ~800 tokens worth of text per chunk (similar to real chunks)
             String(repeating: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", count: 50)
                 + "Chunk \(i) unique identifier."

@@ -51,7 +51,7 @@ public actor ChapterSummaryStore {
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let readerDir = appSupport.appendingPathComponent("com.splap.reader", isDirectory: true)
-        self.storeDirectory = readerDir.appendingPathComponent("chapter_summaries", isDirectory: true)
+        storeDirectory = readerDir.appendingPathComponent("chapter_summaries", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
     }
@@ -154,7 +154,7 @@ public actor ChapterSummaryService {
     private static let logger = Log.logger(category: "ChapterSummaryService")
 
     /// Maximum tokens for map-reduce chunking (high limit since modern models have large context windows)
-    private let maxChunkTokens = 100000
+    private let maxChunkTokens = 100_000
 
     /// Shared instance
     public static let shared = ChapterSummaryService()
@@ -400,13 +400,13 @@ public actor ChapterSummaryService {
                         .map { $0.trimmingCharacters(in: .whitespaces) }
                         .filter { !$0.isEmpty }
                 }
-            } else if currentSection == "summary" && !trimmed.isEmpty {
+            } else if currentSection == "summary", !trimmed.isEmpty {
                 if summary.isEmpty {
                     summary = trimmed
                 } else {
                     summary += " " + trimmed
                 }
-            } else if currentSection == "keypoints" && trimmed.hasPrefix("-") {
+            } else if currentSection == "keypoints", trimmed.hasPrefix("-") {
                 let point = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
                 if !point.isEmpty {
                     keyPoints.append(point)
@@ -440,7 +440,7 @@ public actor ChapterSummaryService {
         for paragraph in paragraphs {
             let paragraphTokens = estimateTokens(paragraph)
 
-            if currentTokens + paragraphTokens > maxTokens && !currentChunk.isEmpty {
+            if currentTokens + paragraphTokens > maxTokens, !currentChunk.isEmpty {
                 chunks.append(currentChunk.trimmingCharacters(in: .whitespacesAndNewlines))
                 currentChunk = paragraph
                 currentTokens = paragraphTokens
@@ -462,7 +462,7 @@ public actor ChapterSummaryService {
 
     private func estimateTokens(_ text: String) -> Int {
         // Rough estimate: ~4 characters per token
-        return text.count / 4
+        text.count / 4
     }
 
     private func callLLM(prompt: String, apiKey: String) async throws -> String {
@@ -475,8 +475,8 @@ public actor ChapterSummaryService {
         let body: [String: Any] = [
             "model": OpenRouterConfig.model,
             "messages": [
-                ["role": "user", "content": prompt]
-            ]
+                ["role": "user", "content": prompt],
+            ],
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -487,7 +487,7 @@ public actor ChapterSummaryService {
             throw OpenRouterError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw OpenRouterError.httpError(statusCode: httpResponse.statusCode, message: errorMessage)
         }
@@ -496,7 +496,8 @@ public actor ChapterSummaryService {
               let choices = json["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
               let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
+              let content = message["content"] as? String
+        else {
             throw OpenRouterError.invalidResponse
         }
 

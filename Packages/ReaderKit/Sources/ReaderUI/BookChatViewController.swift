@@ -1,7 +1,7 @@
-import UIKit
-import ReaderCore
-import OSLog
 import MapKit
+import OSLog
+import ReaderCore
+import UIKit
 
 /// Chat interface for conversing with the LLM about a book
 public final class BookChatViewController: UIViewController {
@@ -45,16 +45,17 @@ public final class BookChatViewController: UIViewController {
 
     public init(context: BookContext, selection: SelectionPayload? = nil, conversationId: UUID? = nil) {
         self.context = context
-        self.initialSelection = selection
+        initialSelection = selection
         self.conversationId = conversationId
 
         // Load existing conversation or create new one
         if let convId = conversationId,
-           let existingConv = ConversationStorage.shared.getConversation(id: convId) {
-            self.conversation = existingConv
+           let existingConv = ConversationStorage.shared.getConversation(id: convId)
+        {
+            conversation = existingConv
         } else {
             // Create new conversation
-            self.conversation = Conversation(
+            conversation = Conversation(
                 title: "New Chat",
                 bookTitle: context.bookTitle,
                 bookAuthor: context.bookAuthor,
@@ -65,22 +66,23 @@ public final class BookChatViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     // MARK: - Lifecycle
 
-    public override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
-        Self.logger.debug("Chat UI opened for book: \(self.context.bookTitle)")
+        Self.logger.debug("Chat UI opened for book: \(context.bookTitle)")
         setupUI()
         setupKeyboardObservers()
         setupFontScaleObserver()
         addWelcomeMessage()
     }
 
-    public override func viewWillDisappear(_ animated: Bool) {
+    override public func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         NotificationCenter.default.removeObserver(self)
     }
@@ -282,7 +284,7 @@ public final class BookChatViewController: UIViewController {
             statusTextView.topAnchor.constraint(equalTo: statusBubble.topAnchor, constant: 8),
             statusTextView.leadingAnchor.constraint(equalTo: statusBubble.leadingAnchor, constant: 12),
             statusTextView.trailingAnchor.constraint(equalTo: statusBubble.trailingAnchor, constant: -12),
-            statusTextView.bottomAnchor.constraint(equalTo: statusBubble.bottomAnchor, constant: -8)
+            statusTextView.bottomAnchor.constraint(equalTo: statusBubble.bottomAnchor, constant: -8),
         ])
     }
 
@@ -324,7 +326,7 @@ public final class BookChatViewController: UIViewController {
 
     private func addWelcomeMessage() {
         // Load existing conversation messages if this is an existing conversation
-        if conversationId != nil && !conversation.messages.isEmpty {
+        if conversationId != nil, !conversation.messages.isEmpty {
             for storedMsg in conversation.messages {
                 let role: ChatMessage.Role = storedMsg.role == .user ? .user : .assistant
                 let hasTrace = storedMsg.executionTrace != nil
@@ -429,7 +431,7 @@ public final class BookChatViewController: UIViewController {
         var chunkNum = 1
         while offset < transcript.endIndex {
             let end = transcript.index(offset, offsetBy: chunkSize, limitedBy: transcript.endIndex) ?? transcript.endIndex
-            let chunk = String(transcript[offset..<end])
+            let chunk = String(transcript[offset ..< end])
             Self.logger.info("TRACE[\(chunkNum)]: \(chunk)")
             offset = end
             chunkNum += 1
@@ -438,11 +440,11 @@ public final class BookChatViewController: UIViewController {
 
     private func formatTimelineStep(_ step: TimelineStep, index: Int) -> String {
         switch step {
-        case .user(let content):
+        case let .user(content):
             let preview = content.count > 100 ? String(content.prefix(100)) + "..." : content
             return "[\(index)] USER: \(preview)\n\n"
 
-        case .llm(let exec):
+        case let .llm(exec):
             var line = "[\(index)] LLM (\(exec.model)) - \(String(format: "%.2f", exec.executionTime))s"
             if let inp = exec.inputTokens, let out = exec.outputTokens {
                 line += ", \(inp) in / \(out) out"
@@ -458,7 +460,7 @@ public final class BookChatViewController: UIViewController {
             }
             return line + "\n"
 
-        case .tool(let exec):
+        case let .tool(exec):
             var line = "[\(index)] TOOL \(exec.functionName) - \(String(format: "%.3f", exec.executionTime))s\n"
             // Compact args on one line
             let argsPreview = exec.arguments.replacingOccurrences(of: "\n", with: " ")
@@ -476,7 +478,7 @@ public final class BookChatViewController: UIViewController {
             line += "    result: \(indentedResult)\n"
             return line + "\n"
 
-        case .assistant(let content):
+        case let .assistant(content):
             let preview = content.count > 200 ? String(content.prefix(200)) + "..." : content
             return "[\(index)] ASSISTANT:\n\(preview)\n\n"
         }
@@ -486,12 +488,12 @@ public final class BookChatViewController: UIViewController {
         switch step {
         case .user:
             return "User message"
-        case .llm(let exec):
+        case let .llm(exec):
             if let tools = exec.requestedTools, !tools.isEmpty {
                 return "LLM → \(tools.joined(separator: ", "))"
             }
             return "LLM (final response)"
-        case .tool(let exec):
+        case let .tool(exec):
             return exec.functionName
         case .assistant:
             return "Assistant response"
@@ -578,7 +580,8 @@ public final class BookChatViewController: UIViewController {
     @objc private func sendMessage() {
         guard let text = textView.text?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty,
-              !isLoading else {
+              !isLoading
+        else {
             return
         }
 
@@ -693,7 +696,8 @@ public final class BookChatViewController: UIViewController {
 
     @objc private func keyboardWillShow(_ notification: Notification) {
         guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double else {
+              let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
+        else {
             return
         }
 
@@ -723,12 +727,12 @@ public final class BookChatViewController: UIViewController {
 
     /// Extract map data from show_map tool results in trace
     private func extractMapsFromTrace(_ trace: AgentExecutionTrace?) -> [(lat: Double, lon: Double, name: String)] {
-        guard let trace = trace else { return [] }
+        guard let trace else { return [] }
 
         var maps: [(lat: Double, lon: Double, name: String)] = []
 
         for execution in trace.toolExecutions {
-            if execution.functionName == "show_map" && execution.success {
+            if execution.functionName == "show_map", execution.success {
                 // Parse MAP_RESULT:lat,lon,name format
                 let result = execution.result
                 if result.hasPrefix("MAP_RESULT:") {
@@ -736,7 +740,8 @@ public final class BookChatViewController: UIViewController {
                     let parts = data.split(separator: ",", maxSplits: 2)
                     if parts.count >= 3,
                        let lat = Double(parts[0]),
-                       let lon = Double(parts[1]) {
+                       let lon = Double(parts[1])
+                    {
                         let name = String(parts[2])
                         maps.append((lat: lat, lon: lon, name: name))
                     }
@@ -806,8 +811,8 @@ public final class BookChatViewController: UIViewController {
 // MARK: - UITableViewDataSource
 
 extension BookChatViewController: UITableViewDataSource {
-    public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return messages.count
+    public func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
+        messages.count
     }
 
     public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -826,16 +831,17 @@ extension BookChatViewController: UITableViewDataSource {
 
             // Set up tap handler to toggle trace
             cell.onTap = { [weak self] in
-                guard let self = self else { return }
-                let wasCollapsed = self.messages[indexPath.row].isCollapsed
-                self.messages[indexPath.row].isCollapsed.toggle()
+                guard let self else { return }
+                let wasCollapsed = messages[indexPath.row].isCollapsed
+                messages[indexPath.row].isCollapsed.toggle()
                 self.tableView.reloadRows(at: [indexPath], with: .none)
 
                 // If expanding, scroll to ensure the "Execution Details" header is visible
                 if wasCollapsed {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         guard let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageCell,
-                              let traceLabelFrame = cell.traceLabelFrameInTableView(self.tableView) else {
+                              let traceLabelFrame = cell.traceLabelFrameInTableView(self.tableView)
+                        else {
                             return
                         }
 
@@ -868,9 +874,9 @@ extension BookChatViewController: UITableViewDataSource {
         } else if message.role == .system {
             // Set up tap handler for system messages to toggle collapsed state
             cell.onTap = { [weak self] in
-                guard let self = self else { return }
-                let wasCollapsed = self.messages[indexPath.row].isCollapsed
-                self.messages[indexPath.row].isCollapsed.toggle()
+                guard let self else { return }
+                let wasCollapsed = messages[indexPath.row].isCollapsed
+                messages[indexPath.row].isCollapsed.toggle()
                 self.tableView.reloadRows(at: [indexPath], with: .none)
 
                 // If expanding, scroll to ensure the content header is visible
@@ -893,12 +899,12 @@ extension BookChatViewController: UITableViewDataSource {
 // MARK: - UITableViewDelegate
 
 extension BookChatViewController: UITableViewDelegate {
-    public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return UITableView.automaticDimension
+    public func tableView(_: UITableView, heightForRowAt _: IndexPath) -> CGFloat {
+        UITableView.automaticDimension
     }
 
-    public func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 60
+    public func tableView(_: UITableView, estimatedHeightForRowAt _: IndexPath) -> CGFloat {
+        60
     }
 }
 
@@ -910,7 +916,7 @@ extension BookChatViewController: UITextViewDelegate {
         updateTextViewHeight()
     }
 
-    public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+    public func textView(_: UITextView, shouldChangeTextIn _: NSRange, replacementText text: String) -> Bool {
         // Send message on return key if shift is not held
         if text == "\n" {
             sendMessage()
@@ -923,8 +929,8 @@ extension BookChatViewController: UITextViewDelegate {
 // MARK: - UIPopoverPresentationControllerDelegate
 
 extension BookChatViewController: UIPopoverPresentationControllerDelegate {
-    public func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
-        return .none  // Force popover on all devices
+    public func adaptivePresentationStyle(for _: UIPresentationController) -> UIModalPresentationStyle {
+        .none // Force popover on all devices
     }
 }
 
@@ -945,7 +951,7 @@ private struct ChatMessage {
     let hasTrace: Bool // Whether this message has an execution trace
 
     init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false, hasTrace: Bool = false) {
-        self.id = UUID()
+        id = UUID()
         self.role = role
         self.content = content
         self.title = title
@@ -958,10 +964,10 @@ private struct ChatMessage {
 
 private final class ChatMessageCell: UITableViewCell {
     private let bubbleView = UIView()
-    private let contentStack = UIStackView()  // Main vertical stack for all content
-    private let messageTextView = UITextView()  // UITextView for selectable text
+    private let contentStack = UIStackView() // Main vertical stack for all content
+    private let messageTextView = UITextView() // UITextView for selectable text
     private let imageContainerView = UIStackView()
-    private let traceTextView = UITextView()  // UITextView for selectable text
+    private let traceTextView = UITextView() // UITextView for selectable text
     private let fontManager = FontScaleManager.shared
     var onTap: (() -> Void)?
 
@@ -973,7 +979,8 @@ private final class ChatMessageCell: UITableViewCell {
         setupUI()
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -1039,7 +1046,7 @@ private final class ChatMessageCell: UITableViewCell {
             contentStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
             contentStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             contentStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            contentStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -12)
+            contentStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -12),
         ])
 
         // Add tap gesture for collapsible messages
@@ -1083,11 +1090,10 @@ private final class ChatMessageCell: UITableViewCell {
             bubbleView.backgroundColor = .tertiarySystemBackground
 
             // Show title with disclosure indicator when collapsed, full content when expanded
-            let systemContent: String
-            if message.isCollapsed {
-                systemContent = "\(message.title ?? "Context") ▶"
+            let systemContent = if message.isCollapsed {
+                "\(message.title ?? "Context") ▶"
             } else {
-                systemContent = "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
+                "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
             }
             messageTextView.attributedText = renderMarkdown(systemContent, font: fontManager.scaledFont(size: 14), color: .secondaryLabel)
 
@@ -1131,7 +1137,8 @@ private final class ChatMessageCell: UITableViewCell {
             for match in matches.reversed() {
                 if let captionRange = Range(match.range(at: 1), in: cleanedContent),
                    let urlRange = Range(match.range(at: 2), in: cleanedContent),
-                   let fullRange = Range(match.range, in: cleanedContent) {
+                   let fullRange = Range(match.range, in: cleanedContent)
+                {
                     let caption = String(cleanedContent[captionRange])
                     let url = String(cleanedContent[urlRange])
                     images.insert((url: url, caption: caption), at: 0)
@@ -1205,7 +1212,7 @@ private final class ChatMessageCell: UITableViewCell {
             captionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -8),
 
             spinner.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: imageView.centerYAnchor)
+            spinner.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
         ])
 
         // Set a minimum height while loading
@@ -1215,12 +1222,12 @@ private final class ChatMessageCell: UITableViewCell {
 
         // Load image async
         if let imageUrl = URL(string: url) {
-            let task = URLSession.shared.dataTask(with: imageUrl) { [weak imageView, weak spinner, weak self] data, _, error in
+            let task = URLSession.shared.dataTask(with: imageUrl) { [weak imageView, weak spinner, weak self] data, _, _ in
                 DispatchQueue.main.async {
                     spinner?.stopAnimating()
                     spinner?.removeFromSuperview()
 
-                    if let data = data, let loadedImage = UIImage(data: data) {
+                    if let data, let loadedImage = UIImage(data: data) {
                         imageView?.image = loadedImage
 
                         // Update height constraint based on aspect ratio
@@ -1298,7 +1305,7 @@ private final class ChatMessageCell: UITableViewCell {
             captionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -8),
 
             spinner.centerXAnchor.constraint(equalTo: mapImageView.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: mapImageView.centerYAnchor)
+            spinner.centerYAnchor.constraint(equalTo: mapImageView.centerYAnchor),
         ])
 
         // Use MKMapSnapshotter to generate map image
@@ -1317,7 +1324,7 @@ private final class ChatMessageCell: UITableViewCell {
         let snapshotter = MKMapSnapshotter(options: options)
         snapshotter.start { [weak self] snapshot, error in
             DispatchQueue.main.async {
-                guard let self = self else { return }
+                guard let self else { return }
 
                 // Remove spinner
                 for subview in mapImageView.subviews {
@@ -1327,7 +1334,7 @@ private final class ChatMessageCell: UITableViewCell {
                     }
                 }
 
-                guard let snapshot = snapshot, error == nil else {
+                guard let snapshot, error == nil else {
                     mapImageView.backgroundColor = .systemRed.withAlphaComponent(0.2)
                     return
                 }
@@ -1365,7 +1372,7 @@ private final class ChatMessageCell: UITableViewCell {
     }
 
     func setTraceText(_ text: String?) {
-        if let text = text {
+        if let text {
             traceTextView.text = text
             traceTextView.isHidden = false
             // Accessibility identifier includes collapsed/expanded state for testing
@@ -1407,7 +1414,7 @@ private final class ChatMessageCell: UITableViewCell {
                 guard let existingFont = value as? UIFont else { return }
                 let traits = existingFont.fontDescriptor.symbolicTraits
 
-                if traits.contains(.traitBold) && traits.contains(.traitItalic) {
+                if traits.contains(.traitBold), traits.contains(.traitItalic) {
                     // Bold + Italic
                     if let boldItalicDescriptor = font.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
                         mutable.addAttribute(.font, value: UIFont(descriptor: boldItalicDescriptor, size: font.pointSize), range: range)
@@ -1439,7 +1446,7 @@ private final class ChatMessageCell: UITableViewCell {
         // Fallback to plain text
         return NSAttributedString(string: text, attributes: [
             .font: font,
-            .foregroundColor: color
+            .foregroundColor: color,
         ])
     }
 
@@ -1465,7 +1472,7 @@ private final class ChatMessageCell: UITableViewCell {
         mapItem.name = gesture.locationName
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: coordinate),
-            MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05))
+            MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)),
         ])
     }
 }
@@ -1474,10 +1481,11 @@ private final class ChatMessageCell: UITableViewCell {
 
 private extension String {
     func prettyJSON() -> String {
-        guard let data = self.data(using: .utf8),
+        guard let data = data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data),
               let prettyData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]),
-              let prettyString = String(data: prettyData, encoding: .utf8) else {
+              let prettyString = String(data: prettyData, encoding: .utf8)
+        else {
             return self
         }
         return prettyString
@@ -1487,7 +1495,7 @@ private extension String {
 // MARK: - Map Tap Gesture Recognizer
 
 private class MapTapGestureRecognizer: UITapGestureRecognizer {
-    var coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D()
+    var coordinate: CLLocationCoordinate2D = .init()
     var locationName: String = ""
 }
 
@@ -1506,7 +1514,8 @@ private final class ModelPickerViewController: UIViewController, UITableViewData
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -1526,14 +1535,14 @@ private final class ModelPickerViewController: UIViewController, UITableViewData
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
     // MARK: - UITableViewDataSource
 
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return models.count
+    func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
+        models.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -1563,7 +1572,8 @@ private final class ModelCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -1585,9 +1595,9 @@ private final class ModelCell: UITableViewCell {
 
     private func formatPrice(_ cost: Double) -> String {
         if cost < 1.0 {
-            return String(format: "$%.2f", cost)
+            String(format: "$%.2f", cost)
         } else {
-            return String(format: "$%.0f", cost)
+            String(format: "$%.0f", cost)
         }
     }
 

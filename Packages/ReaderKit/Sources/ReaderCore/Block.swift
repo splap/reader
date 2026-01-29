@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 /// The type of content block extracted from EPUB HTML
 public enum BlockType: String, Codable, Equatable {
@@ -19,19 +19,19 @@ public enum BlockType: String, Codable, Equatable {
     /// Maps HTML tag names to block types
     public static func from(tagName: String) -> BlockType {
         switch tagName.lowercased() {
-        case "p": return .paragraph
-        case "h1": return .heading1
-        case "h2": return .heading2
-        case "h3": return .heading3
-        case "h4": return .heading4
-        case "h5": return .heading5
-        case "h6": return .heading6
-        case "li": return .listItem
-        case "blockquote": return .blockquote
-        case "pre": return .preformatted
-        case "img": return .image
-        case "div": return .paragraph  // Treat div as paragraph for TOC entries etc.
-        default: return .unknown
+        case "p": .paragraph
+        case "h1": .heading1
+        case "h2": .heading2
+        case "h3": .heading3
+        case "h4": .heading4
+        case "h5": .heading5
+        case "h6": .heading6
+        case "li": .listItem
+        case "blockquote": .blockquote
+        case "pre": .preformatted
+        case "img": .image
+        case "div": .paragraph // Treat div as paragraph for TOC entries etc.
+        default: .unknown
         }
     }
 }
@@ -68,7 +68,7 @@ public struct Block: Identifiable, Codable, Equatable {
         self.textContent = textContent
         self.htmlContent = htmlContent
         self.ordinal = ordinal
-        self.id = Block.generateId(spineItemId: spineItemId, textContent: textContent, ordinal: ordinal)
+        id = Block.generateId(spineItemId: spineItemId, textContent: textContent, ordinal: ordinal)
     }
 
     /// Generates a stable, deterministic block ID from content

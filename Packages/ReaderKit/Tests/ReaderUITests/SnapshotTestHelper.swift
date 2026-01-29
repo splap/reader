@@ -4,8 +4,8 @@ import XCTest
 
 enum SnapshotTestHelper {
     @MainActor
-    static func assertSnapshot<V: View>(
-        _ view: V,
+    static func assertSnapshot(
+        _ view: some View,
         size: CGSize,
         name: String? = nil,
         file: StaticString = #filePath,
@@ -36,11 +36,11 @@ enum SnapshotTestHelper {
         let snapshotURL = snapshotDirectory.appendingPathComponent(snapshotName).appendingPathExtension("png")
 
         let shouldRecord: Bool
-#if SNAPSHOT_RECORD
-        shouldRecord = true
-#else
-        shouldRecord = ProcessInfo.processInfo.environment["UPDATE_SNAPSHOTS"] == "1"
-#endif
+        #if SNAPSHOT_RECORD
+            shouldRecord = true
+        #else
+            shouldRecord = ProcessInfo.processInfo.environment["UPDATE_SNAPSHOTS"] == "1"
+        #endif
 
         if shouldRecord {
             do {

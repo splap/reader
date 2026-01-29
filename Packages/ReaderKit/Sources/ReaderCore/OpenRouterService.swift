@@ -1,14 +1,15 @@
 import Foundation
 
 // MARK: - Configuration
+
 public enum OpenRouterConfig {
     /// Model definition with pricing (costs per million tokens)
     public struct Model {
         public let id: String
         public let name: String
-        public let inputCost: Double    // $ per 1M tokens
-        public let outputCost: Double   // $ per 1M tokens
-        public let contextLength: Int   // max tokens
+        public let inputCost: Double // $ per 1M tokens
+        public let outputCost: Double // $ per 1M tokens
+        public let contextLength: Int // max tokens
     }
 
     /// Available models for selection (pricing from OpenRouter API)
@@ -21,14 +22,14 @@ public enum OpenRouterConfig {
         Model(id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", inputCost: 0.40, outputCost: 1.60, contextLength: 1_047_576),
         Model(id: "openai/gpt-4.1-nano", name: "GPT-4.1 Nano", inputCost: 0.10, outputCost: 0.40, contextLength: 1_047_576),
         Model(id: "openai/gpt-5-mini", name: "GPT-5 Mini", inputCost: 0.25, outputCost: 2.00, contextLength: 400_000),
-        Model(id: "x-ai/grok-4.1-fast", name: "Grok 4.1 Fast", inputCost: 0.20, outputCost: 0.50, contextLength: 2_000_000)
+        Model(id: "x-ai/grok-4.1-fast", name: "Grok 4.1 Fast", inputCost: 0.20, outputCost: 0.50, contextLength: 2_000_000),
     ]
 
     /// Get the selected model from UserDefaults (set via Settings UI)
     /// Default: google/gemini-3-flash-preview
     public static var model: String {
         get {
-            return UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "google/gemini-3-flash-preview"
+            UserDefaults.standard.string(forKey: "OpenRouterModel") ?? "google/gemini-3-flash-preview"
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "OpenRouterModel")
@@ -37,21 +38,22 @@ public enum OpenRouterConfig {
 
     /// Your OpenRouter API key (set via Settings UI)
     public static var apiKey: String? {
-        return UserDefaults.standard.string(forKey: "OpenRouterAPIKey")
+        UserDefaults.standard.string(forKey: "OpenRouterAPIKey")
     }
 
     /// Get display name for current model
     public static var modelDisplayName: String {
-        return availableModels.first { $0.id == model }?.name ?? model
+        availableModels.first { $0.id == model }?.name ?? model
     }
 
     /// Get the current model definition
     public static var currentModel: Model? {
-        return availableModels.first { $0.id == model }
+        availableModels.first { $0.id == model }
     }
 }
 
 // MARK: - Errors
+
 public enum OpenRouterError: LocalizedError {
     case missingAPIKey
     case invalidResponse
@@ -60,11 +62,11 @@ public enum OpenRouterError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "OpenRouter API key not found. Please set it in UserDefaults with key 'OpenRouterAPIKey'"
+            "OpenRouter API key not found. Please set it in UserDefaults with key 'OpenRouterAPIKey'"
         case .invalidResponse:
-            return "Invalid response from OpenRouter API"
-        case .httpError(let statusCode, let message):
-            return "HTTP \(statusCode): \(message)"
+            "Invalid response from OpenRouter API"
+        case let .httpError(statusCode, message):
+            "HTTP \(statusCode): \(message)"
         }
     }
 }

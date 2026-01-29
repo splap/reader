@@ -1,5 +1,5 @@
-import UIKit
 import ReaderCore
+import UIKit
 
 /// A full-screen overlay view that shows indexing progress with a spinner and status message
 final class IndexingProgressView: UIView {
@@ -16,7 +16,8 @@ final class IndexingProgressView: UIView {
         setupViews()
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 

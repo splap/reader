@@ -1,5 +1,5 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class VectorStoreTests: XCTestCase {
     let testBookId = "vector-test-book-\(UUID().uuidString)"
@@ -78,7 +78,7 @@ final class VectorStoreTests: XCTestCase {
             try await store.buildIndex(bookId: mismatchBookId, chunks: chunks, embeddings: embeddings)
             XCTFail("Expected error for mismatched counts")
         } catch let error as VectorStoreError {
-            if case .mismatchedCounts(let chunks, let embeddings) = error {
+            if case let .mismatchedCounts(chunks, embeddings) = error {
                 XCTAssertEqual(chunks, 2)
                 XCTAssertEqual(embeddings, 1)
             } else {
@@ -96,13 +96,13 @@ final class VectorStoreTests: XCTestCase {
         ]
 
         // Wrong dimension (128 instead of 384)
-        let wrongDimEmbedding = (0..<128).map { _ in Float.random(in: -1...1) }
+        let wrongDimEmbedding = (0 ..< 128).map { _ in Float.random(in: -1 ... 1) }
 
         do {
             try await store.buildIndex(bookId: dimBookId, chunks: chunks, embeddings: [wrongDimEmbedding])
             XCTFail("Expected error for invalid dimension")
         } catch let error as VectorStoreError {
-            if case .invalidDimension(let expected, let actual) = error {
+            if case let .invalidDimension(expected, actual) = error {
                 XCTAssertEqual(expected, 384)
                 XCTAssertEqual(actual, 128)
             } else {
@@ -122,13 +122,13 @@ final class VectorStoreTests: XCTestCase {
         try await store.buildIndex(bookId: testBookId, chunks: chunks, embeddings: embeddings)
 
         // Search with wrong dimension
-        let wrongDimQuery = (0..<128).map { _ in Float.random(in: -1...1) }
+        let wrongDimQuery = (0 ..< 128).map { _ in Float.random(in: -1 ... 1) }
 
         do {
             _ = try await store.search(bookId: testBookId, queryEmbedding: wrongDimQuery, k: 1)
             XCTFail("Expected error for invalid query dimension")
         } catch let error as VectorStoreError {
-            if case .invalidDimension(let expected, let actual) = error {
+            if case let .invalidDimension(expected, actual) = error {
                 XCTAssertEqual(expected, 384)
                 XCTAssertEqual(actual, 128)
             } else {
@@ -153,7 +153,7 @@ final class VectorStoreTests: XCTestCase {
 
     private func createMockEmbedding() -> [Float] {
         // Create a random 384-dim vector and L2 normalize it
-        var vector = (0..<384).map { _ in Float.random(in: -1...1) }
+        var vector = (0 ..< 384).map { _ in Float.random(in: -1 ... 1) }
         let norm = sqrt(vector.reduce(0) { $0 + $1 * $1 })
         vector = vector.map { $0 / norm }
         return vector

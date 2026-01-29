@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 /// Extracts entity candidates from book chapters using pattern-based detection
-public struct EntityExtractor {
+public enum EntityExtractor {
     private static let logger = Logger(subsystem: "com.splap.reader", category: "EntityExtractor")
 
     /// An entity candidate detected in the text
@@ -134,7 +134,7 @@ public struct EntityExtractor {
         var candidates: [EntityCandidate] = []
 
         for (canonicalText, mentionGroups) in filteredEntities {
-            let allMentions = mentionGroups.flatMap { $0.mentions }
+            let allMentions = mentionGroups.flatMap(\.mentions)
             let chapterSet = Set(allMentions.map(\.chapterId))
             let variations = mentionGroups.map(\.text)
 
@@ -144,13 +144,13 @@ public struct EntityExtractor {
 
             // TF-IDF boost: check if entity terms are high-TF-IDF
             var tfidfBoost = 0.0
-            if let tfidfResult = tfidfResult {
+            if let tfidfResult {
                 let entityTerms = canonicalText.lowercased().split(separator: " ").map(String.init)
                 for chapterId in chapterSet {
                     if let keywords = tfidfResult.keywordsByChapter[chapterId] {
                         for term in entityTerms {
                             if let keyword = keywords.first(where: { $0.term == term }) {
-                                tfidfBoost += keyword.tfidf / 10.0  // Normalize
+                                tfidfBoost += keyword.tfidf / 10.0 // Normalize
                             }
                         }
                     }
@@ -316,7 +316,7 @@ public struct EntityExtractor {
 
         // For each chapter, find entities that co-occur within window
         for chapter in chapters {
-            let fullText = chapter.htmlSections.flatMap { $0.blocks }.map(\.textContent).joined(separator: " ")
+            let fullText = chapter.htmlSections.flatMap(\.blocks).map(\.textContent).joined(separator: " ")
 
             // Find all entity positions in this chapter
             var entityPositions: [(entityId: String, position: Int)] = []
@@ -327,7 +327,7 @@ public struct EntityExtractor {
                 for variation in variations {
                     // Find all occurrences of this variation
                     var searchStart = fullText.startIndex
-                    while let range = fullText.range(of: variation.text, range: searchStart..<fullText.endIndex) {
+                    while let range = fullText.range(of: variation.text, range: searchStart ..< fullText.endIndex) {
                         let position = fullText.distance(from: fullText.startIndex, to: range.lowerBound)
                         entityPositions.append((entityId: entityId, position: position))
                         searchStart = range.upperBound
@@ -339,10 +339,10 @@ public struct EntityExtractor {
             entityPositions.sort { $0.position < $1.position }
 
             // Count co-occurrences within window
-            for i in 0..<entityPositions.count {
+            for i in 0 ..< entityPositions.count {
                 let entity1 = entityPositions[i]
 
-                for j in (i + 1)..<entityPositions.count {
+                for j in (i + 1) ..< entityPositions.count {
                     let entity2 = entityPositions[j]
 
                     // Stop if outside window

@@ -2,8 +2,7 @@ import Foundation
 
 /// Manages CSS for the reader
 /// Philosophy: Trust publisher CSS by default, only override for pagination and safety
-public final class CSSManager {
-
+public enum CSSManager {
     // MARK: - House CSS
 
     /// Generates minimal house CSS for pagination and basic safety
@@ -125,7 +124,7 @@ public final class CSSManager {
         var css = ""
 
         // Publisher CSS comes first so house CSS can override if needed
-        if let publisherCSS = publisherCSS, !publisherCSS.isEmpty {
+        if let publisherCSS, !publisherCSS.isEmpty {
             css += "/* Publisher CSS (sanitized) */\n"
             css += sanitizePublisherCSS(publisherCSS)
             css += "\n\n"

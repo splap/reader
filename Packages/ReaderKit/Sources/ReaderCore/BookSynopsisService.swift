@@ -61,7 +61,7 @@ public actor BookSynopsisStore {
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let readerDir = appSupport.appendingPathComponent("com.splap.reader", isDirectory: true)
-        self.storeDirectory = readerDir.appendingPathComponent("book_synopses", isDirectory: true)
+        storeDirectory = readerDir.appendingPathComponent("book_synopses", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
     }
@@ -209,25 +209,24 @@ public actor BookSynopsisService {
         }
 
         // Build the synopsis prompt
-        let prompt: String
-        if !chapterSummaryTexts.isEmpty {
+        let prompt: String = if !chapterSummaryTexts.isEmpty {
             // Use chapter summaries for synthesis
-            prompt = buildSynopsisFromSummariesPrompt(
+            buildSynopsisFromSummariesPrompt(
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterSummaries: chapterSummaryTexts,
                 conceptMap: conceptMap
             )
-        } else if let conceptMap = conceptMap {
+        } else if let conceptMap {
             // Use concept map entities/themes
-            prompt = buildSynopsisFromConceptMapPrompt(
+            buildSynopsisFromConceptMapPrompt(
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 conceptMap: conceptMap
             )
         } else {
             // Fallback: basic prompt
-            prompt = buildBasicSynopsisPrompt(
+            buildBasicSynopsisPrompt(
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterCount: chapters.count
@@ -267,9 +266,9 @@ public actor BookSynopsisService {
 
         """
 
-        if let conceptMap = conceptMap {
-            let topEntities = conceptMap.entities.prefix(10).map { $0.text }
-            let topThemes = conceptMap.themes.prefix(5).map { $0.label }
+        if let conceptMap {
+            let topEntities = conceptMap.entities.prefix(10).map(\.text)
+            let topThemes = conceptMap.themes.prefix(5).map(\.label)
 
             if !topEntities.isEmpty {
                 prompt += "\nKey entities in the book: \(topEntities.joined(separator: ", "))"
@@ -431,22 +430,22 @@ public actor BookSynopsisService {
                 currentSection = "characters"
             } else if trimmed.uppercased().hasPrefix("THEMES:") {
                 currentSection = "themes"
-            } else if currentSection == "synopsis" && !trimmed.isEmpty {
+            } else if currentSection == "synopsis", !trimmed.isEmpty {
                 if synopsis.isEmpty {
                     synopsis = trimmed
                 } else {
                     synopsis += " " + trimmed
                 }
-            } else if currentSection == "characters" && trimmed.hasPrefix("-") {
+            } else if currentSection == "characters", trimmed.hasPrefix("-") {
                 let content = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
                 if let colonIndex = content.firstIndex(of: ":") {
                     let name = String(content[..<colonIndex]).trimmingCharacters(in: .whitespaces)
                     let description = String(content[content.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty && !description.isEmpty {
+                    if !name.isEmpty, !description.isEmpty {
                         characters.append(BookSynopsis.CharacterSummary(name: name, description: description))
                     }
                 }
-            } else if currentSection == "themes" && trimmed.hasPrefix("-") {
+            } else if currentSection == "themes", trimmed.hasPrefix("-") {
                 let theme = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
                 if !theme.isEmpty {
                     themes.append(theme)
@@ -480,8 +479,8 @@ public actor BookSynopsisService {
         let body: [String: Any] = [
             "model": OpenRouterConfig.model,
             "messages": [
-                ["role": "user", "content": prompt]
-            ]
+                ["role": "user", "content": prompt],
+            ],
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -492,7 +491,7 @@ public actor BookSynopsisService {
             throw OpenRouterError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw OpenRouterError.httpError(statusCode: httpResponse.statusCode, message: errorMessage)
         }
@@ -501,7 +500,8 @@ public actor BookSynopsisService {
               let choices = json["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
               let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
+              let content = message["content"] as? String
+        else {
             throw OpenRouterError.invalidResponse
         }
 

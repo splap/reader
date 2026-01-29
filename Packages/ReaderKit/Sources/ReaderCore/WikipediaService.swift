@@ -31,7 +31,7 @@ public actor WikipediaService {
             throw WikipediaError.notFound(query: query)
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             throw WikipediaError.httpError(statusCode: httpResponse.statusCode)
         }
 
@@ -60,7 +60,7 @@ public actor WikipediaService {
             throw WikipediaError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             throw WikipediaError.httpError(statusCode: httpResponse.statusCode)
         }
 
@@ -132,13 +132,13 @@ public enum WikipediaError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidQuery:
-            return "Invalid Wikipedia query"
+            "Invalid Wikipedia query"
         case .invalidResponse:
-            return "Invalid response from Wikipedia"
-        case .notFound(let query):
-            return "No Wikipedia article found for '\(query)'"
-        case .httpError(let statusCode):
-            return "Wikipedia returned HTTP \(statusCode)"
+            "Invalid response from Wikipedia"
+        case let .notFound(query):
+            "No Wikipedia article found for '\(query)'"
+        case let .httpError(statusCode):
+            "Wikipedia returned HTTP \(statusCode)"
         }
     }
 }

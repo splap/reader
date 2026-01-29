@@ -14,7 +14,7 @@ public enum BookLibraryError: LocalizedError {
             return "The selected file could not be found. If the file is in iCloud, make sure it's downloaded to this device."
         case .invalidEPUB:
             return "The file is not a valid EPUB document."
-        case .copyFailed(let error):
+        case let .copyFailed(error):
             let nsError = error as NSError
             return """
             Failed to import book: \(error.localizedDescription)
@@ -26,7 +26,7 @@ public enum BookLibraryError: LocalizedError {
             """
         case .metadataExtractionFailed:
             return "Could not read book information."
-        case .bookNotFound(let id):
+        case let .bookNotFound(id):
             return "Book with ID \(id) not found."
         }
     }
@@ -89,7 +89,7 @@ public final class BookLibraryService {
 
         // Get Application Support directory
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        self.booksDirectory = appSupport.appendingPathComponent("Books")
+        booksDirectory = appSupport.appendingPathComponent("Books")
 
         // Create Books directory if it doesn't exist
         try? fileManager.createDirectory(at: booksDirectory, withIntermediateDirectories: true)
@@ -227,7 +227,7 @@ public final class BookLibraryService {
             let conceptMap = ConceptMapBuilder.build(
                 bookId: bookId,
                 chapters: chapters,
-                chunkEmbeddings: nil  // TODO: Pass chunk embeddings when available
+                chunkEmbeddings: nil // TODO: Pass chunk embeddings when available
             )
 
             // Save to persistent storage
@@ -246,19 +246,19 @@ public final class BookLibraryService {
         // Sort by lastOpenedDate (most recent first), then by importDate
         return books.sorted { lhs, rhs in
             if let lhsDate = lhs.lastOpenedDate, let rhsDate = rhs.lastOpenedDate {
-                return lhsDate > rhsDate
+                lhsDate > rhsDate
             } else if lhs.lastOpenedDate != nil {
-                return true
+                true
             } else if rhs.lastOpenedDate != nil {
-                return false
+                false
             } else {
-                return lhs.importDate > rhs.importDate
+                lhs.importDate > rhs.importDate
             }
         }
     }
 
     public func getBook(id: UUID) -> Book? {
-        return storage.loadBooks().first { $0.id == id }
+        storage.loadBooks().first { $0.id == id }
     }
 
     public func deleteBook(id: UUID) throws {
@@ -316,7 +316,7 @@ public final class BookLibraryService {
     // MARK: - File Operations
 
     public func getFileURL(for book: Book) -> URL {
-        return booksDirectory.appendingPathComponent(book.filePath)
+        booksDirectory.appendingPathComponent(book.filePath)
     }
 
     private func copyToLibrary(from sourceURL: URL) throws -> (path: String, size: Int64) {
@@ -394,7 +394,7 @@ public final class BookLibraryService {
     }
 
     /// Lexical search is always available (in-memory), no index needed
-    public func isLexicalIndexed(bookId: String) async -> Bool {
+    public func isLexicalIndexed(bookId _: String) async -> Bool {
         true
     }
 

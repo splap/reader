@@ -4,7 +4,7 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
     public let id: UUID
     public let title: String
     public let author: String?
-    public let filePath: String  // Relative to Books directory
+    public let filePath: String // Relative to Books directory
     public let importDate: Date
     public var lastOpenedDate: Date?
 

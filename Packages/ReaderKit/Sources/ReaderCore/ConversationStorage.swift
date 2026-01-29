@@ -81,7 +81,7 @@ public final class ConversationStorage {
     }
 
     public func getConversation(id: UUID) -> Conversation? {
-        return getAllConversations().first { $0.id == id }
+        getAllConversations().first { $0.id == id }
     }
 
     public func saveConversation(_ conversation: Conversation) {

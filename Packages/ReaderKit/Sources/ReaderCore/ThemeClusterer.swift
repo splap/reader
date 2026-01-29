@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 /// Clusters chapters into thematic groups using agglomerative hierarchical clustering
-public struct ThemeClusterer {
+public enum ThemeClusterer {
     private static let logger = Logger(subsystem: "com.splap.reader", category: "ThemeClusterer")
 
     /// Configuration for theme clustering
@@ -116,8 +116,8 @@ public struct ThemeClusterer {
     /// Feature vector for a chapter
     private struct ChapterVector {
         let chapterId: String
-        let tfidfVector: [Int: Double]  // Sparse TF-IDF vector
-        let semanticVector: [Float]?     // Dense semantic embedding
+        let tfidfVector: [Int: Double] // Sparse TF-IDF vector
+        let semanticVector: [Float]? // Dense semantic embedding
     }
 
     // MARK: - Similarity Computation
@@ -131,13 +131,14 @@ public struct ThemeClusterer {
         let n = chapterIds.count
         var matrix = [[Double]](repeating: [Double](repeating: 0.0, count: n), count: n)
 
-        for i in 0..<n {
-            for j in i..<n {
+        for i in 0 ..< n {
+            for j in i ..< n {
                 if i == j {
                     matrix[i][j] = 1.0
                 } else {
                     guard let vec1 = vectors[chapterIds[i]],
-                          let vec2 = vectors[chapterIds[j]] else {
+                          let vec2 = vectors[chapterIds[j]]
+                    else {
                         continue
                     }
 
@@ -169,7 +170,7 @@ public struct ThemeClusterer {
         }
 
         // Weighted blend
-        if semanticWeight > 0 && vec1.semanticVector != nil {
+        if semanticWeight > 0, vec1.semanticVector != nil {
             return semanticWeight * semanticSim + tfidfWeight * tfidfSim
         } else {
             return tfidfSim
@@ -178,7 +179,7 @@ public struct ThemeClusterer {
 
     /// Cosine similarity for sparse vectors
     private static func sparseCosine(_ v1: [Int: Double], _ v2: [Int: Double]) -> Double {
-        guard !v1.isEmpty && !v2.isEmpty else { return 0.0 }
+        guard !v1.isEmpty, !v2.isEmpty else { return 0.0 }
 
         var dotProduct = 0.0
         var norm1 = 0.0
@@ -202,13 +203,13 @@ public struct ThemeClusterer {
 
     /// Cosine similarity for dense vectors
     private static func denseCosine(_ v1: [Float], _ v2: [Float]) -> Double {
-        guard v1.count == v2.count && !v1.isEmpty else { return 0.0 }
+        guard v1.count == v2.count, !v1.isEmpty else { return 0.0 }
 
         var dotProduct: Float = 0.0
         var norm1: Float = 0.0
         var norm2: Float = 0.0
 
-        for i in 0..<v1.count {
+        for i in 0 ..< v1.count {
             dotProduct += v1[i] * v2[i]
             norm1 += v1[i] * v1[i]
             norm2 += v2[i] * v2[i]
@@ -229,7 +230,7 @@ public struct ThemeClusterer {
         let n = chapterIds.count
 
         // Initialize: each chapter is its own cluster
-        var clusters: [[Int]] = (0..<n).map { [$0] }
+        var clusters: [[Int]] = (0 ..< n).map { [$0] }
         var clusterSimilarity = similarityMatrix
 
         // Merge until we reach target or threshold
@@ -239,8 +240,8 @@ public struct ThemeClusterer {
             var bestI = -1
             var bestJ = -1
 
-            for i in 0..<clusters.count {
-                for j in (i + 1)..<clusters.count {
+            for i in 0 ..< clusters.count {
+                for j in (i + 1) ..< clusters.count {
                     if clusterSimilarity[i][j] > bestSim {
                         bestSim = clusterSimilarity[i][j]
                         bestI = i
@@ -251,7 +252,7 @@ public struct ThemeClusterer {
 
             // Check stopping conditions
             let distance = 1.0 - bestSim
-            if distance > config.distanceThreshold && clusters.count <= config.targetThemes {
+            if distance > config.distanceThreshold, clusters.count <= config.targetThemes {
                 break
             }
 
@@ -274,17 +275,17 @@ public struct ThemeClusterer {
             // Map old indices to new
             var oldToNew: [Int: Int] = [:]
             var newIdx = 0
-            for i in 0..<clusters.count {
-                if i != bestI && i != bestJ {
+            for i in 0 ..< clusters.count {
+                if i != bestI, i != bestJ {
                     oldToNew[i] = newIdx
                     newIdx += 1
                 }
             }
 
             // Copy existing similarities
-            for i in 0..<clusters.count {
+            for i in 0 ..< clusters.count {
                 guard let ni = oldToNew[i] else { continue }
-                for j in 0..<clusters.count {
+                for j in 0 ..< clusters.count {
                     guard let nj = oldToNew[j] else { continue }
                     newSimilarity[ni][nj] = clusterSimilarity[i][j]
                 }
@@ -292,13 +293,13 @@ public struct ThemeClusterer {
 
             // Compute similarities for merged cluster (average linkage)
             let mergedIdx = newClusters.count - 1
-            for i in 0..<clusters.count {
+            for i in 0 ..< clusters.count {
                 guard let ni = oldToNew[i] else { continue }
 
                 // Average similarity to merged cluster
                 let simToI = (clusterSimilarity[bestI][i] * Double(clusters[bestI].count) +
-                             clusterSimilarity[bestJ][i] * Double(clusters[bestJ].count)) /
-                             Double(merged.count)
+                    clusterSimilarity[bestJ][i] * Double(clusters[bestJ].count)) /
+                    Double(merged.count)
 
                 newSimilarity[ni][mergedIdx] = simToI
                 newSimilarity[mergedIdx][ni] = simToI
@@ -322,7 +323,7 @@ public struct ThemeClusterer {
         id: String,
         chapterIds: [String],
         tfidfResult: TFIDFAnalyzer.AnalysisResult,
-        vocabulary: [String],
+        vocabulary _: [String],
         config: Config
     ) -> Theme {
         // Aggregate keywords across cluster

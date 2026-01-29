@@ -1,5 +1,5 @@
-import UIKit
 import ReaderCore
+import UIKit
 
 public final class ReaderSettingsViewController: UITableViewController {
     private var fontScale: CGFloat
@@ -17,11 +17,12 @@ public final class ReaderSettingsViewController: UITableViewController {
         super.init(style: .insetGrouped)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    public override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
         title = "Settings"
         navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(dismiss(_:)))
@@ -39,39 +40,39 @@ public final class ReaderSettingsViewController: UITableViewController {
         tableView.reloadData()
     }
 
-    @objc private func dismiss(_ sender: Any) {
+    @objc private func dismiss(_: Any) {
         dismiss(animated: true)
     }
 
     // MARK: - Table View
 
-    public override func numberOfSections(in tableView: UITableView) -> Int {
-        return 5
+    override public func numberOfSections(in _: UITableView) -> Int {
+        5
     }
 
-    public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    override public func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
-        case 0: return 1 // Appearance
-        case 1: return 1 // Font size
-        case 2: return 1 // Margins
-        case 3: return 1 // Render mode
-        case 4: return 2 // API key + link
-        default: return 0
+        case 0: 1 // Appearance
+        case 1: 1 // Font size
+        case 2: 1 // Margins
+        case 3: 1 // Render mode
+        case 4: 2 // API key + link
+        default: 0
         }
     }
 
-    public override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+    override public func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
-        case 0: return "Appearance"
-        case 1: return "Font Size"
-        case 2: return "Margins"
-        case 3: return "Rendering"
-        case 4: return "OpenRouter API"
-        default: return nil
+        case 0: "Appearance"
+        case 1: "Font Size"
+        case 2: "Margins"
+        case 3: "Rendering"
+        case 4: "OpenRouter API"
+        default: nil
         }
     }
 
-    public override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+    override public func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == 3 {
             return "Native uses iOS text rendering for cleaner layout. HTML preserves original formatting."
         }
@@ -81,35 +82,35 @@ public final class ReaderSettingsViewController: UITableViewController {
         return nil
     }
 
-    public override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    override public func tableView(_: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch indexPath.section {
         case 0:
-            return appearanceModeCell()
+            appearanceModeCell()
         case 1:
-            return fontSizeCell()
+            fontSizeCell()
         case 2:
-            return marginSizeCell()
+            marginSizeCell()
         case 3:
-            return renderModeCell()
+            renderModeCell()
         case 4:
             if indexPath.row == 0 {
-                return apiKeyCell()
+                apiKeyCell()
             } else {
-                return linkCell()
+                linkCell()
             }
         default:
-            return UITableViewCell()
+            UITableViewCell()
         }
     }
 
-    public override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    override public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
         if indexPath.section == 0 {
             showAppearanceModePicker()
         } else if indexPath.section == 3 {
             showRenderModePicker()
-        } else if indexPath.section == 4 && indexPath.row == 1 {
+        } else if indexPath.section == 4, indexPath.row == 1 {
             // Open OpenRouter link
             if let url = URL(string: "https://openrouter.ai/keys") {
                 UIApplication.shared.open(url)
@@ -165,7 +166,7 @@ public final class ReaderSettingsViewController: UITableViewController {
 
             valueLabel.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 8),
             valueLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
-            valueLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12)
+            valueLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12),
         ])
 
         return cell
@@ -219,7 +220,7 @@ public final class ReaderSettingsViewController: UITableViewController {
 
             valueLabel.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 8),
             valueLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
-            valueLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12)
+            valueLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12),
         ])
 
         return cell
@@ -245,7 +246,7 @@ public final class ReaderSettingsViewController: UITableViewController {
             textField.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),
             textField.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
             textField.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
-            textField.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12)
+            textField.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12),
         ])
 
         return cell
@@ -302,7 +303,8 @@ public final class ReaderSettingsViewController: UITableViewController {
 
         // Update label to show snapped value
         if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 1)),
-           let label = cell.contentView.viewWithTag(100) as? UILabel {
+           let label = cell.contentView.viewWithTag(100) as? UILabel
+        {
             label.text = String(format: "%.1fx", snappedValue)
         }
     }
@@ -318,12 +320,13 @@ public final class ReaderSettingsViewController: UITableViewController {
         guard snappedValue != fontScale else { return }
 
         fontScale = snappedValue
-        fontManager.fontScale = fontScale  // Persist to UserDefaults
+        fontManager.fontScale = fontScale // Persist to UserDefaults
         onFontScaleChanged(fontScale)
 
         // Update label
         if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 1)),
-           let label = cell.contentView.viewWithTag(100) as? UILabel {
+           let label = cell.contentView.viewWithTag(100) as? UILabel
+        {
             label.text = String(format: "%.1fx", fontScale)
         }
     }
@@ -336,7 +339,8 @@ public final class ReaderSettingsViewController: UITableViewController {
     @objc private func marginSliding(_ slider: UISlider) {
         let value = Int(slider.value)
         if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 2)),
-           let label = cell.contentView.viewWithTag(200) as? UILabel {
+           let label = cell.contentView.viewWithTag(200) as? UILabel
+        {
             label.text = "\(value)px"
         }
     }
@@ -346,7 +350,8 @@ public final class ReaderSettingsViewController: UITableViewController {
         ReaderPreferences.shared.marginSize = value
 
         if let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 2)),
-           let label = cell.contentView.viewWithTag(200) as? UILabel {
+           let label = cell.contentView.viewWithTag(200) as? UILabel
+        {
             label.text = "\(Int(value))px"
         }
     }

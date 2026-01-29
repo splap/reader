@@ -75,7 +75,7 @@ public actor ReaderAgentService {
         // Track tool calls made during this conversation
         var toolCallsMade: [String] = []
         var toolExecutions: [ToolExecution] = []
-        var timeline: [TimelineStep] = [.user(message)]  // Start timeline with user message
+        var timeline: [TimelineStep] = [.user(message)] // Start timeline with user message
 
         // Agent loop: keep calling until no more tool calls
         var rounds = 0
@@ -101,7 +101,7 @@ public actor ReaderAgentService {
                     executionTime: llmDuration,
                     inputTokens: response.inputTokens,
                     outputTokens: response.outputTokens,
-                    requestedTools: toolCalls.map { $0.function.name }
+                    requestedTools: toolCalls.map(\.function.name)
                 )
                 timeline.append(.llm(llmExec))
 
@@ -137,7 +137,7 @@ public actor ReaderAgentService {
                     // Track evidence for book questions
                     if routingResult.route == .book || routingResult.route == .ambiguous {
                         let searchTools = ["lexical_search", "semantic_search", "book_concept_map_lookup"]
-                        if searchTools.contains(call.function.name) && !result.contains("No matches") && !result.contains("not found") {
+                        if searchTools.contains(call.function.name), !result.contains("No matches"), !result.contains("not found") {
                             toolBudget.recordEvidence(count: 1)
                         }
                     }
@@ -181,7 +181,7 @@ public actor ReaderAgentService {
 
                 // Evidence check for book questions
                 let finalContent = content
-                if routingResult.route == .book && !toolBudget.hasEvidence && toolCallsMade.isEmpty {
+                if routingResult.route == .book, !toolBudget.hasEvidence, toolCallsMade.isEmpty {
                     Self.logger.debug("No evidence retrieved for book question")
                 }
 
@@ -298,7 +298,7 @@ public actor ReaderAgentService {
 
         // If user selected text, include the surrounding context from their selection
         // This takes priority over block-based position context
-        if let selectionContext = selectionContext {
+        if let selectionContext {
             prompt += """
 
 
@@ -314,7 +314,7 @@ public actor ReaderAgentService {
             // Fall back to block-based context from reading position
             let surroundingBlocks = context.blocksAround(blockId: blockId, count: 3)
             if !surroundingBlocks.isEmpty {
-                let contextText = surroundingBlocks.map { $0.textContent }.joined(separator: "\n\n")
+                let contextText = surroundingBlocks.map(\.textContent).joined(separator: "\n\n")
                 prompt += """
 
 
@@ -350,7 +350,7 @@ public actor ReaderAgentService {
             return nil
         }
 
-        let text = blocks.map { $0.textContent }.joined(separator: " ")
+        let text = blocks.map(\.textContent).joined(separator: " ")
 
         // Limit to approximately 100 words
         let words = text.split(separator: " ")
@@ -419,7 +419,7 @@ public actor ReaderAgentService {
         systemPrompt: String,
         history: [AgentMessage],
         apiKey: String,
-        routingResult: RoutingResult? = nil
+        routingResult _: RoutingResult? = nil
     ) async throws -> LLMResponse {
         let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
         var request = URLRequest(url: url)
@@ -429,7 +429,7 @@ public actor ReaderAgentService {
 
         // Build messages array
         var messages: [[String: Any]] = [
-            ["role": "system", "content": systemPrompt]
+            ["role": "system", "content": systemPrompt],
         ]
 
         for msg in history {
@@ -443,7 +443,7 @@ public actor ReaderAgentService {
         let body: [String: Any] = [
             "model": OpenRouterConfig.model,
             "messages": messages,
-            "tools": tools
+            "tools": tools,
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -454,7 +454,7 @@ public actor ReaderAgentService {
             throw OpenRouterError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw OpenRouterError.httpError(statusCode: httpResponse.statusCode, message: errorMessage)
         }
@@ -468,7 +468,8 @@ public actor ReaderAgentService {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any] else {
+              let message = firstChoice["message"] as? [String: Any]
+        else {
             throw OpenRouterError.invalidResponse
         }
 
@@ -496,7 +497,8 @@ public actor ReaderAgentService {
               let type = dict["type"] as? String,
               let function = dict["function"] as? [String: Any],
               let name = function["name"] as? String,
-              let arguments = function["arguments"] as? String else {
+              let arguments = function["arguments"] as? String
+        else {
             return nil
         }
 
@@ -526,9 +528,9 @@ public enum ReaderAgentError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .emptyResponse:
-            return "Received empty response from LLM"
+            "Received empty response from LLM"
         case .maxToolRoundsExceeded:
-            return "Maximum tool calling rounds exceeded"
+            "Maximum tool calling rounds exceeded"
         }
     }
 }

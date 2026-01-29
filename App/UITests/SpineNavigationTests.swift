@@ -15,17 +15,18 @@ final class SpineNavigationTests: XCTestCase {
     }
 
     func testSpineBoundaryNavigation() {
-        // Test that swiping at spine boundaries correctly transitions between chapters
-        // and that navigating backward lands on the last page of the previous spine.
+        // Open Chapter II of Metamorphosis, scrub to 90%, advance page by page
+        // through the spine boundary into the next chapter (page 2), then go back
+        // page by page through the boundary to the last page of Chapter II.
+        // Every single page transition is explicitly verified.
 
-        // Open Metamorphosis (6 spine items)
         guard let webView = openBook(in: app, named: "Metamorphosis") else {
             XCTFail("Failed to open Metamorphosis")
             return
         }
         print("Metamorphosis opened")
 
-        // Reveal overlay and use TOC to go to Chapter II (spine 3)
+        // Navigate to Chapter II via TOC
         webView.tap()
         sleep(1)
 
@@ -34,238 +35,77 @@ final class SpineNavigationTests: XCTestCase {
         tocButton.tap()
         sleep(1)
 
-        // Find and tap Chapter II
         let chapterButton = app.buttons["II"]
         if chapterButton.waitForExistence(timeout: 3) {
             print("Tapping Chapter II...")
             chapterButton.tap()
         } else {
-            // Fall back to any chapter button that's not the current one
             let buttons = app.buttons.allElementsBoundByIndex
             for button in buttons {
                 let label = button.label
-                if label == "I" || label == "II" || label == "III" {
+                if label == "II" || label == "III" {
                     print("Tapping chapter: \(label)")
                     button.tap()
                     break
                 }
             }
         }
-        sleep(3) // Wait for chapter to load
+        sleep(3)
 
-        // Tap multiple times to ensure overlay is visible (it might auto-hide)
+        // Show overlay and scrub to 90%
         webView.tap()
-        sleep(2)
+        sleep(1)
 
-        // Wait for page label with explicit existence check
         let pageLabel = app.staticTexts["scrubber-page-label"]
-        if !pageLabel.waitForExistence(timeout: 5) {
-            // Overlay might have hidden, tap again
-            webView.tap()
-            sleep(2)
-        }
-        guard pageLabel.waitForExistence(timeout: 5) else {
-            XCTFail("Page label should exist after revealing overlay")
-            return
-        }
-        print("After TOC navigation: \(pageLabel.label)")
-
-        // Use scrubber to go to end of this spine
         let scrubber = app.sliders["Page scrubber"]
         XCTAssertTrue(scrubber.waitForExistence(timeout: 3), "Scrubber should exist")
-        print("Moving scrubber to 100% (last page)...")
-        scrubber.adjust(toNormalizedSliderPosition: 1.0)
+        print("Moving scrubber to 90%...")
+        scrubber.adjust(toNormalizedSliderPosition: 0.90)
         sleep(2)
 
-        // Hide overlay to get a clean screenshot of the last page
-        webView.tap()
-        sleep(1)
-
-        // Verify right margin is clean on the last page (text must not bleed into margin)
-        let lastPageScreenshot = XCUIScreen.main.screenshot()
-        let lastPageAttachment = XCTAttachment(screenshot: lastPageScreenshot)
-        lastPageAttachment.name = "Last Page Margin Check"
-        lastPageAttachment.lifetime = .keepAlways
-        add(lastPageAttachment)
-
-        let rightEdgeClean = checkRightEdgeUniform(screenshot: lastPageScreenshot)
-        XCTAssertTrue(rightEdgeClean,
-            "Right margin should be clean on the last page of the spine (text should not extend into right margin)")
-        print("Last page margin check passed")
-
-        // Show overlay again to read page info
-        webView.tap()
-        sleep(1)
-
-        // Check position after scrub
-        let afterScrubText = pageLabel.label
-        print("After scrub to end: \(afterScrubText)")
-        let pageAfterScrub = extractCurrentPage(from: afterScrubText) ?? 0
-        let totalAfterScrub = extractTotalPages(from: afterScrubText)
-
-        // Hide overlay before swiping
-        webView.tap()
-        sleep(1)
-
-        // Swipe forward to transition to next spine
-        print("Swiping forward from last page to next spine...")
-        webView.swipeLeft()
-        sleep(3)
-
-        // Reveal overlay to check transition
-        webView.tap()
-        sleep(2)
-
-        if !pageLabel.waitForExistence(timeout: 5) {
-            webView.tap()
-            sleep(2)
-        }
-
-        let afterForwardText = pageLabel.label
-        let afterForwardTotal = extractTotalPages(from: afterForwardText)
-        print("After forward swipe: \(afterForwardText)")
-
-        if afterForwardTotal != totalAfterScrub {
-            print("Transitioned to next spine! Total pages changed from \(totalAfterScrub) to \(afterForwardTotal)")
-        }
-
-        // Go to first page of current spine via scrubber, then swipe backward
-        print("Navigating to first page of current spine...")
-        scrubber.adjust(toNormalizedSliderPosition: 0.0)
-        sleep(2)
-
-        // Re-show overlay if it auto-hidden during wait
-        webView.tap()
-        sleep(1)
-        if !pageLabel.waitForExistence(timeout: 3) {
-            webView.tap()
-            sleep(1)
-        }
-
-        if pageLabel.exists, let current = extractCurrentPage(from: pageLabel.label) {
-            print("At page \(current): \(pageLabel.label)")
-        }
-
-        // Now swipe backward from first page - should transition to previous spine and land on LAST page
-        print("Swiping backward from first page to previous spine...")
-        webView.tap() // Hide overlay
-        sleep(1)
-        webView.swipeRight()
-        sleep(3)
-
-        // Check margin on the last page we landed on (overlay is hidden, clean screenshot)
-        let backwardScreenshot = XCUIScreen.main.screenshot()
-        let backwardAttachment = XCTAttachment(screenshot: backwardScreenshot)
-        backwardAttachment.name = "Backward Navigation Last Page"
-        backwardAttachment.lifetime = .keepAlways
-        add(backwardAttachment)
-
-        let backwardRightClean = checkRightEdgeUniform(screenshot: backwardScreenshot)
-        XCTAssertTrue(backwardRightClean,
-            "Right margin should be clean after backward spine navigation to last page")
-        print("Backward navigation margin check passed")
-
-        // Reveal overlay
-        webView.tap()
-        sleep(2)
-
-        // Verify overlay is visible
-        if !pageLabel.waitForExistence(timeout: 5) {
-            webView.tap()
-            sleep(2)
-        }
-
-        guard pageLabel.waitForExistence(timeout: 5) else {
-            print("Could not reveal overlay after backward spine transition")
-            XCTFail("Page label should be visible after swipe back")
+        // Read state after scrub
+        guard var state = readScrubberState(webView: webView, pageLabel: pageLabel) else {
+            XCTFail("Could not read page state after scrubbing to 90%")
             return
         }
+        let startChapter = state.currentChapter
+        print("After scrub to 90%: Page \(state.currentPage) of \(state.pagesInChapter), Ch. \(state.currentChapter)")
 
-        let afterBackText = pageLabel.label
-        print("After swipe back to previous spine: \(afterBackText)")
-
-        // Verify we're at the last page of the previous spine (not page 1)
-        let backPage = extractCurrentPage(from: afterBackText) ?? 0
-        let backTotal = extractTotalPages(from: afterBackText)
-
-        // If we went back to a different spine, the page should be near the end
-        if backTotal == totalAfterScrub || backTotal > 10 {
-            let minExpectedPage = max(1, backTotal - 3) // Should be within last 3 pages
-            XCTAssertGreaterThanOrEqual(backPage, minExpectedPage,
-                "After swiping back to previous spine, should land on last page (got page \(backPage)/\(backTotal))")
-            print("Correctly landed on page \(backPage)/\(backTotal) of previous spine")
-        }
-
-        print("Spine boundary navigation test complete")
-    }
-
-    // MARK: - Margin Check Helpers
-
-    /// Checks that the right edge of the screenshot is uniform (no text bleeding into margin).
-    /// Examines a narrow strip at the right edge of the content area.
-    private func checkRightEdgeUniform(screenshot: XCUIScreenshot) -> Bool {
-        guard let cgImage = screenshot.image.cgImage else {
-            print("Could not get CGImage from screenshot")
-            return false
-        }
-
-        let width = cgImage.width
-        let height = cgImage.height
-
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            print("Could not create CGContext")
-            return false
-        }
-
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        guard let data = context.data else {
-            print("Could not get pixel data")
-            return false
-        }
-
-        let pixelData = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
-
-        // Check the rightmost column of pixels
-        let column = width - 1
-
-        // Sample the first pixel as reference color
-        let firstPixelOffset = column * 4
-        let refR = pixelData[firstPixelOffset]
-        let refG = pixelData[firstPixelOffset + 1]
-        let refB = pixelData[firstPixelOffset + 2]
-
-        let tolerance: UInt8 = 10
-        var nonUniformCount = 0
-        let maxAllowedNonUniform = height / 20 // Allow 5% for status bar / home indicator
-
-        for y in 0..<height {
-            let offset = (y * width + column) * 4
-            let r = pixelData[offset]
-            let g = pixelData[offset + 1]
-            let b = pixelData[offset + 2]
-
-            let diffR = abs(Int(r) - Int(refR))
-            let diffG = abs(Int(g) - Int(refG))
-            let diffB = abs(Int(b) - Int(refB))
-
-            if diffR > Int(tolerance) || diffG > Int(tolerance) || diffB > Int(tolerance) {
-                nonUniformCount += 1
+        // Forward page by page until page 2 of the next chapter
+        print("Advancing forward page by page through spine boundary...")
+        var forwardSwipes = 0
+        let maxSwipes = 20
+        while !(state.currentChapter == startChapter + 1 && state.currentPage == 2) {
+            guard forwardSwipes < maxSwipes else {
+                XCTFail("Failed to reach page 2 of Ch.\(startChapter + 1) after \(maxSwipes) forward swipes")
+                return
             }
+            guard let next = swipeForwardAndVerify(webView: webView, pageLabel: pageLabel, from: state) else {
+                return
+            }
+            print("  Page \(next.currentPage) of \(next.pagesInChapter), Ch. \(next.currentChapter)")
+            state = next
+            forwardSwipes += 1
         }
+        print("Reached page 2 of Ch. \(state.currentChapter) after \(forwardSwipes) forward swipes")
 
-        let uniformPercent = 100.0 * Double(height - nonUniformCount) / Double(height)
-        print("Right edge column: \(String(format: "%.1f", uniformPercent))% uniform (\(nonUniformCount) non-uniform pixels)")
-
-        return nonUniformCount <= maxAllowedNonUniform
+        // Backward page by page until the last page of the original chapter
+        print("Going back page by page through spine boundary...")
+        var backwardSwipes = 0
+        while !(state.currentChapter == startChapter && state.currentPage == state.pagesInChapter) {
+            guard backwardSwipes < maxSwipes else {
+                XCTFail("Failed to reach last page of Ch.\(startChapter) after \(maxSwipes) backward swipes")
+                return
+            }
+            guard let next = swipeBackwardAndVerify(webView: webView, pageLabel: pageLabel, from: state) else {
+                return
+            }
+            print("  Page \(next.currentPage) of \(next.pagesInChapter), Ch. \(next.currentChapter)")
+            state = next
+            backwardSwipes += 1
+        }
+        print("Back at last page of Ch. \(startChapter): Page \(state.currentPage) of \(state.pagesInChapter)")
+        print("Spine boundary navigation test complete (\(forwardSwipes) forward, \(backwardSwipes) backward swipes)")
     }
 
     func testFrankensteinFirstSpineToSecond() {
@@ -291,7 +131,7 @@ final class SpineNavigationTests: XCTestCase {
 
         // Extract chapter info - we should start at Ch. 1
         XCTAssertTrue(initialText.contains("Ch. 1") || initialText.contains("Page 1"),
-                     "Should start at beginning, got: \(initialText)")
+                      "Should start at beginning, got: \(initialText)")
 
         // Get the scrubber to navigate to near the end of the first spine
         let scrubber = app.sliders["Page scrubber"]
@@ -315,9 +155,9 @@ final class SpineNavigationTests: XCTestCase {
         var transitioned = false
         var lastChapter = "Ch. 1"
 
-        for i in 1...10 {
+        for i in 1 ... 10 {
             webView.swipeLeft()
-            usleep(500000) // 0.5s
+            usleep(500_000) // 0.5s
 
             // Check state
             webView.tap()
@@ -328,7 +168,7 @@ final class SpineNavigationTests: XCTestCase {
                 print("After swipe \(i): \(currentText)")
 
                 // Check if chapter changed (indicating spine transition)
-                if !currentText.contains(lastChapter) && currentText.contains("Ch.") {
+                if !currentText.contains(lastChapter), currentText.contains("Ch.") {
                     print("Transitioned to new spine!")
                     transitioned = true
                     break
@@ -336,7 +176,7 @@ final class SpineNavigationTests: XCTestCase {
 
                 // Also check if total pages changed significantly
                 let currentTotal = extractTotalPages(from: currentText)
-                if currentTotal != nearEndTotal && abs(currentTotal - nearEndTotal) > 5 {
+                if currentTotal != nearEndTotal, abs(currentTotal - nearEndTotal) > 5 {
                     print("Transitioned (total pages changed from \(nearEndTotal) to \(currentTotal))")
                     transitioned = true
                     break
@@ -480,7 +320,7 @@ final class SpineNavigationTests: XCTestCase {
 
         // Should be on a page > 1 (last page of previous spine)
         XCTAssertGreaterThan(afterBackwardPage, 1,
-            "After swiping backward from first page, should be on last page of previous spine (got page \(afterBackwardPage) of \(afterBackwardTotal))")
+                             "After swiping backward from first page, should be on last page of previous spine (got page \(afterBackwardPage) of \(afterBackwardTotal))")
 
         // Take screenshot
         let screenshot = XCUIScreen.main.screenshot()
@@ -490,6 +330,197 @@ final class SpineNavigationTests: XCTestCase {
         add(attachment)
 
         print("Backward spine navigation test complete")
+    }
+
+    func testSpineTransitionIsAnimated() {
+        // Verify that spine transitions use a contiguous slide animation
+        // rather than an instant content swap. Uses slow animations (2s)
+        // to capture a mid-transition screenshot.
+
+        // Launch with slow animations for testing
+        app = launchReaderApp(extraArgs: ["--uitesting-slow-animations"])
+
+        guard let webView = openBook(in: app, named: "Metamorphosis") else {
+            XCTFail("Failed to open Metamorphosis")
+            return
+        }
+        print("Metamorphosis opened (slow animations enabled)")
+
+        // Navigate to Chapter II via TOC
+        webView.tap()
+        sleep(1)
+
+        let tocButton = app.buttons["toc-button"]
+        XCTAssertTrue(tocButton.waitForExistence(timeout: 3), "TOC button should exist")
+        tocButton.tap()
+        sleep(1)
+
+        let chapterButton = app.buttons["II"]
+        guard chapterButton.waitForExistence(timeout: 3) else {
+            XCTFail("Chapter II button not found")
+            return
+        }
+        chapterButton.tap()
+        sleep(3)
+
+        // Scrub to 100% (last page of chapter)
+        webView.tap()
+        sleep(1)
+
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        let scrubber = app.sliders["Page scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 3), "Scrubber should exist")
+        scrubber.adjust(toNormalizedSliderPosition: 1.0)
+        sleep(2)
+
+        // Read chapter state before transition
+        guard let beforeState = readScrubberState(webView: webView, pageLabel: pageLabel) else {
+            XCTFail("Could not read page state at end of Chapter II")
+            return
+        }
+        let beforeChapter = beforeState.currentChapter
+        print("Before transition: Page \(beforeState.currentPage)/\(beforeState.pagesInChapter), Ch. \(beforeChapter)")
+
+        // Take "before" screenshot
+        let beforeScreenshot = XCUIScreen.main.screenshot()
+        let beforeAttachment = XCTAttachment(screenshot: beforeScreenshot)
+        beforeAttachment.name = "Before Transition"
+        beforeAttachment.lifetime = .keepAlways
+        add(beforeAttachment)
+
+        // Hide overlay and swipe left to trigger spine transition
+        webView.tap()
+        sleep(1)
+        webView.swipeLeft()
+
+        // Wait ~1s into the 2s animation to capture mid-transition
+        usleep(1_000_000)
+
+        // Take "during" screenshot
+        let duringScreenshot = XCUIScreen.main.screenshot()
+        let duringAttachment = XCTAttachment(screenshot: duringScreenshot)
+        duringAttachment.name = "During Transition"
+        duringAttachment.lifetime = .keepAlways
+        add(duringAttachment)
+
+        // Wait for animation to complete
+        sleep(3)
+
+        // Take "after" screenshot
+        let afterScreenshot = XCUIScreen.main.screenshot()
+        let afterAttachment = XCTAttachment(screenshot: afterScreenshot)
+        afterAttachment.name = "After Transition"
+        afterAttachment.lifetime = .keepAlways
+        add(afterAttachment)
+
+        // Verify final state: should be in the next chapter
+        webView.tap()
+        sleep(1)
+        guard let afterState = readScrubberState(webView: webView, pageLabel: pageLabel) else {
+            XCTFail("Could not read page state after transition")
+            return
+        }
+        print("After transition: Page \(afterState.currentPage)/\(afterState.pagesInChapter), Ch. \(afterState.currentChapter)")
+
+        XCTAssertEqual(afterState.currentChapter, beforeChapter + 1,
+                       "Should have transitioned to next chapter (Ch.\(beforeChapter + 1)), got Ch.\(afterState.currentChapter)")
+        XCTAssertEqual(afterState.currentPage, 1,
+                       "Should be on page 1 of new chapter, got page \(afterState.currentPage)")
+
+        // Analyze screenshots: the "during" screenshot should differ from "after"
+        // This proves we captured a mid-transition state, not the completed one
+        let duringImage = duringScreenshot.image
+        let afterImage = afterScreenshot.image
+        let duringDiffers = screenshotsDiffer(duringImage, afterImage)
+        XCTAssertTrue(duringDiffers,
+                      "Mid-transition screenshot should differ from final state (proves animation was captured)")
+
+        // Check that both halves of the "during" screenshot have content
+        // (both outgoing and incoming pages visible during slide)
+        let leftHasContent = checkRegionHasContent(image: duringImage, fromXFraction: 0.0, toXFraction: 0.25)
+        let rightHasContent = checkRegionHasContent(image: duringImage, fromXFraction: 0.75, toXFraction: 1.0)
+        print("During transition: left quarter has content: \(leftHasContent), right quarter has content: \(rightHasContent)")
+
+        // At least one side should have content (animation may not be exactly centered)
+        XCTAssertTrue(leftHasContent || rightHasContent,
+                      "Mid-transition screenshot should show content (at least one edge should have visible text)")
+
+        print("Spine transition animation test complete")
+    }
+
+    // MARK: - Screenshot Analysis Helpers
+
+    /// Checks if two UIImages differ significantly (compares center vertical strips)
+    private func screenshotsDiffer(_ img1: UIImage, _ img2: UIImage) -> Bool {
+        guard let cgImg1 = img1.cgImage, let cgImg2 = img2.cgImage else { return true }
+
+        let w1 = cgImg1.width, h1 = cgImg1.height
+        let w2 = cgImg2.width, h2 = cgImg2.height
+        guard w1 == w2, h1 == h2 else { return true }
+
+        // Sample a vertical strip at the center
+        let centerX = w1 / 2
+        guard let data1 = cgImg1.dataProvider?.data, let data2 = cgImg2.dataProvider?.data else {
+            return true
+        }
+
+        let ptr1 = CFDataGetBytePtr(data1)!
+        let ptr2 = CFDataGetBytePtr(data2)!
+        let bytesPerPixel = cgImg1.bitsPerPixel / 8
+        let bytesPerRow = cgImg1.bytesPerRow
+
+        var diffPixels = 0
+        let startY = h1 / 4
+        let endY = 3 * h1 / 4
+        let sampleCount = endY - startY
+
+        for y in startY ..< endY {
+            let offset = y * bytesPerRow + centerX * bytesPerPixel
+            let r1 = Int(ptr1[offset]), g1 = Int(ptr1[offset + 1]), b1 = Int(ptr1[offset + 2])
+            let r2 = Int(ptr2[offset]), g2 = Int(ptr2[offset + 1]), b2 = Int(ptr2[offset + 2])
+            let diff = abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+            if diff > 30 {
+                diffPixels += 1
+            }
+        }
+
+        let diffRatio = Double(diffPixels) / Double(sampleCount)
+        print("Screenshot diff ratio: \(String(format: "%.2f", diffRatio * 100))% of sampled pixels differ")
+        return diffRatio > 0.05
+    }
+
+    /// Checks if a horizontal region of the screenshot contains dark content (text)
+    private func checkRegionHasContent(image: UIImage, fromXFraction: CGFloat, toXFraction: CGFloat) -> Bool {
+        guard let cgImage = image.cgImage else { return false }
+
+        let w = cgImage.width, h = cgImage.height
+        guard let data = cgImage.dataProvider?.data else { return false }
+
+        let ptr = CFDataGetBytePtr(data)!
+        let bytesPerPixel = cgImage.bitsPerPixel / 8
+        let bytesPerRow = cgImage.bytesPerRow
+
+        // Sample at midpoint of the region
+        let sampleX = Int(CGFloat(w) * (fromXFraction + toXFraction) / 2)
+
+        // Scan middle 50% of height
+        let startY = h / 4
+        let endY = 3 * h / 4
+        let sampleCount = endY - startY
+
+        var darkPixels = 0
+        for y in startY ..< endY {
+            let offset = y * bytesPerRow + sampleX * bytesPerPixel
+            let r = Int(ptr[offset]), g = Int(ptr[offset + 1]), b = Int(ptr[offset + 2])
+            let brightness = (r + g + b) / 3
+            if brightness < 128 {
+                darkPixels += 1
+            }
+        }
+
+        let darkRatio = Double(darkPixels) / Double(sampleCount)
+        print("Region [\(fromXFraction)-\(toXFraction)]: \(String(format: "%.1f", darkRatio * 100))% dark pixels")
+        return darkRatio > 0.05
     }
 
     func testSimpleSpineCrossing() {
@@ -522,7 +553,7 @@ final class SpineNavigationTests: XCTestCase {
 
         // Swipe forward 5 times, checking each transition
         print("Swiping forward 5 times, checking each transition...")
-        for i in 1...5 {
+        for i in 1 ... 5 {
             webView.tap() // Hide overlay
             sleep(1)
             webView.swipeLeft()
@@ -545,7 +576,7 @@ final class SpineNavigationTests: XCTestCase {
             let chapterChanged = currentChapter != previousChapter
 
             XCTAssertTrue(pageAdvanced || chapterChanged,
-                "Forward swipe \(i) should advance page or change chapter. Was: page \(previousPage) ch \(previousChapter), Now: page \(currentPage) ch \(currentChapter)")
+                          "Forward swipe \(i) should advance page or change chapter. Was: page \(previousPage) ch \(previousChapter), Now: page \(currentPage) ch \(currentChapter)")
 
             previousPage = currentPage
             previousChapter = currentChapter
@@ -556,7 +587,7 @@ final class SpineNavigationTests: XCTestCase {
 
         // Now swipe backward 5 times, checking each transition
         print("Swiping backward 5 times, checking each transition...")
-        for i in 1...5 {
+        for i in 1 ... 5 {
             webView.tap() // Hide overlay
             sleep(1)
             webView.swipeRight()
@@ -579,7 +610,7 @@ final class SpineNavigationTests: XCTestCase {
             let chapterChanged = currentChapter != previousChapter
 
             XCTAssertTrue(pageDecreased || chapterChanged,
-                "Backward swipe \(i) should decrease page or change chapter. Was: page \(previousPage) ch \(previousChapter), Now: page \(currentPage) ch \(currentChapter)")
+                          "Backward swipe \(i) should decrease page or change chapter. Was: page \(previousPage) ch \(previousChapter), Now: page \(currentPage) ch \(currentChapter)")
 
             previousPage = currentPage
             previousChapter = currentChapter

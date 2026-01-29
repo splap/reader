@@ -87,7 +87,7 @@ final class InternalLinkTests: XCTestCase {
         for link in links {
             let label = link.label.lowercased()
             // Look for chapter links (Chapter 1, Chapter 2, etc.)
-            if label.contains("chapter") && (label.contains("1") || label.contains("2") || label.contains("3")) {
+            if label.contains("chapter"), label.contains("1") || label.contains("2") || label.contains("3") {
                 print("Tapping link: \(link.label)")
                 link.tap()
                 tappedLink = true
@@ -100,7 +100,7 @@ final class InternalLinkTests: XCTestCase {
             let staticTexts = app.staticTexts.allElementsBoundByIndex
             for text in staticTexts {
                 let label = text.label.lowercased()
-                if label.contains("chapter") && label.contains("1") && text.isHittable {
+                if label.contains("chapter"), label.contains("1"), text.isHittable {
                     print("Tapping static text link: \(text.label)")
                     text.tap()
                     tappedLink = true

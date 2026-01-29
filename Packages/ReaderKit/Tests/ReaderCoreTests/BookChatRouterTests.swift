@@ -1,5 +1,5 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class BookChatRouterTests: XCTestCase {
     func testRoutesBookQuestion() async {

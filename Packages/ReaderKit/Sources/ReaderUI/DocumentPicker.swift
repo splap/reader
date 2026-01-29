@@ -1,6 +1,6 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
+import UniformTypeIdentifiers
 
 struct DocumentPicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void
@@ -12,14 +12,14 @@ struct DocumentPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: [UTType.epub],
-            asCopy: true  // Copy file to app container
+            asCopy: true // Copy file to app container
         )
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_: UIDocumentPickerViewController, context _: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
         let onPick: (URL) -> Void
@@ -28,7 +28,7 @@ struct DocumentPicker: UIViewControllerRepresentable {
             self.onPick = onPick
         }
 
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
             onPick(url)
         }

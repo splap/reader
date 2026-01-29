@@ -50,7 +50,7 @@ final class VisualComparisonTests: XCTestCase {
             "--uitesting-skip-indexing",
             "--uitesting-webview",
             "--uitesting-book=\(config.book)",
-            "--uitesting-spine-item=\(config.chapter)"
+            "--uitesting-spine-item=\(config.chapter)",
         ]
         app.launch()
     }
@@ -113,7 +113,7 @@ final class VisualComparisonTests: XCTestCase {
             withIntermediateDirectories: true
         )
 
-        for chapter in 0..<chapterCount {
+        for chapter in 0 ..< chapterCount {
             // For chapters after the first, we need to navigate
             if chapter > 0 {
                 // Tap to show overlay
@@ -172,7 +172,7 @@ final class VisualComparisonTests: XCTestCase {
         sleep(2)
 
         // Navigate to specific page by swiping
-        for _ in 1..<page {
+        for _ in 1 ..< page {
             webView.swipeLeft()
             usleep(500_000) // 0.5 second between swipes
         }

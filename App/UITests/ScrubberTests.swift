@@ -111,7 +111,7 @@ final class ScrubberTests: XCTestCase {
             let totalPages = extractTotalPages(from: midPageText)
             if totalPages > 0 {
                 let expectedMid = totalPages / 2
-                let tolerance = max(1, totalPages / 10)  // 10% tolerance, minimum 1
+                let tolerance = max(1, totalPages / 10) // 10% tolerance, minimum 1
                 XCTAssertTrue(
                     abs(pageNumber - expectedMid) <= tolerance,
                     "Page \(pageNumber) should be roughly in middle (expected ~\(expectedMid) of \(totalPages))"
@@ -160,9 +160,9 @@ final class ScrubberTests: XCTestCase {
         print("Book loaded, navigating forward 5 pages...")
 
         // Navigate forward 5 pages to establish max read extent
-        for i in 1...5 {
+        for i in 1 ... 5 {
             webView.swipeLeft()
-            usleep(300000) // 0.3 seconds
+            usleep(300_000) // 0.3 seconds
             print("Swiped to page \(i + 1)")
         }
         sleep(1)
@@ -185,9 +185,9 @@ final class ScrubberTests: XCTestCase {
 
         // Navigate back 3 pages using swipes
         print("Navigating back 3 pages...")
-        for i in 1...3 {
+        for i in 1 ... 3 {
             webView.swipeRight()
-            usleep(500000) // 0.5 seconds between swipes
+            usleep(500_000) // 0.5 seconds between swipes
             print("Swiped back \(i) page(s)")
         }
         sleep(2) // Wait for page animation to settle

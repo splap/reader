@@ -53,15 +53,16 @@ public struct Chapter {
         // The native renderer will generate its own from htmlSections
         return NSAttributedString()
     }
+
     private let _attributedText: NSAttributedString?
     public let htmlSections: [HTMLSection]
     public let title: String?
-    public let ncxLabels: [String: String]  // Map from spineItemId to NCX label
-    public let hrefToSpineItemId: [String: String]  // Map from file href to spineItemId for link resolution
+    public let ncxLabels: [String: String] // Map from spineItemId to NCX label
+    public let hrefToSpineItemId: [String: String] // Map from file href to spineItemId for link resolution
 
     /// All blocks across all sections, flattened for easy lookup
     public var allBlocks: [Block] {
-        htmlSections.flatMap { $0.blocks }
+        htmlSections.flatMap(\.blocks)
     }
 
     /// Lookup a block by ID
@@ -97,7 +98,7 @@ public struct Chapter {
     /// Standard initializer with attributed text
     public init(id: String, attributedText: NSAttributedString, htmlSections: [HTMLSection] = [], title: String? = nil, ncxLabels: [String: String] = [:], hrefToSpineItemId: [String: String] = [:]) {
         self.id = id
-        self._attributedText = attributedText
+        _attributedText = attributedText
         self.htmlSections = htmlSections
         self.title = title
         self.ncxLabels = ncxLabels
@@ -107,7 +108,7 @@ public struct Chapter {
     /// Fast initializer that skips attributed text conversion (for WebView rendering)
     public init(id: String, htmlSections: [HTMLSection], title: String? = nil, ncxLabels: [String: String] = [:], hrefToSpineItemId: [String: String] = [:]) {
         self.id = id
-        self._attributedText = nil
+        _attributedText = nil
         self.htmlSections = htmlSections
         self.title = title
         self.ncxLabels = ncxLabels
