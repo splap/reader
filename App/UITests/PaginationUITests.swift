@@ -180,94 +180,105 @@ final class PaginationUITests: XCTestCase {
         print("Test complete")
     }
 
-    func testTextSizeChangeAffectsPageCount() {
-        // Open Frankenstein
-        let libraryNavBar = app.navigationBars["Library"]
-        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+    func testTextSizeChangePreservesPosition() {
+        // Verifies that resizing text mid-chapter restores to the same text via CFI.
+        // CFI (DOM path + character offset) guarantees the same text is visible after resize.
+        // We assert the position was actually restored (not reset to page 1 or jumped to end).
+        // Note: relative page position (page/total) naturally shifts because paragraphs
+        // reflow non-uniformly — that's expected, not drift.
 
-        print("Opening Frankenstein...")
-        let banksAuthor = findBook(in: app, containing: "Frankenstein")
-        XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
-        banksAuthor.tap()
+        // Relaunch with clean data to ensure default font scale (1.4)
+        app = launchReaderApp(extraArgs: ["--uitesting-clean-all-data"])
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
-        sleep(2) // Let content render and pagination calculate
+        // 1. Open Frankenstein
+        let webView = openFrankenstein(in: app)
 
-        // Tap top third of webview to reveal floating buttons (they start hidden)
-        print("Tapping top of webview to reveal buttons...")
-        let topThirdPoint = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
-        topThirdPoint.tap()
-        sleep(1) // Wait for fade-in animation
+        // 2. Navigate to "Letter 2" via TOC
+        print("Opening TOC to navigate to Letter 2...")
+        XCTAssertTrue(navigateToTOCEntry(in: app, webView: webView, matching: "letter 2"),
+                      "Should find 'Letter 2' in TOC")
+        sleep(3) // Wait for chapter load
 
-        // Find the page number label using accessibility ID
+        // 3. Swipe left once to reach page 2 of that chapter
+        print("Swiping to page 2...")
+        webView.swipeLeft()
+        sleep(1)
+
+        // 4. Record initial state
+        webView.tap()
+        sleep(1)
+
         let pageLabel = app.staticTexts["scrubber-page-label"]
         XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
-
         let initialPageText = pageLabel.label
-        print("Initial page label: \(initialPageText)")
+        print("Initial scrubber: \(initialPageText)")
 
-        // Parse initial scrubber info (uses per-chapter page count)
         guard let initialInfo = parseScrubberLabel(initialPageText) else {
             XCTFail("Could not parse initial scrubber label: \(initialPageText)")
             return
         }
-        print("Initial: Page \(initialInfo.currentPage) of \(initialInfo.pagesInChapter) in chapter \(initialInfo.currentChapter)")
-        XCTAssertGreaterThan(initialInfo.pagesInChapter, 0, "Should have valid initial page count in chapter")
+        print("Initial: Page \(initialInfo.currentPage) of \(initialInfo.pagesInChapter), Ch. \(initialInfo.currentChapter) of \(initialInfo.totalChapters)")
+        XCTAssertEqual(initialInfo.currentPage, 2, "Should be on page 2 after one swipe")
+        XCTAssertEqual(initialInfo.currentChapter, 5, "Letter 2 should be chapter 5")
 
-        // Open settings
+        let originalTotalPages = initialInfo.pagesInChapter
+
+        // 5. Open Settings, increase font size to 0.8 normalized
         let settingsButton = app.buttons["Settings"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
         settingsButton.tap()
 
-        // Wait for settings screen
         let settingsNavBar = app.navigationBars["Settings"]
         XCTAssertTrue(settingsNavBar.waitForExistence(timeout: 5), "Settings screen should appear")
-        print("Settings screen opened")
 
-        // Find the font size slider
         let slider = app.sliders.firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 5), "Font size slider should exist")
-        print("Found font size slider")
+        print("Increasing font size to 0.8 normalized...")
+        slider.adjust(toNormalizedSliderPosition: 0.8)
 
-        // INCREASE font size (should result in MORE pages per chapter)
-        print("Increasing font size...")
-        slider.adjust(toNormalizedSliderPosition: 0.8) // Increase to 80% of max
-
-        // Close settings
+        // 6. Close Settings, wait for reflow
         let doneButton = settingsNavBar.buttons.firstMatch
         doneButton.tap()
+        sleep(4) // Wait for reloadWithNewFontScale() to query CFI, reload spine, restore position
 
-        // Wait for reflow (reload takes longer than JS manipulation)
-        sleep(4)
-
-        // Tap to reveal overlay again (it gets hidden when opening settings)
+        // 7. Check post-resize state
         webView.tap()
         sleep(1)
 
-        // Check new page count using scrubber page label
         let scrubberLabel = app.staticTexts["scrubber-page-label"]
-        XCTAssertTrue(scrubberLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
-        let increasedPageText = scrubberLabel.label
-        print("After increase: \(increasedPageText)")
+        XCTAssertTrue(scrubberLabel.waitForExistence(timeout: 3), "Scrubber page label should exist after resize")
+        let resizedPageText = scrubberLabel.label
+        print("After resize: \(resizedPageText)")
 
-        guard let increasedInfo = parseScrubberLabel(increasedPageText) else {
-            XCTFail("Could not parse increased scrubber label: \(increasedPageText)")
+        guard let resizedInfo = parseScrubberLabel(resizedPageText) else {
+            XCTFail("Could not parse resized scrubber label: \(resizedPageText)")
             return
         }
-        print("After increase: Page \(increasedInfo.currentPage) of \(increasedInfo.pagesInChapter) in chapter \(increasedInfo.currentChapter)")
+        print("After resize: Page \(resizedInfo.currentPage) of \(resizedInfo.pagesInChapter), Ch. \(resizedInfo.currentChapter) of \(resizedInfo.totalChapters)")
 
-        // Verify we're still in the same chapter (font change shouldn't change chapter)
-        XCTAssertEqual(increasedInfo.currentChapter, initialInfo.currentChapter,
-                       "Should still be in the same chapter after font resize")
+        // Assert: same chapter (font change must not jump chapters)
+        XCTAssertEqual(resizedInfo.currentChapter, 5,
+                      "Should still be in chapter 5 (Letter 2) after font resize")
 
-        // Increasing font size should increase pages in this chapter
-        XCTAssertGreaterThan(increasedInfo.pagesInChapter, initialInfo.pagesInChapter,
-                             "Increasing font size should INCREASE page count in chapter " +
-                                 "(was \(initialInfo.pagesInChapter), now \(increasedInfo.pagesInChapter))")
+        // Assert: resize actually took effect (more pages at larger font)
+        XCTAssertGreaterThan(resizedInfo.pagesInChapter, originalTotalPages,
+                            "Increasing font size should increase page count " +
+                            "(was \(originalTotalPages), now \(resizedInfo.pagesInChapter))")
 
-        print("Text resize increases page count - test passed!")
+        // Assert: CFI restored to a mid-chapter position (not reset to page 1)
+        XCTAssertGreaterThan(resizedInfo.currentPage, 1,
+                            "CFI restore should land past page 1. " +
+                            "Page 1 means position was reset to start instead of restored. " +
+                            "Was on page \(initialInfo.currentPage)/\(originalTotalPages), " +
+                            "now page \(resizedInfo.currentPage)/\(resizedInfo.pagesInChapter)")
+
+        // Assert: not on the last page (didn't jump to end)
+        XCTAssertLessThan(resizedInfo.currentPage, resizedInfo.pagesInChapter,
+                         "CFI restore should not land on the last page. " +
+                         "Was on page \(initialInfo.currentPage)/\(originalTotalPages), " +
+                         "now page \(resizedInfo.currentPage)/\(resizedInfo.pagesInChapter)")
+
+        print("Text size change preserves position - test passed!")
     }
 
     func testMarginAndPageBleed() {
@@ -466,6 +477,101 @@ final class PaginationUITests: XCTestCase {
         }
 
         print("Double-tap alignment test complete")
+    }
+
+    func testFontSizeChangeAppliesToOtherSpineItems() {
+        // Verifies that changing font size on one chapter propagates to other chapters.
+        // Bug: change font on Letter 3 → swipe to Letter 4 → Letter 4 renders at OLD font size.
+
+        // Relaunch with clean data to ensure default font scale (1.4)
+        app = launchReaderApp(extraArgs: ["--uitesting-clean-all-data"])
+
+        // 1. Open Frankenstein
+        let webView = openFrankenstein(in: app)
+
+        // 2. Navigate to Letter 3 (ch 6) via TOC and record baseline page count
+        print("Navigating to Letter 3 for baseline measurement...")
+        XCTAssertTrue(navigateToTOCEntry(in: app, webView: webView, matching: "letter 3"),
+                      "Should find 'Letter 3' in TOC")
+        sleep(3) // Wait for chapter load
+
+        // Reveal scrubber and record baseline
+        webView.tap()
+        sleep(1)
+
+        let pageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(pageLabel.waitForExistence(timeout: 3), "Scrubber page label should exist")
+        let baselineText = pageLabel.label
+        print("Baseline scrubber: \(baselineText)")
+
+        guard let baselineInfo = parseScrubberLabel(baselineText) else {
+            XCTFail("Could not parse baseline scrubber label: \(baselineText)")
+            return
+        }
+        let baselinePages = baselineInfo.pagesInChapter
+        XCTAssertEqual(baselineInfo.currentChapter, 6, "Letter 3 should be chapter 6")
+        print("Baseline: \(baselinePages) pages in Letter 3 (ch 6)")
+
+        // 3. Navigate to Letter 2 (ch 5) and change font size there
+        print("Navigating to Letter 2 to change font size...")
+        XCTAssertTrue(navigateToTOCEntry(in: app, webView: webView, matching: "letter 2"),
+                      "Should find 'Letter 2' in TOC")
+        sleep(3) // Wait for chapter load
+
+        // Open Settings, increase font to 0.9 normalized
+        webView.tap()
+        sleep(1)
+
+        let settingsButton = app.buttons["Settings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Settings button should exist")
+        settingsButton.tap()
+
+        let settingsNavBar = app.navigationBars["Settings"]
+        XCTAssertTrue(settingsNavBar.waitForExistence(timeout: 5), "Settings screen should appear")
+
+        let slider = app.sliders.firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 5), "Font size slider should exist")
+        print("Increasing font size to 0.9 normalized...")
+        slider.adjust(toNormalizedSliderPosition: 0.9)
+
+        // Close settings
+        let doneButton = settingsNavBar.buttons.firstMatch
+        doneButton.tap()
+        sleep(4) // Wait for reflow
+
+        // 4. Navigate back to Letter 3 (ch 6) and check page count
+        print("Navigating back to Letter 3 to verify font propagated...")
+        XCTAssertTrue(navigateToTOCEntry(in: app, webView: webView, matching: "letter 3"),
+                      "Should find 'Letter 3' in TOC")
+        sleep(3) // Wait for chapter load
+
+        // Reveal scrubber and record new page count
+        webView.tap()
+        sleep(1)
+
+        let newPageLabel = app.staticTexts["scrubber-page-label"]
+        XCTAssertTrue(newPageLabel.waitForExistence(timeout: 3), "Scrubber page label should exist after font change")
+        let newText = newPageLabel.label
+        print("After font change: \(newText)")
+
+        guard let newInfo = parseScrubberLabel(newText) else {
+            XCTFail("Could not parse new scrubber label: \(newText)")
+            return
+        }
+        let newPages = newInfo.pagesInChapter
+        print("New: \(newPages) pages in Letter 3 (ch \(newInfo.currentChapter))")
+
+        // Assert: correct chapter
+        XCTAssertEqual(newInfo.currentChapter, 6,
+                      "Should be on chapter 6 (Letter 3)")
+
+        // Assert: font propagated (more pages at larger font)
+        XCTAssertGreaterThan(newPages, baselinePages,
+                            "Font size increase should produce more pages in Letter 3 " +
+                            "(baseline: \(baselinePages), now: \(newPages)). " +
+                            "If equal, font didn't propagate to other spine items.")
+
+        print("Cross-spine font propagation test passed!")
     }
 
     // MARK: - Private Helpers

@@ -310,4 +310,45 @@ extension XCTestCase {
 
         return after
     }
+
+    // MARK: - TOC Navigation
+
+    /// Navigate to a TOC entry by matching its label text
+    /// - Parameters:
+    ///   - app: The XCUIApplication instance
+    ///   - webView: The WebView element (tapped to reveal overlay)
+    ///   - text: Partial text to match in the TOC entry label (case-insensitive)
+    /// - Returns: true if the entry was found and tapped
+    @discardableResult
+    func navigateToTOCEntry(in app: XCUIApplication, webView: XCUIElement, matching text: String) -> Bool {
+        let tocButton = app.buttons["toc-button"]
+
+        // Tap to reveal overlay; if the overlay was already showing, the first tap
+        // may dismiss it, so try twice.
+        for _ in 0..<2 {
+            if tocButton.exists && tocButton.isHittable {
+                break
+            }
+            webView.tap()
+            sleep(1)
+        }
+
+        guard tocButton.waitForExistence(timeout: 3), tocButton.isHittable else {
+            XCTFail("TOC button not found")
+            return false
+        }
+        tocButton.tap()
+        sleep(1)
+
+        // Find and tap matching entry
+        let menuButtons = app.buttons.allElementsBoundByIndex
+        for button in menuButtons {
+            if button.label.lowercased().contains(text.lowercased()) {
+                print("Tapping TOC entry: \(button.label)")
+                button.tap()
+                return true
+            }
+        }
+        return false
+    }
 }
