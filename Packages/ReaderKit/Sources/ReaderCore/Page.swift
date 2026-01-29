@@ -3,10 +3,10 @@ import UIKit
 
 public struct Page: Identifiable {
     public let id: Int
-    public let range: NSRange  // Range in the original full text
+    public let range: NSRange // Range in the original full text
 
     // Each page has its own complete text system
-    public let textStorage: NSTextStorage  // Contains only this page's text
+    public let textStorage: NSTextStorage // Contains only this page's text
     public let layoutManager: NSLayoutManager
     public let textContainer: NSTextContainer
 

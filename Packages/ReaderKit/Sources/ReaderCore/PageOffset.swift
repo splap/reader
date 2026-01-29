@@ -41,8 +41,8 @@ public struct PageOffset: Codable, Equatable {
         self.firstBlockCharOffset = firstBlockCharOffset
         self.lastBlockId = lastBlockId
         self.lastBlockCharOffset = lastBlockCharOffset
-        self.rangeLocation = characterRange.location
-        self.rangeLength = characterRange.length
+        rangeLocation = characterRange.location
+        rangeLength = characterRange.length
     }
 }
 
@@ -138,8 +138,8 @@ public struct ChapterLayout: Codable {
         self.config = config
         self.pageOffsets = pageOffsets
         self.computedAt = computedAt
-        self.version = Self.formatVersion
-        self.layoutKey = Self.generateLayoutKey(bookId: bookId, spineItemId: spineItemId, config: config)
+        version = Self.formatVersion
+        layoutKey = Self.generateLayoutKey(bookId: bookId, spineItemId: spineItemId, config: config)
     }
 
     /// Generates a unique key for this layout

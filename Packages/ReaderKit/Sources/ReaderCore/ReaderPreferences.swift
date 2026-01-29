@@ -3,13 +3,13 @@ import UIKit
 
 /// Rendering mode for book content
 public enum RenderMode: String, Codable, CaseIterable {
-    case native = "native"
+    case native
     case webView = "webview"
 
     public var displayName: String {
         switch self {
-        case .native: return "Native"
-        case .webView: return "HTML"
+        case .native: "Native"
+        case .webView: "HTML"
         }
     }
 }
@@ -22,17 +22,17 @@ public enum AppearanceMode: Int, CaseIterable {
 
     public var displayName: String {
         switch self {
-        case .dark: return "Dark"
-        case .light: return "Light"
-        case .system: return "System"
+        case .dark: "Dark"
+        case .light: "Light"
+        case .system: "System"
         }
     }
 
     public var userInterfaceStyle: UIUserInterfaceStyle {
         switch self {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return .unspecified
+        case .dark: .dark
+        case .light: .light
+        case .system: .unspecified
         }
     }
 }
@@ -60,7 +60,8 @@ public final class ReaderPreferences {
     public var renderMode: RenderMode {
         get {
             guard let stored = UserDefaults.standard.string(forKey: Self.renderModeKey),
-                  let mode = RenderMode(rawValue: stored) else {
+                  let mode = RenderMode(rawValue: stored)
+            else {
                 return .webView // Default to HTML
             }
             return mode

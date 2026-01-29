@@ -94,13 +94,13 @@ public struct LocationsList: Codable, Equatable {
 
     /// Get the CFI at a specific location index
     public func cfi(at index: Int) -> String? {
-        guard index >= 0 && index < locations.count else { return nil }
+        guard index >= 0, index < locations.count else { return nil }
         return locations[index]
     }
 
     /// Get the spine item index for a location
     public func spineIndex(for locationIndex: Int) -> Int? {
-        guard locationIndex >= 0 && locationIndex < locations.count else { return nil }
+        guard locationIndex >= 0, locationIndex < locations.count else { return nil }
 
         // Find which spine item this location belongs to
         for (index, boundary) in spineItemBoundaries.enumerated().reversed() {

@@ -3,13 +3,13 @@ import UIKit
 
 // MARK: - Custom Attributed String Keys
 
-extension NSAttributedString.Key {
+public extension NSAttributedString.Key {
     /// Block ID for position tracking
-    public static let blockId = NSAttributedString.Key("com.splap.reader.blockId")
+    static let blockId = NSAttributedString.Key("com.splap.reader.blockId")
     /// Spine item ID for chapter identification
-    public static let spineItemId = NSAttributedString.Key("com.splap.reader.spineItemId")
+    static let spineItemId = NSAttributedString.Key("com.splap.reader.spineItemId")
     /// Section break marker - indicates a new spine item starts here (forces page break)
-    public static let sectionBreak = NSAttributedString.Key("com.splap.reader.sectionBreak")
+    static let sectionBreak = NSAttributedString.Key("com.splap.reader.sectionBreak")
 }
 
 // MARK: - Conversion Result
@@ -50,7 +50,6 @@ public struct AttributedContent {
 
 /// Converts HTML sections to attributed strings while preserving block metadata
 public final class HTMLToAttributedStringConverter {
-
     /// Size threshold for decorative images (skip if both dimensions below this)
     public static let decorativeThreshold: CGFloat = 100
 
@@ -208,7 +207,8 @@ public final class HTMLToAttributedStringConverter {
         let pattern = #"^<[a-z0-9]+[^>]*class\s*=\s*["']([^"']+)["']"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-              let range = Range(match.range(at: 1), in: html) else {
+              let range = Range(match.range(at: 1), in: html)
+        else {
             return ""
         }
         return String(html[range])
@@ -224,15 +224,17 @@ public final class HTMLToAttributedStringConverter {
         // Common patterns for italic styling in EPUBs
         // Many EPUBs use numbered calibre classes (calibre1, calibre2, etc.) for various styles
         if classLower.contains("italic") ||
-           classLower.contains("em") ||
-           classLower.contains("emphasis") ||
-           classLower.range(of: #"calibre\d+"#, options: .regularExpression) != nil {
+            classLower.contains("em") ||
+            classLower.contains("emphasis") ||
+            classLower.range(of: #"calibre\d+"#, options: .regularExpression) != nil
+        {
             attributes[.font] = addItalicTrait(to: baseFont)
         }
 
         // Common patterns for bold styling
         if classLower.contains("bold") ||
-           classLower.contains("strong") {
+            classLower.contains("strong")
+        {
             if let font = attributes[.font] as? UIFont {
                 attributes[.font] = addBoldTrait(to: font)
             }
@@ -245,13 +247,13 @@ public final class HTMLToAttributedStringConverter {
         let sectionKeywords = [
             "foreword", "prologue", "epilogue", "introduction",
             "preface", "acknowledgments", "dedication", "afterword",
-            "chapter", "part", "book", "appendix"
+            "chapter", "part", "book", "appendix",
         ]
         let lowerText = trimmed.lowercased()
         // Check if it's a short text that starts with a section keyword
         // and possibly ends with a colon or is very short
         for keyword in sectionKeywords {
-            if lowerText.hasPrefix(keyword) && trimmed.count < 50 {
+            if lowerText.hasPrefix(keyword), trimmed.count < 50 {
                 return true
             }
         }
@@ -262,7 +264,7 @@ public final class HTMLToAttributedStringConverter {
     private func attributesForBlockType(_ type: BlockType) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 16),
-            .foregroundColor: UIColor.label
+            .foregroundColor: UIColor.label,
         ]
 
         switch type {
@@ -297,7 +299,8 @@ public final class HTMLToAttributedStringConverter {
         let pattern = #"<(?:p|h[1-6]|li|blockquote|pre|div|figure)[^>]*>([\s\S]*)</(?:p|h[1-6]|li|blockquote|pre|div|figure)>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-              let range = Range(match.range(at: 1), in: html) else {
+              let range = Range(match.range(at: 1), in: html)
+        else {
             // If no match, return original (might be already inner content)
             return html
         }
@@ -332,7 +335,7 @@ public final class HTMLToAttributedStringConverter {
             // Append any text before this tag
             let matchStart = html.index(html.startIndex, offsetBy: match.range.location)
             if matchStart > currentPosition {
-                let textBefore = String(html[currentPosition..<matchStart])
+                let textBefore = String(html[currentPosition ..< matchStart])
                 let plainText = stripHTMLTags(decodeHTMLEntities(textBefore))
                 if !plainText.isEmpty {
                     result.append(NSAttributedString(string: plainText, attributes: baseAttributes))
@@ -404,16 +407,17 @@ public final class HTMLToAttributedStringConverter {
     /// Creates an NSTextAttachment for an inline image
     private func createInlineImageAttachment(
         from imgTag: String,
-        baseAttributes: [NSAttributedString.Key: Any]
+        baseAttributes _: [NSAttributedString.Key: Any]
     ) -> NSAttributedString? {
         guard let path = extractImagePath(from: imgTag),
               let imageData = imageCache[path],
-              let image = UIImage(data: imageData) else {
+              let image = UIImage(data: imageData)
+        else {
             return nil
         }
 
         // Skip decorative images (very small)
-        if image.size.width < Self.decorativeThreshold && image.size.height < Self.decorativeThreshold {
+        if image.size.width < Self.decorativeThreshold, image.size.height < Self.decorativeThreshold {
             return nil
         }
 
@@ -523,7 +527,8 @@ public final class HTMLToAttributedStringConverter {
         let pattern = #"href\s*=\s*["']([^"']+)["']"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: attributes, range: NSRange(attributes.startIndex..., in: attributes)),
-              let range = Range(match.range(at: 1), in: attributes) else {
+              let range = Range(match.range(at: 1), in: attributes)
+        else {
             return nil
         }
         let urlString = String(attributes[range])
@@ -535,7 +540,8 @@ public final class HTMLToAttributedStringConverter {
         let pattern = #"class\s*=\s*["']([^"']+)["']"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: attributes, range: NSRange(attributes.startIndex..., in: attributes)),
-              let range = Range(match.range(at: 1), in: attributes) else {
+              let range = Range(match.range(at: 1), in: attributes)
+        else {
             return ""
         }
         return String(attributes[range])
@@ -580,7 +586,8 @@ public final class HTMLToAttributedStringConverter {
 
         // Try to find image in cache with various path formats
         if let (resolvedPath, imageData) = resolveImagePath(path),
-           let image = UIImage(data: imageData) {
+           let image = UIImage(data: imageData)
+        {
             let size = image.size
             let isDecorative = size.width < Self.decorativeThreshold && size.height < Self.decorativeThreshold
             return (resolvedPath, !isDecorative)
@@ -630,7 +637,8 @@ public final class HTMLToAttributedStringConverter {
         let srcPattern = #"<img[^>]*src\s*=\s*["']([^"']+)["']"#
         if let regex = try? NSRegularExpression(pattern: srcPattern),
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
+           let range = Range(match.range(at: 1), in: html)
+        {
             return String(html[range])
         }
 
@@ -638,7 +646,8 @@ public final class HTMLToAttributedStringConverter {
         let xlinkPattern = #"xlink:href\s*=\s*["']([^"']+)["']"#
         if let regex = try? NSRegularExpression(pattern: xlinkPattern),
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
+           let range = Range(match.range(at: 1), in: html)
+        {
             return String(html[range])
         }
 
@@ -646,7 +655,8 @@ public final class HTMLToAttributedStringConverter {
         let hrefPattern = #"<image[^>]*href\s*=\s*["']([^"']+)["']"#
         if let regex = try? NSRegularExpression(pattern: hrefPattern),
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
+           let range = Range(match.range(at: 1), in: html)
+        {
             return String(html[range])
         }
 
@@ -662,10 +672,9 @@ public final class HTMLToAttributedStringConverter {
         }
     }
 
-    private func applyParagraphStyle(to attributed: NSMutableAttributedString) {
+    private func applyParagraphStyle(to _: NSMutableAttributedString) {
         // Paragraph styles are now applied per-block in convertBlockToAttributed
         // This method is kept for any additional global adjustments if needed
         // No-op since each block already has its own paragraph style
     }
-
 }

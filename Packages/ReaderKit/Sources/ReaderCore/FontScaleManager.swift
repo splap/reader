@@ -7,7 +7,7 @@ public final class FontScaleManager {
     public static let shared = FontScaleManager()
 
     private static let fontScaleKey = "ReaderFontScale"
-    private static let defaultFontScale: CGFloat = 1.4  // Must be one of the discrete steps
+    private static let defaultFontScale: CGFloat = 1.4 // Must be one of the discrete steps
 
     /// Notification posted when font scale changes
     /// The notification object is the new CGFloat scale value
@@ -36,7 +36,7 @@ public final class FontScaleManager {
     /// - Parameter baseSize: The base font size to scale
     /// - Returns: The scaled font size
     public func scaledSize(_ baseSize: CGFloat) -> CGFloat {
-        return baseSize * fontScale
+        baseSize * fontScale
     }
 
     /// Returns a UIFont scaled appropriately for body text

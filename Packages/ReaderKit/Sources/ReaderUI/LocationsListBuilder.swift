@@ -1,7 +1,7 @@
 import Foundation
-import WebKit
-import ReaderCore
 import OSLog
+import ReaderCore
+import WebKit
 
 /// Builds a LocationsList by generating CFIs at regular intervals through the book
 /// This runs in the background after the initial spine item loads
@@ -57,21 +57,21 @@ public actor LocationsListBuilder {
         status = .building(current: 0, total: htmlSections.count)
 
         let task = Task<LocationsList?, Never> { [weak self] in
-            guard let self = self else { return nil }
+            guard let self else { return nil }
 
             var allLocations: [String] = []
             var spineItemBoundaries: [Int] = []
 
             for (index, section) in htmlSections.enumerated() {
                 if Task.isCancelled {
-                    await self.setStatus(.idle)
+                    await setStatus(.idle)
                     return nil
                 }
 
-                await self.setStatus(.building(current: index, total: htmlSections.count))
+                await setStatus(.building(current: index, total: htmlSections.count))
 
                 // Generate locations for this spine item
-                let spineLocations = await self.generateLocationsForSpine(
+                let spineLocations = await generateLocationsForSpine(
                     section: section,
                     spineIndex: index,
                     characterInterval: characterInterval,
@@ -93,7 +93,7 @@ public actor LocationsListBuilder {
                 characterInterval: characterInterval
             )
 
-            await self.setStatus(.complete(locationsList))
+            await setStatus(.complete(locationsList))
 
             Self.logger.info("LOCATIONS: Built \(allLocations.count) locations for \(htmlSections.count) spine items")
 
@@ -113,7 +113,7 @@ public actor LocationsListBuilder {
         section: HTMLSection,
         spineIndex: Int,
         characterInterval: Int,
-        webViewProvider: @escaping @Sendable () async -> WKWebView?
+        webViewProvider _: @escaping @Sendable () async -> WKWebView?
     ) async -> [String] {
         // For now, generate a simple location at the start of each spine item
         // A full implementation would load the spine into a hidden WebView and
@@ -135,7 +135,7 @@ public actor LocationsListBuilder {
 
         // Generate evenly spaced locations
         var locations: [String] = []
-        for i in 0..<estimatedLocations {
+        for i in 0 ..< estimatedLocations {
             let charOffset = i * characterInterval
             let cfi = CFIParser.generateFullCFI(
                 spineIndex: spineIndex,

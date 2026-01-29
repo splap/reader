@@ -5,8 +5,8 @@ import Foundation
 /// Lightweight info about a book section
 public struct SectionInfo {
     public let spineItemId: String
-    public let title: String?  // Title extracted from first heading in content
-    public let ncxLabel: String?  // Label from NCX/nav file (preferred)
+    public let title: String? // Title extracted from first heading in content
+    public let ncxLabel: String? // Label from NCX/nav file (preferred)
     public let blockCount: Int
 
     public init(spineItemId: String, title: String?, ncxLabel: String? = nil, blockCount: Int) {
@@ -83,13 +83,13 @@ public final class ReaderBookContext: BookContext {
         currentBlockId: String? = nil
     ) {
         self.chapter = chapter
-        self._bookId = bookId
-        self.title = bookTitle
-        self.author = bookAuthor
-        self._currentSpineItemId = currentSpineItemId.isEmpty
+        _bookId = bookId
+        title = bookTitle
+        author = bookAuthor
+        _currentSpineItemId = currentSpineItemId.isEmpty
             ? (chapter.htmlSections.first?.spineItemId ?? "")
             : currentSpineItemId
-        self._currentBlockId = currentBlockId
+        _currentBlockId = currentBlockId
     }
 
     /// Update the current reading position
@@ -155,8 +155,8 @@ public final class ReaderBookContext: BookContext {
         }
 
         let text = targetSections
-            .flatMap { $0.blocks }
-            .map { $0.textContent }
+            .flatMap(\.blocks)
+            .map(\.textContent)
             .joined(separator: "\n\n")
 
         return text.isEmpty ? nil : text
@@ -206,6 +206,6 @@ public final class ReaderBookContext: BookContext {
         let startIndex = max(0, centerIndex - count)
         let endIndex = min(allBlocks.count - 1, centerIndex + count)
 
-        return Array(allBlocks[startIndex...endIndex])
+        return Array(allBlocks[startIndex ... endIndex])
     }
 }

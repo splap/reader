@@ -2,11 +2,10 @@ import Foundation
 
 /// Parses HTML content into an array of Block objects
 public final class BlockParser {
-
     /// Tags that represent block-level content
     private static let blockTags: Set<String> = [
         "p", "h1", "h2", "h3", "h4", "h5", "h6",
-        "li", "blockquote", "pre", "div"
+        "li", "blockquote", "pre", "div",
     ]
 
     /// Tags that contain images
@@ -242,7 +241,7 @@ public final class BlockParser {
             divImagePattern,
             figurePattern,
             svgPattern,
-            imgPattern
+            imgPattern,
         ]
 
         for pattern in patterns {
@@ -290,7 +289,8 @@ public final class BlockParser {
         let srcPattern = #"<img[^>]*src\s*=\s*["']([^"']+)["']"#
         if let regex = try? NSRegularExpression(pattern: srcPattern),
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
+           let range = Range(match.range(at: 1), in: html)
+        {
             return String(html[range])
         }
 
@@ -298,7 +298,8 @@ public final class BlockParser {
         let xlinkPattern = #"xlink:href\s*=\s*["']([^"']+)["']"#
         if let regex = try? NSRegularExpression(pattern: xlinkPattern),
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
+           let range = Range(match.range(at: 1), in: html)
+        {
             return String(html[range])
         }
 
@@ -306,7 +307,8 @@ public final class BlockParser {
         let hrefPattern = #"<image[^>]*href\s*=\s*["']([^"']+)["']"#
         if let regex = try? NSRegularExpression(pattern: hrefPattern),
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
+           let range = Range(match.range(at: 1), in: html)
+        {
             return String(html[range])
         }
 

@@ -1,6 +1,6 @@
 import Foundation
-import ReaderUI
 import ReaderCore
+import ReaderUI
 import UIKit
 
 @main
@@ -9,8 +9,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     private var screenshotObserver: NSObjectProtocol?
 
     func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+        _: UIApplication,
+        didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
         NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
@@ -29,10 +29,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let uitestingBook = Self.parseArgument("--uitesting-book=")
         let uitestingSpineItem = Self.parseIntArgument("--uitesting-spine-item=")
 
-        if isUITesting && cleanAllData {
+        if isUITesting, cleanAllData {
             NSLog("🧪 UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
             clearAllAppData()
-        } else if isUITesting && !keepUIState {
+        } else if isUITesting, !keepUIState {
             NSLog("🧪 UI Testing mode detected - clearing app state")
             clearAppStateForTesting()
         }
@@ -94,7 +94,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             navController.pushViewController(readerVC, animated: false)
         } else if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
                   let uuid = UUID(uuidString: idString),
-                  let book = BookLibraryService.shared.getBook(id: uuid) {
+                  let book = BookLibraryService.shared.getBook(id: uuid)
+        {
             NSLog("🚀 Auto-opening last book: \(book.title)")
 
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
@@ -118,9 +119,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // Handle file opens from outside the app (AirDrop, Files, Share)
     func application(
-        _ app: UIApplication,
+        _: UIApplication,
         open url: URL,
-        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+        options _: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         guard url.pathExtension.lowercased() == "epub" else {
             return false

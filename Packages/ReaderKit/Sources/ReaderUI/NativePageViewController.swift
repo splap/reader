@@ -1,10 +1,9 @@
-import UIKit
 import OSLog
 import ReaderCore
+import UIKit
 
 /// Native renderer using UITextView with horizontal paging
 public final class NativePageViewController: UIViewController, PageRenderer {
-
     private static let logger = Logger(subsystem: "com.splap.reader", category: "NativePageViewController")
 
     // MARK: - PageRenderer Protocol
@@ -69,22 +68,23 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     // MARK: - Lifecycle
 
-    public override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupScrollView()
         setupKeyboardNavigation()
     }
 
-    public override func viewDidLayoutSubviews() {
+    override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if !hasBuiltPages && view.bounds.width > 0 && view.bounds.height > 0 {
+        if !hasBuiltPages, view.bounds.width > 0, view.bounds.height > 0 {
             hasBuiltPages = true
             buildPages()
         }
@@ -110,7 +110,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
@@ -139,7 +139,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     /// If re-enabling, must estimate total pages from ALL sections, not just loaded ones.
     private func selectSectionsToLoad() -> [Int] {
         // Load all sections to ensure correct page count
-        return Array(0..<htmlSections.count)
+        Array(0 ..< htmlSections.count)
     }
 
     private func buildPages() {
@@ -148,9 +148,9 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         // Show loading overlay for initial build
         showLoadingOverlay()
 
-        let fontScale = self.fontScale
-        let viewBounds = self.view.bounds
-        let bookId = self.bookId
+        let fontScale = fontScale
+        let viewBounds = view.bounds
+        let bookId = bookId
 
         // PERF OPTIMIZATION: Only load sections around the initial position
         let sectionsToLoad = selectSectionsToLoad()
@@ -198,7 +198,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             if let cached = cachedLayout {
                 // CACHE HIT - use cached page ranges directly
                 Self.logger.info("Cache hit: using cached layout with \(cached.totalPages) pages")
-                textPageRanges = cached.pageOffsets.map { $0.characterRange }
+                textPageRanges = cached.pageOffsets.map(\.characterRange)
 
                 let totalTime = CFAbsoluteTimeGetCurrent() - startTime
                 Self.logger.info("TIMING: Cache hit render took \(totalTime)s total")
@@ -368,7 +368,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     private func createPageOffset(
         pageIndex: Int,
         characterRange: NSRange,
-        attributedString: NSAttributedString,
+        attributedString _: NSAttributedString,
         blockRanges: [String: NSRange]
     ) -> PageOffset {
         var firstBlockId = "unknown"
@@ -385,13 +385,13 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             let blockEnd = NSMaxRange(blockRange)
 
             // Check if this block contains the page start
-            if blockStart <= pageStart && blockEnd > pageStart {
+            if blockStart <= pageStart, blockEnd > pageStart {
                 firstBlockId = blockId
                 firstBlockCharOffset = pageStart - blockStart
             }
 
             // Check if this block contains the page end
-            if blockStart < pageEnd && blockEnd >= pageEnd {
+            if blockStart < pageEnd, blockEnd >= pageEnd {
                 lastBlockId = blockId
                 lastBlockCharOffset = pageEnd - blockStart
             }
@@ -404,7 +404,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 let blockEnd = NSMaxRange(blockRange)
 
                 // Check for any overlap with this page
-                if blockStart < pageEnd && blockEnd > pageStart {
+                if blockStart < pageEnd, blockEnd > pageStart {
                     if firstBlockId == "unknown" {
                         firstBlockId = blockId
                         firstBlockCharOffset = max(0, pageStart - blockStart)
@@ -441,7 +441,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             let pageView: UIView
 
             switch content {
-            case .text(let range, _):
+            case let .text(range, _):
                 let textView = createTextView(for: range, in: attributedString, padding: UIEdgeInsets(
                     top: verticalPadding,
                     left: horizontalPadding,
@@ -455,7 +455,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 let blockIds = findBlockIds(in: range, attributedString: attributedString)
                 pageBlockIds.append(blockIds)
 
-            case .image(let path, let blockId, let imageCache):
+            case let .image(path, blockId, imageCache):
                 let imageView = createImagePageView(path: path, imageCache: imageCache)
                 pageView = imageView
                 pageRanges.append(NSRange(location: 0, length: 0)) // Placeholder
@@ -496,7 +496,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
         // Try to resolve the image path with various formats
         if let data = resolveImageData(path: path, imageCache: imageCache),
-           let image = UIImage(data: data) {
+           let image = UIImage(data: data)
+        {
             let imageView = UIImageView(image: image)
             imageView.contentMode = .scaleAspectFit
             imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -506,7 +507,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
                 imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
                 imageView.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -96),
-                imageView.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, constant: -96)
+                imageView.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor, constant: -96),
             ])
         }
 
@@ -586,9 +587,9 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         attributedContent = nil
 
         // Rebuild using cache-aware approach with section-based loading
-        let fontScale = self.fontScale
-        let viewBounds = self.view.bounds
-        let bookId = self.bookId
+        let fontScale = fontScale
+        let viewBounds = view.bounds
+        let bookId = bookId
 
         // Use section-based loading for rebuilds too
         let sectionsToLoad = selectSectionsToLoad()
@@ -634,7 +635,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             if let cached = cachedLayout {
                 // CACHE HIT
                 Self.logger.info("Cache hit (rebuild): using cached layout with \(cached.totalPages) pages")
-                textPageRanges = cached.pageOffsets.map { $0.characterRange }
+                textPageRanges = cached.pageOffsets.map(\.characterRange)
 
                 let totalTime = CFAbsoluteTimeGetCurrent() - startTime
                 Self.logger.info("TIMING (rebuild): Cache hit took \(totalTime)s total")
@@ -739,7 +740,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             spinner.centerYAnchor.constraint(equalTo: overlay.centerYAnchor, constant: -20),
 
             label.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16)
+            label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
         ])
 
         loadingOverlay = overlay
@@ -818,7 +819,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
     public func queryFirstVisibleBlock(completion: @escaping (String?, String?) -> Void) {
         guard currentPageIndex < pageBlockIds.count,
-              let firstBlockId = pageBlockIds[currentPageIndex].first else {
+              let firstBlockId = pageBlockIds[currentPageIndex].first
+        else {
             completion(nil, nil)
             return
         }
@@ -826,7 +828,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         // Find spine item ID from attributed content
         var spineItemId: String?
         if let content = attributedContent,
-           let range = content.blockRanges[firstBlockId] {
+           let range = content.blockRanges[firstBlockId]
+        {
             content.attributedString.enumerateAttribute(.spineItemId, in: range, options: []) { value, _, stop in
                 if let id = value as? String {
                     spineItemId = id
@@ -848,11 +851,11 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 // MARK: - UIScrollViewDelegate
 
 extension NativePageViewController: UIScrollViewDelegate {
-    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    public func scrollViewDidEndDecelerating(_: UIScrollView) {
         updateCurrentPage()
     }
 
-    public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+    public func scrollViewDidEndScrollingAnimation(_: UIScrollView) {
         updateCurrentPage()
     }
 
@@ -861,7 +864,7 @@ extension NativePageViewController: UIScrollViewDelegate {
         guard pageWidth > 0 else { return }
 
         let newPage = Int(round(scrollView.contentOffset.x / pageWidth))
-        if newPage != currentPageIndex && newPage >= 0 && newPage < totalPages {
+        if newPage != currentPageIndex, newPage >= 0, newPage < totalPages {
             currentPageIndex = newPage
             reportPositionChange()
         }

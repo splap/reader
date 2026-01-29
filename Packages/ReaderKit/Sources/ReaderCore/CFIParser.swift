@@ -50,7 +50,6 @@ public struct ParsedFullCFI: Equatable {
 /// - [idref] is optional and contains the spine item ID reference
 /// - ! marks the end of the package document path
 public enum CFIParser {
-
     /// Parse a base CFI string to extract spine index
     ///
     /// Examples:
@@ -62,7 +61,7 @@ public enum CFIParser {
     /// - Returns: ParsedCFI if valid, nil otherwise
     public static func parseBaseCFI(_ cfi: String) -> ParsedCFI? {
         // Validate basic structure
-        guard cfi.hasPrefix("epubcfi(") && cfi.contains(")") else {
+        guard cfi.hasPrefix("epubcfi("), cfi.contains(")") else {
             return nil
         }
 
@@ -72,7 +71,7 @@ public enum CFIParser {
             return nil
         }
 
-        let content = String(cfi[startIndex..<endIndex])
+        let content = String(cfi[startIndex ..< endIndex])
 
         // Parse the path - looking for /6/N pattern
         // The path should start with /6/ for spine reference
@@ -104,10 +103,10 @@ public enum CFIParser {
         }
 
         // Check for optional idref in brackets [idref]
-        if i < afterSpine.endIndex && afterSpine[i] == "[" {
+        if i < afterSpine.endIndex, afterSpine[i] == "[" {
             let bracketStart = afterSpine.index(after: i)
             if let bracketEnd = afterSpine[bracketStart...].firstIndex(of: "]") {
-                idref = String(afterSpine[bracketStart..<bracketEnd])
+                idref = String(afterSpine[bracketStart ..< bracketEnd])
             }
         }
 
@@ -127,7 +126,7 @@ public enum CFIParser {
         // Convert spine index to step number: N = (index + 1) * 2
         let stepNumber = (spineIndex + 1) * 2
 
-        if let idref = idref {
+        if let idref {
             return "epubcfi(/6/\(stepNumber)[\(idref)]!)"
         } else {
             return "epubcfi(/6/\(stepNumber)!)"
@@ -146,14 +145,14 @@ public enum CFIParser {
     /// - Returns: ParsedFullCFI if valid, nil otherwise
     public static func parseFullCFI(_ cfi: String) -> ParsedFullCFI? {
         // Validate basic structure
-        guard cfi.hasPrefix("epubcfi(") && cfi.hasSuffix(")") else {
+        guard cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")") else {
             return nil
         }
 
         // Extract content between epubcfi( and )
         let startIndex = cfi.index(cfi.startIndex, offsetBy: 8)
         let endIndex = cfi.index(cfi.endIndex, offsetBy: -1)
-        let content = String(cfi[startIndex..<endIndex])
+        let content = String(cfi[startIndex ..< endIndex])
 
         // Split on ! to separate spine path from content path
         let parts = content.components(separatedBy: "!")
@@ -186,10 +185,10 @@ public enum CFIParser {
         }
 
         // Check for optional idref
-        if i < afterSpine.endIndex && afterSpine[i] == "[" {
+        if i < afterSpine.endIndex, afterSpine[i] == "[" {
             let bracketStart = afterSpine.index(after: i)
             if let bracketEnd = afterSpine[bracketStart...].firstIndex(of: "]") {
-                idref = String(afterSpine[bracketStart..<bracketEnd])
+                idref = String(afterSpine[bracketStart ..< bracketEnd])
             }
         }
 
@@ -249,7 +248,7 @@ public enum CFIParser {
         let stepNumber = (spineIndex + 1) * 2
         var cfi = "epubcfi(/6/\(stepNumber)"
 
-        if let idref = idref {
+        if let idref {
             cfi += "[\(idref)]"
         }
 

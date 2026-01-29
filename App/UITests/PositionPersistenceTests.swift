@@ -39,7 +39,7 @@ final class PositionPersistenceTests: XCTestCase {
             "--uitesting",
             "--uitesting-keep-state",
             "--uitesting-position-test",
-            "--uitesting-show-overlay"
+            "--uitesting-show-overlay",
         ]
         app.terminate()
         app.launch()
@@ -122,9 +122,9 @@ final class PositionPersistenceTests: XCTestCase {
         // Swipe forward a few times to ensure we're not at the start
         webView.tap() // Hide overlay
         sleep(1)
-        for _ in 1...3 {
+        for _ in 1 ... 3 {
             webView.swipeLeft()
-            usleep(300000)
+            usleep(300_000)
         }
         sleep(1)
 
@@ -179,7 +179,7 @@ final class PositionPersistenceTests: XCTestCase {
         // The critical assertion: we should NOT be at "Page 1 of X Ch. 1"
         // We should be at the same position we saved
         XCTAssertFalse(restoredText.contains("Page 1 of") && restoredText.contains("Ch. 1"),
-            "BUG CONFIRMED: Position not restored! Started at beginning instead of saved position. Got: \(restoredText)")
+                       "BUG CONFIRMED: Position not restored! Started at beginning instead of saved position. Got: \(restoredText)")
 
         // Take screenshot
         let screenshot = XCUIScreen.main.screenshot()

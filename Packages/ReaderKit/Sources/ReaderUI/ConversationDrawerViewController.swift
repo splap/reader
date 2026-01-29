@@ -1,11 +1,11 @@
-import UIKit
 import ReaderCore
+import UIKit
 
 /// Drawer view showing conversation history
 final class ConversationDrawerViewController: UIViewController {
     private let context: BookContext
     private var conversations: [Conversation] = []
-    private var hasCurrentChat = true  // Always true when drawer is shown from a chat
+    private var hasCurrentChat = true // Always true when drawer is shown from a chat
     private let fontManager = FontScaleManager.shared
 
     var onSelectConversation: ((UUID) -> Void)?
@@ -22,7 +22,8 @@ final class ConversationDrawerViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -95,7 +96,7 @@ final class ConversationDrawerViewController: UIViewController {
             tableView.topAnchor.constraint(equalTo: newChatButton.bottomAnchor, constant: 16),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
@@ -115,15 +116,15 @@ final class ConversationDrawerViewController: UIViewController {
 // MARK: - UITableViewDataSource
 
 extension ConversationDrawerViewController: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
         // +1 for "Current Chat" row if active
-        return conversations.count + (hasCurrentChat ? 1 : 0)
+        conversations.count + (hasCurrentChat ? 1 : 0)
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "ConversationCell", for: indexPath) as! ConversationCell
 
-        if hasCurrentChat && indexPath.row == 0 {
+        if hasCurrentChat, indexPath.row == 0 {
             cell.configureAsCurrentChat()
         } else {
             let conversationIndex = hasCurrentChat ? indexPath.row - 1 : indexPath.row
@@ -139,7 +140,7 @@ extension ConversationDrawerViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        if hasCurrentChat && indexPath.row == 0 {
+        if hasCurrentChat, indexPath.row == 0 {
             onSelectCurrentChat?()
         } else {
             let conversationIndex = hasCurrentChat ? indexPath.row - 1 : indexPath.row
@@ -150,7 +151,7 @@ extension ConversationDrawerViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
         // Don't allow deleting current chat
-        if hasCurrentChat && indexPath.row == 0 {
+        if hasCurrentChat, indexPath.row == 0 {
             return
         }
 
@@ -163,9 +164,9 @@ extension ConversationDrawerViewController: UITableViewDelegate {
         }
     }
 
-    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+    func tableView(_: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
         // Don't allow editing/deleting current chat row
-        if hasCurrentChat && indexPath.row == 0 {
+        if hasCurrentChat, indexPath.row == 0 {
             return false
         }
         return true
@@ -184,7 +185,8 @@ private final class ConversationCell: UITableViewCell {
         setupUI()
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -215,7 +217,7 @@ private final class ConversationCell: UITableViewCell {
             dateLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             dateLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             dateLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            dateLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12)
+            dateLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
         ])
     }
 

@@ -1,6 +1,6 @@
-import XCTest
-import UIKit
 @testable import ReaderCore
+import UIKit
+import XCTest
 
 final class PaginationTests: XCTestCase {
     func testPaginationRangesAreContiguousAndCoverText() {
@@ -17,7 +17,7 @@ final class PaginationTests: XCTestCase {
         XCTAssertGreaterThan(pages.count, 1)
         XCTAssertEqual(pages.first?.range.location, 0)
 
-        for index in 1..<pages.count {
+        for index in 1 ..< pages.count {
             let previous = pages[index - 1].range
             let current = pages[index].range
             XCTAssertEqual(current.location, previous.location + previous.length)

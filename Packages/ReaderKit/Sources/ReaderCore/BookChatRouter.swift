@@ -65,7 +65,7 @@ public actor BookChatRouter {
         }
 
         // Step 2: For ambiguous cases, use concept map if available
-        if let conceptMap = conceptMap, heuristicResult.route == .ambiguous || heuristicResult.confidence < 0.7 {
+        if let conceptMap, heuristicResult.route == .ambiguous || heuristicResult.confidence < 0.7 {
             let conceptMapResult = resolveWithConceptMap(question: question, conceptMap: conceptMap)
 
             if conceptMapResult.confidence > heuristicResult.confidence {
@@ -132,7 +132,7 @@ public actor BookChatRouter {
             ("the theme of", 0.85),
             ("symbolism in", 0.85),
             ("the meaning of", 0.7),
-            ("the significance of", 0.75)
+            ("the significance of", 0.75),
         ]
 
         // Patterns that strongly indicate NOT book questions
@@ -165,7 +165,7 @@ public actor BookChatRouter {
             // Current events
             ("today's news", 0.95),
             ("current events", 0.95),
-            ("latest news", 0.95)
+            ("latest news", 0.95),
         ]
 
         // Check for book title or author mentions - strong book indicator
@@ -218,7 +218,7 @@ public actor BookChatRouter {
         }
 
         // Decide based on scores
-        if bookScore >= 0.8 && bookScore > notBookScore {
+        if bookScore >= 0.8, bookScore > notBookScore {
             return RoutingResult(
                 route: .book,
                 confidence: bookScore,
@@ -226,7 +226,7 @@ public actor BookChatRouter {
             )
         }
 
-        if notBookScore >= 0.8 && notBookScore > bookScore {
+        if notBookScore >= 0.8, notBookScore > bookScore {
             return RoutingResult(
                 route: .notBook,
                 confidence: notBookScore,
@@ -239,7 +239,7 @@ public actor BookChatRouter {
         let hasQuestionWord = questionWords.contains { questionLower.hasPrefix($0) }
 
         // Short questions about entities are often book-related when reading
-        if hasQuestionWord && question.count < 50 {
+        if hasQuestionWord, question.count < 50 {
             return RoutingResult(
                 route: .ambiguous,
                 confidence: 0.5,
@@ -273,16 +273,14 @@ public actor BookChatRouter {
 
             // Calculate confidence based on hit strength
             let topEntitySalience = lookupResult.entities.first?.salience ?? 0
-            let confidence: Double
-
-            if totalHits >= 3 || topEntitySalience >= 0.7 {
-                confidence = 0.9
+            let confidence = if totalHits >= 3 || topEntitySalience >= 0.7 {
+                0.9
             } else if totalHits >= 2 || topEntitySalience >= 0.5 {
-                confidence = 0.8
+                0.8
             } else if totalHits >= 1 {
-                confidence = 0.7
+                0.7
             } else {
-                confidence = 0.5
+                0.5
             }
 
             // Extract suggested chapter IDs from concept map hits
@@ -295,7 +293,7 @@ public actor BookChatRouter {
             }
 
             // Build suggested queries from entity names
-            let suggestedQueries = lookupResult.entities.prefix(3).map { $0.text }
+            let suggestedQueries = lookupResult.entities.prefix(3).map(\.text)
 
             return RoutingResult(
                 route: .book,
@@ -317,8 +315,8 @@ public actor BookChatRouter {
 
 // MARK: - Execution Guardrails
 
-    /// Guardrails for tool execution in book chat
-public struct ExecutionGuardrails {
+/// Guardrails for tool execution in book chat
+public enum ExecutionGuardrails {
     /// Maximum number of tool calls per question
     public static let maxToolCalls = 8
 
@@ -335,9 +333,9 @@ public struct ExecutionGuardrails {
         public var evidenceChunksFound: Int
 
         public init() {
-            self.remaining = ExecutionGuardrails.maxToolCalls
-            self.escalationsUsed = 0
-            self.evidenceChunksFound = 0
+            remaining = ExecutionGuardrails.maxToolCalls
+            escalationsUsed = 0
+            evidenceChunksFound = 0
         }
 
         public mutating func useToolCall() -> Bool {

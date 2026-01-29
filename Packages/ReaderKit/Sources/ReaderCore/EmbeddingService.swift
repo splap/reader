@@ -1,5 +1,5 @@
-import Foundation
 import CoreML
+import Foundation
 import OSLog
 
 /// Service for generating text embeddings using Core ML
@@ -25,7 +25,7 @@ public actor EmbeddingService {
     /// Model configuration for performance
     private let modelConfig: MLModelConfiguration = {
         let config = MLModelConfiguration()
-        config.computeUnits = .cpuAndNeuralEngine  // Use Neural Engine when available
+        config.computeUnits = .cpuAndNeuralEngine // Use Neural Engine when available
         return config
     }()
 
@@ -150,7 +150,7 @@ public actor EmbeddingService {
         if model == nil {
             try await loadModel()
         }
-        guard let model = model else {
+        guard let model else {
             throw EmbeddingError.modelNotAvailable
         }
 
@@ -183,7 +183,7 @@ public actor EmbeddingService {
             var nextIndex = 0
 
             // Seed initial batch of tasks
-            for _ in 0..<min(concurrency, texts.count) {
+            for _ in 0 ..< min(concurrency, texts.count) {
                 let index = nextIndex
                 let tokens = tokenizedInputs[index]
                 nextIndex += 1
@@ -220,7 +220,7 @@ public actor EmbeddingService {
 
                 // Progress logging for large batches
                 let completed = results.filter { !$0.isEmpty }.count
-                if texts.count > 100 && completed % 100 == 0 && completed > 0 {
+                if texts.count > 100, completed % 100 == 0, completed > 0 {
                     Self.logger.debug("Embedded \(completed)/\(texts.count) texts")
                 }
             }
@@ -251,7 +251,7 @@ public actor EmbeddingService {
         // Create feature provider
         let features: [String: MLFeatureValue] = [
             "input_ids": MLFeatureValue(multiArray: inputIdsArray),
-            "attention_mask": MLFeatureValue(multiArray: attentionMaskArray)
+            "attention_mask": MLFeatureValue(multiArray: attentionMaskArray),
         ]
         let input = try MLDictionaryFeatureProvider(dictionary: features)
 
@@ -270,7 +270,8 @@ public actor EmbeddingService {
 
         for name in possibleNames {
             if let featureValue = output.featureValue(for: name),
-               let multiArray = featureValue.multiArrayValue {
+               let multiArray = featureValue.multiArrayValue
+            {
                 return extractFloatArraySync(from: multiArray)
             }
         }
@@ -278,7 +279,8 @@ public actor EmbeddingService {
         // If we have a single output, use that
         if let featureName = output.featureNames.first,
            let featureValue = output.featureValue(for: featureName),
-           let multiArray = featureValue.multiArrayValue {
+           let multiArray = featureValue.multiArrayValue
+        {
             return extractFloatArraySync(from: multiArray)
         }
 
@@ -290,22 +292,22 @@ public actor EmbeddingService {
         let count = multiArray.count
         var result = [Float](repeating: 0, count: count)
 
-        let shape = multiArray.shape.map { $0.intValue }
+        let shape = multiArray.shape.map(\.intValue)
 
-        if shape.count == 2 && shape[1] == Self.dimension {
+        if shape.count == 2, shape[1] == Self.dimension {
             // Shape [1, 384] - direct embedding
-            for i in 0..<Self.dimension {
+            for i in 0 ..< Self.dimension {
                 result[i] = multiArray[[0, i] as [NSNumber]].floatValue
             }
-        } else if shape.count == 3 && shape[2] == Self.dimension {
+        } else if shape.count == 3, shape[2] == Self.dimension {
             // Shape [1, seq_len, 384] - take [CLS] token embedding
-            for i in 0..<Self.dimension {
+            for i in 0 ..< Self.dimension {
                 result[i] = multiArray[[0, 0, i] as [NSNumber]].floatValue
             }
         } else {
             // Fallback: take first `dimension` values
             let extractCount = min(count, Self.dimension)
-            for i in 0..<extractCount {
+            for i in 0 ..< extractCount {
                 result[i] = multiArray[i].floatValue
             }
         }
@@ -329,7 +331,7 @@ public actor EmbeddingService {
 
     /// Generates embedding using the Core ML model
     private func generateEmbedding(for text: String) async throws -> [Float] {
-        guard let model = model else {
+        guard let model else {
             throw EmbeddingError.modelNotAvailable
         }
 
@@ -373,7 +375,7 @@ public actor EmbeddingService {
         // Create feature provider
         let features: [String: MLFeatureValue] = [
             "input_ids": MLFeatureValue(multiArray: inputIdsArray),
-            "attention_mask": MLFeatureValue(multiArray: attentionMaskArray)
+            "attention_mask": MLFeatureValue(multiArray: attentionMaskArray),
         ]
 
         return try MLDictionaryFeatureProvider(dictionary: features)
@@ -391,21 +393,21 @@ public actor EmbeddingService {
         let words = text.lowercased().split(separator: " ").map(String.init)
 
         // CLS token = 101, SEP token = 102, PAD token = 0
-        var inputIds: [Int32] = [101]  // [CLS]
+        var inputIds: [Int32] = [101] // [CLS]
         var attentionMask: [Int32] = [1]
 
         // Add word tokens (using [UNK] = 100 for unknown words)
         for _ in words.prefix(maxLength - 2) {
-            inputIds.append(100)  // [UNK]
+            inputIds.append(100) // [UNK]
             attentionMask.append(1)
         }
 
-        inputIds.append(102)  // [SEP]
+        inputIds.append(102) // [SEP]
         attentionMask.append(1)
 
         // Pad to maxLength
         while inputIds.count < maxLength {
-            inputIds.append(0)  // [PAD]
+            inputIds.append(0) // [PAD]
             attentionMask.append(0)
         }
 
@@ -419,7 +421,8 @@ public actor EmbeddingService {
 
         for name in possibleNames {
             if let featureValue = output.featureValue(for: name),
-               let multiArray = featureValue.multiArrayValue {
+               let multiArray = featureValue.multiArrayValue
+            {
                 return extractFloatArray(from: multiArray)
             }
         }
@@ -427,7 +430,8 @@ public actor EmbeddingService {
         // If we have a single output, use that
         if let featureName = output.featureNames.first,
            let featureValue = output.featureValue(for: featureName),
-           let multiArray = featureValue.multiArrayValue {
+           let multiArray = featureValue.multiArrayValue
+        {
             return extractFloatArray(from: multiArray)
         }
 
@@ -441,22 +445,22 @@ public actor EmbeddingService {
 
         // Handle different shapes - we want the embedding vector
         // Common shapes: [1, 384], [1, seq_len, 384]
-        let shape = multiArray.shape.map { $0.intValue }
+        let shape = multiArray.shape.map(\.intValue)
 
-        if shape.count == 2 && shape[1] == Self.dimension {
+        if shape.count == 2, shape[1] == Self.dimension {
             // Shape [1, 384] - direct embedding
-            for i in 0..<Self.dimension {
+            for i in 0 ..< Self.dimension {
                 result[i] = multiArray[[0, i] as [NSNumber]].floatValue
             }
-        } else if shape.count == 3 && shape[2] == Self.dimension {
+        } else if shape.count == 3, shape[2] == Self.dimension {
             // Shape [1, seq_len, 384] - take [CLS] token embedding (first position)
-            for i in 0..<Self.dimension {
+            for i in 0 ..< Self.dimension {
                 result[i] = multiArray[[0, 0, i] as [NSNumber]].floatValue
             }
         } else {
             // Fallback: take first `dimension` values
             let extractCount = min(count, Self.dimension)
-            for i in 0..<extractCount {
+            for i in 0 ..< extractCount {
                 result[i] = multiArray[i].floatValue
             }
         }
@@ -482,13 +486,13 @@ public enum EmbeddingError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .modelNotAvailable:
-            return "Embedding model is not available"
-        case .modelLoadFailed(let reason):
-            return "Failed to load embedding model: \(reason)"
-        case .tokenizationFailed(let reason):
-            return "Tokenization failed: \(reason)"
-        case .invalidOutput(let reason):
-            return "Invalid model output: \(reason)"
+            "Embedding model is not available"
+        case let .modelLoadFailed(reason):
+            "Failed to load embedding model: \(reason)"
+        case let .tokenizationFailed(reason):
+            "Tokenization failed: \(reason)"
+        case let .invalidOutput(reason):
+            "Invalid model output: \(reason)"
         }
     }
 }

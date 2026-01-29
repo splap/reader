@@ -45,13 +45,13 @@ final class BookIntegrityTests: XCTestCase {
         }
 
         print("Parsed: Chapter \(scrubberInfo.currentChapter) of \(scrubberInfo.totalChapters), " +
-              "Page \(scrubberInfo.currentPage) of \(scrubberInfo.pagesInChapter)")
+            "Page \(scrubberInfo.currentPage) of \(scrubberInfo.pagesInChapter)")
 
         // CRITICAL ASSERTION: Frankenstein must have a reasonable number of chapters
         // The novel has 32 spine items (letters + chapters). Verify we have substantial content.
         XCTAssertGreaterThan(scrubberInfo.totalChapters, 25,
-            "Frankenstein should have at least 25 chapters (got \(scrubberInfo.totalChapters)). " +
-            "If this is a very small number, book loading is broken.")
+                             "Frankenstein should have at least 25 chapters (got \(scrubberInfo.totalChapters)). " +
+                                 "If this is a very small number, book loading is broken.")
 
         // Note: The scrubber controls pages within the current chapter, not cross-chapter navigation
         // To navigate between chapters, use the TOC or swipe through the book
@@ -67,9 +67,9 @@ final class BookIntegrityTests: XCTestCase {
             if let afterInfo = parseScrubberLabel(afterScrubText) {
                 // Should be at the last page of the same chapter
                 XCTAssertEqual(afterInfo.currentChapter, scrubberInfo.currentChapter,
-                    "Scrubber should navigate within same chapter")
+                               "Scrubber should navigate within same chapter")
                 XCTAssertEqual(afterInfo.currentPage, afterInfo.pagesInChapter,
-                    "Should be on last page after scrubbing to 100%")
+                               "Should be on last page after scrubbing to 100%")
             }
         }
 
@@ -91,7 +91,7 @@ final class BookIntegrityTests: XCTestCase {
         let textElementCount = webViewStaticTexts.count
         print("Text elements: \(textElementCount)")
         XCTAssertGreaterThan(textElementCount, 0,
-            "Should have text content rendered")
+                             "Should have text content rendered")
 
         print("Frankenstein book integrity test passed - \(scrubberInfo.totalChapters) chapters verified")
     }

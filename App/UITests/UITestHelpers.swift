@@ -19,7 +19,7 @@ extension XCTestCase {
     ///   - title: Partial title to search for (e.g., "Frankenstein" matches "Frankenstein; Or, The Modern Prometheus")
     /// - Returns: The matching XCUIElement
     func findBook(in app: XCUIApplication, containing title: String) -> XCUIElement {
-        return app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", title)).firstMatch
+        app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", title)).firstMatch
     }
 
     /// Helper to open Frankenstein book and wait for it to load
@@ -46,10 +46,10 @@ extension XCTestCase {
     /// Parsed scrubber label information
     /// Format: "Page X of Y · Ch. A of B"
     struct ScrubberInfo {
-        let currentPage: Int       // X - current page within chapter
-        let pagesInChapter: Int    // Y - total pages in current chapter
-        let currentChapter: Int    // A - current chapter number
-        let totalChapters: Int     // B - total chapters in book
+        let currentPage: Int // X - current page within chapter
+        let pagesInChapter: Int // Y - total pages in current chapter
+        let currentChapter: Int // A - current chapter number
+        let totalChapters: Int // B - total chapters in book
 
         /// Estimates a global page position for comparison purposes
         /// This is approximate since chapters have varying page counts
@@ -68,7 +68,8 @@ extension XCTestCase {
         // The chapter part is optional for backwards compatibility
         let pattern = #"Page\s+(\d+)\s+of\s+(\d+)(?:\s*·\s*Ch\.\s*(\d+)\s+of\s+(\d+))?"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+        else {
             return nil
         }
 
@@ -78,7 +79,8 @@ extension XCTestCase {
         }
 
         guard let currentPage = extractInt(at: 1),
-              let pagesInChapter = extractInt(at: 2) else {
+              let pagesInChapter = extractInt(at: 2)
+        else {
             return nil
         }
 
@@ -164,7 +166,7 @@ extension XCTestCase {
         }
 
         // Now try to tap back
-        if backButton.waitForExistence(timeout: 3) && backButton.isHittable {
+        if backButton.waitForExistence(timeout: 3), backButton.isHittable {
             backButton.tap()
             sleep(1)
         }
@@ -204,5 +206,108 @@ extension XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
         XCTAssertEqual(result, .completed, "Expected label to contain '\(text)'")
+    }
+
+    // MARK: - Page Navigation Helpers
+
+    /// Reads the current page state by revealing the overlay and parsing the scrubber label.
+    /// Leaves the overlay visible after returning.
+    func readScrubberState(webView: XCUIElement, pageLabel: XCUIElement) -> ScrubberInfo? {
+        webView.tap()
+        sleep(1)
+        if !pageLabel.waitForExistence(timeout: 3) {
+            webView.tap()
+            sleep(1)
+        }
+        guard pageLabel.waitForExistence(timeout: 3) else { return nil }
+        return parseScrubberLabel(pageLabel.label)
+    }
+
+    /// Swipes forward one page and verifies the transition is correct.
+    /// - If not on the last page of the chapter, expects page to increment by 1 in the same chapter.
+    /// - If on the last page, expects transition to page 1 of the next chapter.
+    /// Returns the new state, or nil if verification failed.
+    @discardableResult
+    func swipeForwardAndVerify(
+        webView: XCUIElement,
+        pageLabel: XCUIElement,
+        from before: ScrubberInfo,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) -> ScrubberInfo? {
+        // Hide overlay, swipe, then read new state
+        webView.tap()
+        sleep(1)
+        webView.swipeLeft()
+        sleep(2)
+
+        guard let after = readScrubberState(webView: webView, pageLabel: pageLabel) else {
+            XCTFail("Could not read page state after forward swipe from page \(before.currentPage)/\(before.pagesInChapter) Ch.\(before.currentChapter)", file: file, line: line)
+            return nil
+        }
+
+        if before.currentPage < before.pagesInChapter {
+            // Within chapter: page should increment by 1
+            XCTAssertEqual(after.currentChapter, before.currentChapter,
+                           "Forward swipe within chapter: expected Ch.\(before.currentChapter), got Ch.\(after.currentChapter)",
+                           file: file, line: line)
+            XCTAssertEqual(after.currentPage, before.currentPage + 1,
+                           "Forward swipe: expected page \(before.currentPage + 1), got page \(after.currentPage)",
+                           file: file, line: line)
+        } else {
+            // At last page: should cross into next chapter at page 1
+            XCTAssertEqual(after.currentChapter, before.currentChapter + 1,
+                           "Forward swipe from last page: expected Ch.\(before.currentChapter + 1), got Ch.\(after.currentChapter)",
+                           file: file, line: line)
+            XCTAssertEqual(after.currentPage, 1,
+                           "Forward swipe into next chapter: expected page 1, got page \(after.currentPage)",
+                           file: file, line: line)
+        }
+
+        return after
+    }
+
+    /// Swipes backward one page and verifies the transition is correct.
+    /// - If not on the first page of the chapter, expects page to decrement by 1 in the same chapter.
+    /// - If on page 1, expects transition to the last page of the previous chapter.
+    /// Returns the new state, or nil if verification failed.
+    @discardableResult
+    func swipeBackwardAndVerify(
+        webView: XCUIElement,
+        pageLabel: XCUIElement,
+        from before: ScrubberInfo,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) -> ScrubberInfo? {
+        // Hide overlay, swipe, then read new state
+        webView.tap()
+        sleep(1)
+        webView.swipeRight()
+        sleep(2)
+
+        guard let after = readScrubberState(webView: webView, pageLabel: pageLabel) else {
+            XCTFail("Could not read page state after backward swipe from page \(before.currentPage)/\(before.pagesInChapter) Ch.\(before.currentChapter)", file: file, line: line)
+            return nil
+        }
+
+        if before.currentPage > 1 {
+            // Within chapter: page should decrement by 1
+            XCTAssertEqual(after.currentChapter, before.currentChapter,
+                           "Backward swipe within chapter: expected Ch.\(before.currentChapter), got Ch.\(after.currentChapter)",
+                           file: file, line: line)
+            XCTAssertEqual(after.currentPage, before.currentPage - 1,
+                           "Backward swipe: expected page \(before.currentPage - 1), got page \(after.currentPage)",
+                           file: file, line: line)
+        } else {
+            // At page 1: should cross into previous chapter at its last page
+            XCTAssertEqual(after.currentChapter, before.currentChapter - 1,
+                           "Backward swipe from page 1: expected Ch.\(before.currentChapter - 1), got Ch.\(after.currentChapter)",
+                           file: file, line: line)
+            XCTAssertEqual(after.currentPage, after.pagesInChapter,
+                           "Backward swipe into previous chapter: expected last page \(after.pagesInChapter), got page \(after.currentPage)",
+                           file: file, line: line)
+        }
+
+        return after
     }
 }

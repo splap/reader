@@ -1,7 +1,7 @@
 import Foundation
+import OSLog
 import ReaderCore
 import UIKit
-import OSLog
 
 final class ReaderViewModel: ObservableObject {
     private static let logger = Log.logger(category: "paging")
@@ -48,9 +48,9 @@ final class ReaderViewModel: ObservableObject {
         bookId: String? = nil,
         cfiPositionStore: CFIPositionStoring = UserDefaultsCFIPositionStore()
     ) {
-        self.engine = TextEngine(chapter: chapter)
+        engine = TextEngine(chapter: chapter)
         self.cfiPositionStore = cfiPositionStore
-        self.chapterId = chapter.id
+        chapterId = chapter.id
         self.bookId = bookId ?? chapter.id
 
         Self.debugLog("📍 ReaderViewModel init for bookId: \(self.bookId)")
@@ -79,11 +79,11 @@ final class ReaderViewModel: ObservableObject {
         let result = engine.paginate(pageSize: pageSize, insets: insets, fontScale: fontScale)
         pages = result.pages
 
-#if DEBUG
-        Self.logger.debug(
-            "paginate size=\(pageSize.width)x\(pageSize.height) pages=\(self.pages.count)"
-        )
-#endif
+        #if DEBUG
+            Self.logger.debug(
+                "paginate size=\(pageSize.width)x\(pageSize.height) pages=\(pages.count)"
+            )
+        #endif
     }
 
     func updateCurrentPage(_ index: Int, totalPages: Int = 0) {
@@ -94,7 +94,7 @@ final class ReaderViewModel: ObservableObject {
     }
 
     func navigateToPage(_ pageIndex: Int) {
-        guard pageIndex >= 0 && pageIndex < totalPages else { return }
+        guard pageIndex >= 0, pageIndex < totalPages else { return }
         currentPageIndex = pageIndex
     }
 
@@ -123,7 +123,7 @@ final class ReaderViewModel: ObservableObject {
         currentCFI = cfi
         currentSpineIndex = spineIndex
 
-        Self.logger.info("CFI SAVE: bookId=\(self.bookId) cfi=\(cfi)")
+        Self.logger.info("CFI SAVE: bookId=\(bookId) cfi=\(cfi)")
         Self.debugLog("📍 Saving CFI: \(cfi)")
 
         let position = CFIPosition(bookId: bookId, cfi: cfi, maxCfi: nil)

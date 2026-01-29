@@ -75,7 +75,7 @@ final class PaginationUITests: XCTestCase {
             print("Current page label: \(currentPageText)")
             // After 2 swipes, we should be on page 2 (0-indexed) or page 3 (1-indexed)
             XCTAssertTrue(currentPageText.contains("current page: 2") || currentPageText.contains("current page: 3"),
-                         "Should be on page 2 or 3, but showing: \(currentPageText)")
+                          "Should be on page 2 or 3, but showing: \(currentPageText)")
             print("Page alignment test passed - on correct page after swipes")
         } else {
             print("No debug overlay found - test inconclusive")
@@ -260,12 +260,12 @@ final class PaginationUITests: XCTestCase {
 
         // Verify we're still in the same chapter (font change shouldn't change chapter)
         XCTAssertEqual(increasedInfo.currentChapter, initialInfo.currentChapter,
-                      "Should still be in the same chapter after font resize")
+                       "Should still be in the same chapter after font resize")
 
         // Increasing font size should increase pages in this chapter
         XCTAssertGreaterThan(increasedInfo.pagesInChapter, initialInfo.pagesInChapter,
-                            "Increasing font size should INCREASE page count in chapter " +
-                            "(was \(initialInfo.pagesInChapter), now \(increasedInfo.pagesInChapter))")
+                             "Increasing font size should INCREASE page count in chapter " +
+                                 "(was \(initialInfo.pagesInChapter), now \(increasedInfo.pagesInChapter))")
 
         print("Text resize increases page count - test passed!")
     }
@@ -384,7 +384,7 @@ final class PaginationUITests: XCTestCase {
         centerPoint.doubleTap()
 
         // Wait a moment for any potential misalignment to occur
-        usleep(500000) // 0.5 seconds
+        usleep(500_000) // 0.5 seconds
 
         // Take screenshot after double-tap
         let screenshotAfter = XCUIScreen.main.screenshot()
@@ -413,7 +413,7 @@ final class PaginationUITests: XCTestCase {
             print("Performing second double-tap to toggle overlay back...")
 
             centerPoint.doubleTap()
-            usleep(500000)
+            usleep(500_000)
 
             let screenshotAfter2 = XCUIScreen.main.screenshot()
             let attachmentAfter2 = XCTAttachment(screenshot: screenshotAfter2)
@@ -439,7 +439,7 @@ final class PaginationUITests: XCTestCase {
             // If screenshots are very different in size, something is wrong
             // A shifted page would have different content visible
             XCTAssertLessThan(sizeDiffPercent, 5.0,
-                "Screenshots should be nearly identical after two double-taps. Size difference: \(sizeDiffPercent)%")
+                              "Screenshots should be nearly identical after two double-taps. Size difference: \(sizeDiffPercent)%")
 
             // More rigorous check: compare pixel data
             if beforeData != after2Data {
@@ -461,7 +461,7 @@ final class PaginationUITests: XCTestCase {
             let pageText = pageLabel.label
             print("Current page: \(pageText)")
             XCTAssertTrue(pageText.contains("Page 1"),
-                "Should still be on page 1 after double-taps, but showing: \(pageText)")
+                          "Should still be on page 1 after double-taps, but showing: \(pageText)")
             print("Still on page 1 - page alignment preserved!")
         }
 
@@ -524,7 +524,7 @@ final class PaginationUITests: XCTestCase {
         var nonUniformCount = 0
         let maxAllowedNonUniform = height / 20 // Allow 5% variance for UI elements at top/bottom
 
-        for y in 0..<height {
+        for y in 0 ..< height {
             let offset = (y * width + column) * 4
             let r = pixelData[offset]
             let g = pixelData[offset + 1]

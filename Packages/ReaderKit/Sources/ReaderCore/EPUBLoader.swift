@@ -16,15 +16,15 @@ public final class EPUBLoader {
         public var description: String {
             switch self {
             case .invalidArchive:
-                return "Invalid EPUB archive."
+                "Invalid EPUB archive."
             case .missingContainer:
-                return "Missing META-INF/container.xml."
+                "Missing META-INF/container.xml."
             case .missingPackage:
-                return "Missing package document."
+                "Missing package document."
             case .missingSpine:
-                return "Missing spine content in package."
+                "Missing spine content in package."
             case .emptyContent:
-                return "No readable XHTML content."
+                "No readable XHTML content."
             }
         }
     }
@@ -178,7 +178,7 @@ public final class EPUBLoader {
                 imageCache[filename] = imageData
             }
         }
-        Self.logger.debug("Cached \(self.imageCache.count) images from EPUB")
+        Self.logger.debug("Cached \(imageCache.count) images from EPUB")
     }
 
     private func extractCSS(from archive: Archive, package: EPUBPackageParser) {
@@ -186,14 +186,15 @@ public final class EPUBLoader {
             guard item.mediaType == "text/css" else { continue }
             let cssPath = package.resolve(item.href)
             if let cssData = try? data(for: cssPath, in: archive),
-               let cssString = String(data: cssData, encoding: .utf8) {
+               let cssString = String(data: cssData, encoding: .utf8)
+            {
                 cssCache[cssPath] = cssString
                 // Also cache by filename for relative references
                 let filename = (cssPath as NSString).lastPathComponent
                 cssCache[filename] = cssString
             }
         }
-        Self.logger.debug("Cached \(self.cssCache.count) CSS files from EPUB")
+        Self.logger.debug("Cached \(cssCache.count) CSS files from EPUB")
     }
 
     private func extractCSSForHTML(_ html: String, basePath: String) -> String? {
@@ -233,9 +234,9 @@ private final class EPUBContainerParser: NSObject, XMLParserDelegate {
     }
 
     func parser(
-        _ parser: XMLParser,
+        _: XMLParser,
         didStartElement elementName: String,
-        namespaceURI: String?,
+        namespaceURI _: String?,
         qualifiedName qName: String?,
         attributes attributeDict: [String: String]
     ) {
@@ -279,9 +280,9 @@ private final class EPUBPackageParser: NSObject, XMLParserDelegate {
     }
 
     func parser(
-        _ parser: XMLParser,
+        _: XMLParser,
         didStartElement elementName: String,
-        namespaceURI: String?,
+        namespaceURI _: String?,
         qualifiedName qName: String?,
         attributes attributeDict: [String: String]
     ) {
@@ -289,7 +290,8 @@ private final class EPUBPackageParser: NSObject, XMLParserDelegate {
         case "item":
             if let id = attributeDict["id"],
                let href = attributeDict["href"],
-               let mediaType = attributeDict["media-type"] {
+               let mediaType = attributeDict["media-type"]
+            {
                 manifest[id] = EPUBManifestItem(id: id, href: href, mediaType: mediaType)
             }
         case "itemref":
@@ -304,16 +306,16 @@ private final class EPUBPackageParser: NSObject, XMLParserDelegate {
         }
     }
 
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
+    func parser(_: XMLParser, foundCharacters string: String) {
         if readingTitle {
             titleBuffer.append(string)
         }
     }
 
     func parser(
-        _ parser: XMLParser,
+        _: XMLParser,
         didEndElement elementName: String,
-        namespaceURI: String?,
+        namespaceURI _: String?,
         qualifiedName qName: String?
     ) {
         if elementName.hasSuffix("title") || qName?.hasSuffix("title") == true {

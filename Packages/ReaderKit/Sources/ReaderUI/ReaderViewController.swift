@@ -1,8 +1,8 @@
-import UIKit
-import SwiftUI
 import Combine
-import ReaderCore
 import OSLog
+import ReaderCore
+import SwiftUI
+import UIKit
 
 public final class ReaderViewController: UIViewController {
     private static let logger = Log.logger(category: "reader-vc")
@@ -41,7 +41,7 @@ public final class ReaderViewController: UIViewController {
     private var totalSpineItems: Int = 0
 
     public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, initialSpineItemIndex: Int? = nil) {
-        self.viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
+        viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
         self.chapter = chapter
         self.bookId = bookId
         self.bookTitle = bookTitle
@@ -59,22 +59,23 @@ public final class ReaderViewController: UIViewController {
         do {
             let chapter = try EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)
             self.chapter = chapter
-            self.viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
+            viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
         } catch {
             Self.logger.error("Failed to load EPUB from \(epubURL.path): \(error)")
             let fallback = SampleChapter.make()
-            self.chapter = fallback
-            self.viewModel = ReaderViewModel(chapter: fallback, bookId: bookId)
+            chapter = fallback
+            viewModel = ReaderViewModel(chapter: fallback, bookId: bookId)
         }
         super.init(nibName: nil, bundle: nil)
         Self.logger.info("PERF: ReaderViewController init took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - initStart))s")
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    public override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
 
         view.backgroundColor = .systemBackground
@@ -100,19 +101,19 @@ public final class ReaderViewController: UIViewController {
         )
     }
 
-    public override func viewWillAppear(_ animated: Bool) {
+    override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
-    public override func viewWillDisappear(_ animated: Bool) {
+    override public func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
     private var hasInitialLayout = false
 
-    public override func viewDidLayoutSubviews() {
+    override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
         pageRenderer.viewController.view.frame = view.bounds
@@ -185,7 +186,7 @@ public final class ReaderViewController: UIViewController {
             }
         }
 
-        self.pageRenderer = renderer
+        pageRenderer = renderer
 
         let rendererVC = renderer.viewController
         addChild(rendererVC)
@@ -194,7 +195,6 @@ public final class ReaderViewController: UIViewController {
         rendererVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         rendererVC.didMove(toParent: self)
     }
-
 
     private func setupFloatingButtons() {
         // Create top bar container with blur background
@@ -296,7 +296,7 @@ public final class ReaderViewController: UIViewController {
             // Title label - centered between TOC button and chat button
             titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: tocButton.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: chatButton.leadingAnchor, constant: -12)
+            titleLabel.trailingAnchor.constraint(equalTo: chatButton.leadingAnchor, constant: -12),
         ])
     }
 
@@ -395,7 +395,7 @@ public final class ReaderViewController: UIViewController {
             // Read extent indicator aligned with slider track
             scrubberReadExtentView.centerYAnchor.constraint(equalTo: scrubberSlider.centerYAnchor),
             scrubberReadExtentView.leadingAnchor.constraint(equalTo: scrubberSlider.leadingAnchor),
-            scrubberReadExtentView.heightAnchor.constraint(equalToConstant: 4)
+            scrubberReadExtentView.heightAnchor.constraint(equalToConstant: 4),
         ])
     }
 
@@ -406,7 +406,7 @@ public final class ReaderViewController: UIViewController {
         view.addGestureRecognizer(tapGesture)
     }
 
-    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+    @objc private func handleTap(_: UITapGestureRecognizer) {
         // Toggle overlay visibility
         setOverlayVisible(!overlayVisible, animated: true)
     }
@@ -437,11 +437,10 @@ public final class ReaderViewController: UIViewController {
         scrubberSlider.value = sliderValue
 
         // Update page label with chapter progress
-        let pageText: String
-        if totalSpineItems > 1 {
-            pageText = "Page \(currentPage + 1) of \(totalPages) · Ch. \(currentSpineIndex + 1) of \(totalSpineItems)"
+        let pageText = if totalSpineItems > 1 {
+            "Page \(currentPage + 1) of \(totalPages) · Ch. \(currentSpineIndex + 1) of \(totalSpineItems)"
         } else {
-            pageText = "Page \(currentPage + 1) of \(totalPages)"
+            "Page \(currentPage + 1) of \(totalPages)"
         }
         pageLabel.text = pageText
 
@@ -450,7 +449,7 @@ public final class ReaderViewController: UIViewController {
     }
 
     /// Update the loading progress label (shows current spine item position)
-    private func updateLoadingProgress(loaded: Int, total: Int) {
+    private func updateLoadingProgress(loaded _: Int, total _: Int) {
         // Guard against being called before UI is set up
         guard loadingProgressLabel != nil else { return }
 
@@ -478,7 +477,7 @@ public final class ReaderViewController: UIViewController {
 
         // Get the spine item ID at the given index
         guard spineIndex < chapter.htmlSections.count else {
-            Self.logger.error("Initial spine item index \(spineIndex) out of range (max: \(self.chapter.htmlSections.count - 1))")
+            Self.logger.error("Initial spine item index \(spineIndex) out of range (max: \(chapter.htmlSections.count - 1))")
             return
         }
 
@@ -527,7 +526,7 @@ public final class ReaderViewController: UIViewController {
             .dropFirst()
             .sink { [weak self] newScale in
                 guard let self else { return }
-                self.pageRenderer.fontScale = newScale
+                pageRenderer.fontScale = newScale
             }
             .store(in: &cancellables)
 
@@ -540,7 +539,6 @@ public final class ReaderViewController: UIViewController {
             }
             .store(in: &cancellables)
     }
-
 
     @objc private func showSettings() {
         let settingsVC = ReaderSettingsViewController(
@@ -571,7 +569,7 @@ public final class ReaderViewController: UIViewController {
             bookTitle: bookTitle ?? "Unknown Book",
             bookAuthor: bookAuthor,
             currentSpineItemId: currentSpineItemId,
-            currentBlockId: nil  // CFI-based positioning doesn't track block IDs
+            currentBlockId: nil // CFI-based positioning doesn't track block IDs
         )
 
         let chatContainer = ChatContainerViewController(context: bookContext, selection: selection)
@@ -638,7 +636,6 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func switchRenderer(to mode: RenderMode) {
-
         // Mark that we're waiting for renderer to be ready
         awaitingRendererReady = true
 
@@ -659,10 +656,9 @@ public final class ReaderViewController: UIViewController {
         oldRendererVC.removeFromParent()
 
         // Create new renderer
-        let renderer: PageRenderer
-        switch mode {
+        let renderer: PageRenderer = switch mode {
         case .native:
-            renderer = NativePageViewController(
+            NativePageViewController(
                 htmlSections: chapter.htmlSections,
                 bookId: bookId,
                 bookTitle: bookTitle,
@@ -672,7 +668,7 @@ public final class ReaderViewController: UIViewController {
             )
 
         case .webView:
-            renderer = WebPageViewController(
+            WebPageViewController(
                 htmlSections: chapter.htmlSections,
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
@@ -719,7 +715,7 @@ public final class ReaderViewController: UIViewController {
             }
         }
 
-        self.pageRenderer = renderer
+        pageRenderer = renderer
 
         // Add new renderer
         let rendererVC = renderer.viewController
@@ -782,7 +778,7 @@ public final class ReaderViewController: UIViewController {
             overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor)
+            stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
         ])
 
         overlay.alpha = 0
@@ -803,17 +799,19 @@ public final class ReaderViewController: UIViewController {
 }
 
 // MARK: - UIGestureRecognizerDelegate
+
 extension ReaderViewController: UIGestureRecognizerDelegate {
     public func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        _: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer
     ) -> Bool {
         // Allow tap gesture to work alongside WebView gestures
-        return true
+        true
     }
 }
 
 // MARK: - FloatingButton
+
 private final class FloatingButton: UIButton {
     init(systemImage: String) {
         super.init(frame: .zero)
@@ -834,7 +832,8 @@ private final class FloatingButton: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 }

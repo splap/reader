@@ -1,6 +1,6 @@
 import Foundation
-import SQLite3
 import OSLog
+import SQLite3
 
 /// Persistent storage for page layout calculations
 public actor PageLayoutStore {
@@ -22,7 +22,7 @@ public actor PageLayoutStore {
         // Ensure directory exists
         try? FileManager.default.createDirectory(at: readerDir, withIntermediateDirectories: true)
 
-        self.dbPath = readerDir.appendingPathComponent("page_layouts.sqlite")
+        dbPath = readerDir.appendingPathComponent("page_layouts.sqlite")
     }
 
     /// Opens the database and creates tables if needed
@@ -46,7 +46,7 @@ public actor PageLayoutStore {
 
     /// Closes the database
     public func close() {
-        if let db = db {
+        if let db {
             sqlite3_close(db)
             self.db = nil
             Self.logger.info("PageLayoutStore closed")
@@ -56,26 +56,26 @@ public actor PageLayoutStore {
     /// Creates the page_layouts table
     private func createTables() throws {
         let createTable = """
-            CREATE TABLE IF NOT EXISTS page_layouts (
-                layout_key TEXT PRIMARY KEY,
-                book_id TEXT NOT NULL,
-                spine_item_id TEXT NOT NULL,
-                config_json TEXT NOT NULL,
-                offsets_json TEXT NOT NULL,
-                computed_at INTEGER NOT NULL,
-                version INTEGER NOT NULL
-            );
-            """
+        CREATE TABLE IF NOT EXISTS page_layouts (
+            layout_key TEXT PRIMARY KEY,
+            book_id TEXT NOT NULL,
+            spine_item_id TEXT NOT NULL,
+            config_json TEXT NOT NULL,
+            offsets_json TEXT NOT NULL,
+            computed_at INTEGER NOT NULL,
+            version INTEGER NOT NULL
+        );
+        """
 
         let createBookIndex = """
-            CREATE INDEX IF NOT EXISTS idx_layouts_book
-            ON page_layouts(book_id);
-            """
+        CREATE INDEX IF NOT EXISTS idx_layouts_book
+        ON page_layouts(book_id);
+        """
 
         let createSpineIndex = """
-            CREATE INDEX IF NOT EXISTS idx_layouts_spine
-            ON page_layouts(book_id, spine_item_id);
-            """
+        CREATE INDEX IF NOT EXISTS idx_layouts_spine
+        ON page_layouts(book_id, spine_item_id);
+        """
 
         for sql in [createTable, createBookIndex, createSpineIndex] {
             try execute(sql)
@@ -117,7 +117,8 @@ public actor PageLayoutStore {
 
         if sqlite3_step(stmt) == SQLITE_ROW {
             guard let configCStr = sqlite3_column_text(stmt, 0),
-                  let offsetsCStr = sqlite3_column_text(stmt, 1) else {
+                  let offsetsCStr = sqlite3_column_text(stmt, 1)
+            else {
                 return nil
             }
 
@@ -137,7 +138,8 @@ public actor PageLayoutStore {
             guard let configData = configJSON.data(using: .utf8),
                   let offsetsData = offsetsJSON.data(using: .utf8),
                   let storedConfig = try? decoder.decode(LayoutConfig.self, from: configData),
-                  let pageOffsets = try? decoder.decode([PageOffset].self, from: offsetsData) else {
+                  let pageOffsets = try? decoder.decode([PageOffset].self, from: offsetsData)
+            else {
                 Self.logger.warning("Failed to decode layout JSON")
                 return nil
             }
@@ -166,15 +168,16 @@ public actor PageLayoutStore {
         guard let configData = try? encoder.encode(layout.config),
               let configJSON = String(data: configData, encoding: .utf8),
               let offsetsData = try? encoder.encode(layout.pageOffsets),
-              let offsetsJSON = String(data: offsetsData, encoding: .utf8) else {
+              let offsetsJSON = String(data: offsetsData, encoding: .utf8)
+        else {
             throw PageLayoutStoreError.databaseError("Failed to encode layout to JSON")
         }
 
         let sql = """
-            INSERT OR REPLACE INTO page_layouts
-            (layout_key, book_id, spine_item_id, config_json, offsets_json, computed_at, version)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
-            """
+        INSERT OR REPLACE INTO page_layouts
+        (layout_key, book_id, spine_item_id, config_json, offsets_json, computed_at, version)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+        """
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -305,10 +308,10 @@ public enum PageLayoutStoreError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .databaseError(let message):
-            return "Database error: \(message)"
+        case let .databaseError(message):
+            "Database error: \(message)"
         case .notFound:
-            return "Layout not found"
+            "Layout not found"
         }
     }
 }

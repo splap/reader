@@ -1,5 +1,5 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class ExecutionGuardrailsTests: XCTestCase {
     func testToolBudgetTracksCallsAndEvidence() {
@@ -8,7 +8,7 @@ final class ExecutionGuardrailsTests: XCTestCase {
         XCTAssertTrue(budget.canMakeToolCall)
         XCTAssertFalse(budget.hasEvidence)
 
-        for _ in 0..<ExecutionGuardrails.maxToolCalls {
+        for _ in 0 ..< ExecutionGuardrails.maxToolCalls {
             XCTAssertTrue(budget.useToolCall())
         }
 

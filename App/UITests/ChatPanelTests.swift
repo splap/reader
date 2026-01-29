@@ -415,7 +415,7 @@ final class ChatPanelTests: XCTestCase {
         // After expanding, look for the expanded version
         let executionDetailsExpanded = app.staticTexts["execution-details-expanded"]
         XCTAssertTrue(executionDetailsExpanded.waitForExistence(timeout: 5),
-                     "Execution details should be expanded")
+                      "Execution details should be expanded")
         print("Execution details expanded")
 
         // Take screenshot after expanding
@@ -447,15 +447,15 @@ final class ChatPanelTests: XCTestCase {
         // Primary assertion: The header should be visible after expanding
         // If the execution details are long, at minimum the first line should be visible
         XCTAssertTrue(isPartiallyVisible,
-                     "Execution details should be at least partially visible after expansion. " +
-                     "Frame: \(frameAfterExpand), Table: \(tableFrame)")
+                      "Execution details should be at least partially visible after expansion. " +
+                          "Frame: \(frameAfterExpand), Table: \(tableFrame)")
 
         // If we can see the element, also verify it contains the expected header text
         let expandedText = executionDetailsExpanded.label
         XCTAssertTrue(expandedText.contains("Execution Details"),
-                     "Expanded section should show 'Execution Details' header")
+                      "Expanded section should show 'Execution Details' header")
         XCTAssertTrue(expandedText.contains("down arrow") || expandedText.contains("\u{25BC}") || expandedText.contains("v"),
-                     "Expanded section should show down arrow indicator")
+                      "Expanded section should show down arrow indicator")
 
         print("Execution details scroll test passed - header is visible after expansion")
 
@@ -528,7 +528,7 @@ final class ChatPanelTests: XCTestCase {
         let expandedFrame = executionDetailsExpanded.frame
         let tableFrame = chatTable.frame
         XCTAssertTrue(expandedFrame.maxY > tableFrame.minY,
-                     "Expanded execution details should be visible")
+                      "Expanded execution details should be visible")
         print("Toggle 1: Expanded and visible")
 
         // Toggle 2: Collapse
@@ -549,7 +549,7 @@ final class ChatPanelTests: XCTestCase {
         // Final verification: header should still be visible
         let finalFrame = executionDetailsExpanded.frame
         XCTAssertTrue(finalFrame.maxY > tableFrame.minY,
-                     "Execution details should remain visible after multiple toggles")
+                      "Execution details should remain visible after multiple toggles")
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)

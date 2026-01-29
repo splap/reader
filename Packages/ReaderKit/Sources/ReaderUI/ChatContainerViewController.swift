@@ -1,6 +1,6 @@
-import UIKit
-import ReaderCore
 import OSLog
+import ReaderCore
+import UIKit
 
 /// Container view controller that manages the conversation drawer and chat view
 public final class ChatContainerViewController: UIViewController {
@@ -24,17 +24,18 @@ public final class ChatContainerViewController: UIViewController {
 
     public init(context: BookContext, selection: SelectionPayload? = nil) {
         self.context = context
-        self.initialSelection = selection
+        initialSelection = selection
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) {
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     // MARK: - Lifecycle
 
-    public override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
 
         view.backgroundColor = .systemBackground
@@ -70,7 +71,7 @@ public final class ChatContainerViewController: UIViewController {
             drawerViewController.view.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
             drawerViewController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             drawerViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14),
-            drawerWidthConstraint
+            drawerWidthConstraint,
         ])
     }
 
@@ -93,7 +94,7 @@ public final class ChatContainerViewController: UIViewController {
             chatNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
             chatNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             chatNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            chatNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            chatNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
@@ -112,9 +113,9 @@ public final class ChatContainerViewController: UIViewController {
     // MARK: - Actions
 
     @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
-        if gesture.direction == .right && !isDrawerVisible {
+        if gesture.direction == .right, !isDrawerVisible {
             showDrawer()
-        } else if gesture.direction == .left && isDrawerVisible {
+        } else if gesture.direction == .left, isDrawerVisible {
             hideDrawer()
         }
     }
@@ -165,7 +166,7 @@ public final class ChatContainerViewController: UIViewController {
             newNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
             newNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             newNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
         // Force layout so new view is ready
@@ -204,7 +205,7 @@ public final class ChatContainerViewController: UIViewController {
             newNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
             newNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             newNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
         // Force layout so new view is ready

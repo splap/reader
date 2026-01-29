@@ -1,6 +1,6 @@
+@testable import ReaderCore
 import XCTest
 import ZIPFoundation
-@testable import ReaderCore
 
 final class EPUBLoaderTests: XCTestCase {
     func testEPUBLoaderReadsSingleChapter() throws {
@@ -10,7 +10,7 @@ final class EPUBLoaderTests: XCTestCase {
 
         // Check that content is loaded in htmlSections (used by WebView renderer)
         XCTAssertFalse(chapter.htmlSections.isEmpty, "Chapter should have HTML sections")
-        let allHTML = chapter.htmlSections.map { $0.html }.joined()
+        let allHTML = chapter.htmlSections.map(\.html).joined()
         XCTAssertTrue(allHTML.contains("Hello from EPUB"), "HTML should contain test content")
         XCTAssertEqual(chapter.title, "Sample EPUB")
     }

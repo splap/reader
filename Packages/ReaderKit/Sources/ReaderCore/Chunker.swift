@@ -1,7 +1,7 @@
 import Foundation
 
 /// Chunks blocks into ~800 token groups with 10% overlap
-public struct Chunker {
+public enum Chunker {
     /// Target tokens per chunk
     public static let targetTokens = 800
 
@@ -28,14 +28,14 @@ public struct Chunker {
         var runningOffset = 0
         for block in blocks {
             blockStartOffsets[block.id] = runningOffset
-            runningOffset += block.textContent.count + 1  // +1 for space/newline between blocks
+            runningOffset += block.textContent.count + 1 // +1 for space/newline between blocks
         }
 
         for block in blocks {
             let blockTokens = Chunk.estimateTokens(block.textContent)
 
             // If adding this block would exceed target, emit current chunk
-            if currentTokens + blockTokens > targetTokens && !currentBlocks.isEmpty {
+            if currentTokens + blockTokens > targetTokens, !currentBlocks.isEmpty {
                 let chunk = createChunk(
                     from: currentBlocks,
                     bookId: bookId,
@@ -104,8 +104,8 @@ public struct Chunker {
         ordinal: Int,
         blockStartOffsets: [String: Int]
     ) -> Chunk {
-        let text = blocks.map { $0.textContent }.joined(separator: "\n")
-        let blockIds = blocks.map { $0.id }
+        let text = blocks.map(\.textContent).joined(separator: "\n")
+        let blockIds = blocks.map(\.id)
 
         // Calculate end offset
         let lastBlock = blocks.last!
@@ -133,7 +133,7 @@ public struct Chunker {
 
         for chapter in chapters {
             // Collect all blocks from all HTML sections in this chapter
-            let blocks = chapter.htmlSections.flatMap { $0.blocks }
+            let blocks = chapter.htmlSections.flatMap(\.blocks)
             let chapterId = chapter.id
 
             let chapterChunks = chunk(blocks: blocks, bookId: bookId, chapterId: chapterId)

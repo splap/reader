@@ -26,7 +26,7 @@ public actor MapService {
             throw MapError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             throw MapError.httpError(statusCode: httpResponse.statusCode)
         }
 
@@ -58,7 +58,7 @@ public actor MapService {
             throw MapError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
             throw MapError.httpError(statusCode: httpResponse.statusCode)
         }
 
@@ -67,7 +67,6 @@ public actor MapService {
 
         return result.toMapPlace()
     }
-
 }
 
 // MARK: - Response Types
@@ -194,13 +193,13 @@ public enum MapError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidQuery:
-            return "Invalid map query"
+            "Invalid map query"
         case .invalidResponse:
-            return "Invalid response from map service"
-        case .notFound(let query):
-            return "No location found for '\(query)'"
-        case .httpError(let statusCode):
-            return "Map service returned HTTP \(statusCode)"
+            "Invalid response from map service"
+        case let .notFound(query):
+            "No location found for '\(query)'"
+        case let .httpError(statusCode):
+            "Map service returned HTTP \(statusCode)"
         }
     }
 }

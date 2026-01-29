@@ -3,7 +3,7 @@ import Foundation
 /// Represents a navigation point from an NCX file
 public struct NCXNavigationPoint {
     public let label: String
-    public let contentSrc: String  // e.g., "xhtml/Chapter01.xhtml" or "Chapter01.xhtml#ch1"
+    public let contentSrc: String // e.g., "xhtml/Chapter01.xhtml" or "Chapter01.xhtml#ch1"
 
     /// Extract just the file path without fragment identifier
     public var filePath: String {
@@ -41,10 +41,10 @@ public final class NCXParser: NSObject, XMLParserDelegate {
     // MARK: - XMLParserDelegate
 
     public func parser(
-        _ parser: XMLParser,
+        _: XMLParser,
         didStartElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?,
+        namespaceURI _: String?,
+        qualifiedName _: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
         switch elementName {
@@ -73,21 +73,21 @@ public final class NCXParser: NSObject, XMLParserDelegate {
         }
     }
 
-    public func parser(_ parser: XMLParser, foundCharacters string: String) {
+    public func parser(_: XMLParser, foundCharacters string: String) {
         if isInText {
             currentElementContent += string
         }
     }
 
     public func parser(
-        _ parser: XMLParser,
+        _: XMLParser,
         didEndElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?
+        namespaceURI _: String?,
+        qualifiedName _: String?
     ) {
         switch elementName {
         case "text":
-            if isInText && isInNavLabel {
+            if isInText, isInNavLabel {
                 currentLabel = currentElementContent.trimmingCharacters(in: .whitespacesAndNewlines)
                 isInText = false
             }

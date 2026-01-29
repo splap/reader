@@ -31,7 +31,7 @@ public actor VectorStore {
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let readerDir = appSupport.appendingPathComponent("com.splap.reader", isDirectory: true)
-        self.storeDirectory = readerDir.appendingPathComponent("vectors", isDirectory: true)
+        storeDirectory = readerDir.appendingPathComponent("vectors", isDirectory: true)
 
         // Ensure directory exists
         try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
@@ -63,10 +63,10 @@ public actor VectorStore {
 
         // Create index with HNSW parameters
         let index = try USearchIndex.make(
-            metric: .cos,           // Cosine similarity for text embeddings
+            metric: .cos, // Cosine similarity for text embeddings
             dimensions: Self.dimension,
-            connectivity: 16,       // M parameter - connections per node
-            quantization: .f32      // Full precision for quality
+            connectivity: 16, // M parameter - connections per node
+            quantization: .f32 // Full precision for quality
         )
 
         // Reserve capacity
@@ -141,7 +141,7 @@ public actor VectorStore {
 
         var matches: [(chunkId: String, score: Float)] = []
 
-        for i in 0..<keys.count {
+        for i in 0 ..< keys.count {
             let key = keys[i]
             let distance = distances[i]
 
@@ -321,14 +321,14 @@ public enum VectorStoreError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .indexNotFound(let bookId):
-            return "Vector index not found for book: \(bookId)"
-        case .invalidDimension(let expected, let actual):
-            return "Invalid embedding dimension: expected \(expected), got \(actual)"
-        case .mismatchedCounts(let chunks, let embeddings):
-            return "Mismatched counts: \(chunks) chunks but \(embeddings) embeddings"
-        case .searchFailed(let message):
-            return "Search failed: \(message)"
+        case let .indexNotFound(bookId):
+            "Vector index not found for book: \(bookId)"
+        case let .invalidDimension(expected, actual):
+            "Invalid embedding dimension: expected \(expected), got \(actual)"
+        case let .mismatchedCounts(chunks, embeddings):
+            "Mismatched counts: \(chunks) chunks but \(embeddings) embeddings"
+        case let .searchFailed(message):
+            "Search failed: \(message)"
         }
     }
 }

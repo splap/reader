@@ -1,7 +1,7 @@
 import Foundation
-import WebKit
 import OSLog
 import ReaderCore
+import WebKit
 
 /// Custom URL scheme handler that serves EPUB images from an in-memory cache
 /// This avoids embedding images as base64 in HTML, which causes massive performance issues
@@ -25,7 +25,7 @@ public final class EPUBURLSchemeHandler: NSObject, WKURLSchemeHandler {
         self.imageCache = imageCache
     }
 
-    public func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+    public func webView(_: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
@@ -54,7 +54,7 @@ public final class EPUBURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    public func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+    public func webView(_: WKWebView, stop _: any WKURLSchemeTask) {
         // Nothing to clean up for synchronous requests
     }
 

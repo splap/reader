@@ -122,11 +122,11 @@ final class LibraryTests: XCTestCase {
 
         // Verify we have substantial book content (Frankenstein has 32 chapters)
         XCTAssertGreaterThan(scrubberInfo.totalChapters, 20,
-            "Should have substantial book content loaded (got \(scrubberInfo.totalChapters) chapters)")
+                             "Should have substantial book content loaded (got \(scrubberInfo.totalChapters) chapters)")
         XCTAssertGreaterThan(scrubberInfo.pagesInChapter, 0,
-            "Current chapter should have pages")
+                             "Current chapter should have pages")
 
         print("Book content verified successfully - \(scrubberInfo.totalChapters) chapters, " +
-              "page \(scrubberInfo.currentPage) of \(scrubberInfo.pagesInChapter) in chapter \(scrubberInfo.currentChapter)")
+            "page \(scrubberInfo.currentPage) of \(scrubberInfo.pagesInChapter) in chapter \(scrubberInfo.currentChapter)")
     }
 }

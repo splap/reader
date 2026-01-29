@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 /// A text chunk representing a group of blocks for search and chat
 /// Chunks are ~800 tokens with 10% overlap between adjacent chunks
@@ -40,11 +40,11 @@ public struct Chunk: Identifiable, Codable, Equatable {
         endOffset: Int,
         ordinal: Int
     ) {
-        self.id = Chunk.generateId(bookId: bookId, chapterId: chapterId, ordinal: ordinal)
+        id = Chunk.generateId(bookId: bookId, chapterId: chapterId, ordinal: ordinal)
         self.bookId = bookId
         self.chapterId = chapterId
         self.text = text
-        self.tokenCount = Chunk.estimateTokens(text)
+        tokenCount = Chunk.estimateTokens(text)
         self.blockIds = blockIds
         self.startOffset = startOffset
         self.endOffset = endOffset
@@ -52,7 +52,7 @@ public struct Chunk: Identifiable, Codable, Equatable {
     }
 
     /// Internal initializer for loading from database with pre-computed values
-    internal init(
+    init(
         id: String,
         bookId: String,
         chapterId: String,

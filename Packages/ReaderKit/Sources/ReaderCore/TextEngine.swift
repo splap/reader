@@ -1,6 +1,6 @@
 import Foundation
-import UIKit
 import OSLog
+import UIKit
 
 public struct PaginationResult {
     public let pages: [Page]

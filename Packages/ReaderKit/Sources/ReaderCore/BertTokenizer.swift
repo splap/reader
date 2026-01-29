@@ -59,28 +59,28 @@ public final class BertTokenizer {
         guard let vocabDict = json["vocab"] as? [String: Int] else {
             throw TokenizerError.invalidVocabulary
         }
-        self.vocab = vocabDict
+        vocab = vocabDict
 
         // Create reverse mapping
         var reverseVocab: [Int: String] = [:]
         for (token, id) in vocabDict {
             reverseVocab[id] = token
         }
-        self.idToToken = reverseVocab
+        idToToken = reverseVocab
 
         // Parse special tokens
         guard let specialTokens = json["special_tokens"] as? [String: Any] else {
             throw TokenizerError.missingSpecialTokens
         }
 
-        self.clsTokenId = specialTokens["cls_token_id"] as? Int ?? 101
-        self.sepTokenId = specialTokens["sep_token_id"] as? Int ?? 102
-        self.padTokenId = specialTokens["pad_token_id"] as? Int ?? 0
-        self.unkTokenId = specialTokens["unk_token_id"] as? Int ?? 100
+        clsTokenId = specialTokens["cls_token_id"] as? Int ?? 101
+        sepTokenId = specialTokens["sep_token_id"] as? Int ?? 102
+        padTokenId = specialTokens["pad_token_id"] as? Int ?? 0
+        unkTokenId = specialTokens["unk_token_id"] as? Int ?? 100
 
         // Parse config
-        self.maxLength = json["model_max_length"] as? Int ?? 512
-        self.doLowerCase = json["do_lower_case"] as? Bool ?? true
+        maxLength = json["model_max_length"] as? Int ?? 512
+        doLowerCase = json["do_lower_case"] as? Bool ?? true
 
         Self.logger.info("Loaded tokenizer with \(self.vocab.count) tokens")
     }
@@ -156,10 +156,10 @@ public final class BertTokenizer {
 
             while start < word.endIndex {
                 var end = word.endIndex
-                var curSubstr: String? = nil
+                var curSubstr: String?
 
                 while start < end {
-                    var substr = String(word[start..<end])
+                    var substr = String(word[start ..< end])
                     if start > word.startIndex {
                         substr = "##" + substr
                     }
@@ -239,11 +239,11 @@ public enum TokenizerError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidVocabulary:
-            return "Invalid vocabulary format in tokenizer file"
+            "Invalid vocabulary format in tokenizer file"
         case .missingSpecialTokens:
-            return "Missing special tokens in tokenizer file"
+            "Missing special tokens in tokenizer file"
         case .vocabFileNotFound:
-            return "Tokenizer vocabulary file not found"
+            "Tokenizer vocabulary file not found"
         }
     }
 }

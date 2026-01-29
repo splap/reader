@@ -1,18 +1,18 @@
-import XCTest
 @testable import ReaderCore
+import XCTest
 
 final class ChunkerTests: XCTestCase {
     func testTokenEstimation() {
         // ~4 chars per token
-        XCTAssertEqual(Chunk.estimateTokens(""), 1)  // Minimum of 1
+        XCTAssertEqual(Chunk.estimateTokens(""), 1) // Minimum of 1
         XCTAssertEqual(Chunk.estimateTokens("word"), 1)
-        XCTAssertEqual(Chunk.estimateTokens("Hello, world!"), 3)  // 13 chars / 4 = 3
+        XCTAssertEqual(Chunk.estimateTokens("Hello, world!"), 3) // 13 chars / 4 = 3
         XCTAssertEqual(Chunk.estimateTokens(String(repeating: "a", count: 400)), 100)
     }
 
     func testChunkingWithSmallBlocks() {
         // Create blocks that fit within one chunk
-        let blocks = (0..<5).map { ordinal in
+        let blocks = (0 ..< 5).map { ordinal in
             Block(
                 spineItemId: "chapter1",
                 type: .paragraph,
@@ -33,8 +33,8 @@ final class ChunkerTests: XCTestCase {
 
     func testChunkingWithLargeBlocks() {
         // Create blocks that exceed chunk size (800 tokens = ~3200 chars)
-        let largeText = String(repeating: "Lorem ipsum dolor sit amet. ", count: 150)  // ~4350 chars
-        let blocks = (0..<3).map { ordinal in
+        let largeText = String(repeating: "Lorem ipsum dolor sit amet. ", count: 150) // ~4350 chars
+        let blocks = (0 ..< 3).map { ordinal in
             Block(
                 spineItemId: "chapter1",
                 type: .paragraph,
@@ -50,7 +50,7 @@ final class ChunkerTests: XCTestCase {
         XCTAssertGreaterThan(chunks.count, 1)
 
         // Verify chunk IDs are unique
-        let ids = Set(chunks.map { $0.id })
+        let ids = Set(chunks.map(\.id))
         XCTAssertEqual(ids.count, chunks.count)
 
         // Verify ordinals are sequential
@@ -61,11 +61,11 @@ final class ChunkerTests: XCTestCase {
 
     func testChunkOverlap() {
         // Create enough blocks to trigger overlap
-        let blocks = (0..<20).map { ordinal in
+        let blocks = (0 ..< 20).map { ordinal in
             Block(
                 spineItemId: "chapter1",
                 type: .paragraph,
-                textContent: String(repeating: "Word ", count: 200) + "[\(ordinal)]",  // ~1000 chars each
+                textContent: String(repeating: "Word ", count: 200) + "[\(ordinal)]", // ~1000 chars each
                 htmlContent: "<p>\(String(repeating: "Word ", count: 200))[\(ordinal)]</p>",
                 ordinal: ordinal
             )
@@ -92,10 +92,10 @@ final class ChunkerTests: XCTestCase {
 
     func testChunkBookMultipleChapters() {
         let blocks1 = [
-            Block(spineItemId: "ch1", type: .paragraph, textContent: "Chapter 1 content", htmlContent: "<p>Chapter 1 content</p>", ordinal: 0)
+            Block(spineItemId: "ch1", type: .paragraph, textContent: "Chapter 1 content", htmlContent: "<p>Chapter 1 content</p>", ordinal: 0),
         ]
         let blocks2 = [
-            Block(spineItemId: "ch2", type: .paragraph, textContent: "Chapter 2 content", htmlContent: "<p>Chapter 2 content</p>", ordinal: 0)
+            Block(spineItemId: "ch2", type: .paragraph, textContent: "Chapter 2 content", htmlContent: "<p>Chapter 2 content</p>", ordinal: 0),
         ]
 
         let chapter1 = Chapter(

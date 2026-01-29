@@ -63,7 +63,7 @@ public struct Entity: Codable, Identifiable, Equatable {
         return Entity(
             id: candidate.id,
             text: candidate.text,
-            type: nil,  // Type will be labeled by LLM later
+            type: nil, // Type will be labeled by LLM later
             chapterIds: candidate.chapterIds,
             frequency: candidate.frequency,
             evidence: evidence,
@@ -137,7 +137,7 @@ public struct BookEvent: Codable, Identifiable, Equatable {
 
     /// Generates a deterministic label from participants when no LLM label available
     public var displayLabel: String {
-        if let label = label {
+        if let label {
             return label
         }
 

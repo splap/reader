@@ -37,15 +37,15 @@ public struct AgentMessage: Codable {
     func toDictionary() -> [String: Any] {
         var dict: [String: Any] = ["role": role.rawValue]
 
-        if let content = content {
+        if let content {
             dict["content"] = content
         }
 
-        if let toolCallId = toolCallId {
+        if let toolCallId {
             dict["tool_call_id"] = toolCallId
         }
 
-        if let toolCalls = toolCalls, !toolCalls.isEmpty {
+        if let toolCalls, !toolCalls.isEmpty {
             dict["tool_calls"] = toolCalls.map { $0.toDictionary() }
         }
 
@@ -68,13 +68,13 @@ public struct ToolCall: Codable {
     }
 
     func toDictionary() -> [String: Any] {
-        return [
+        [
             "id": id,
             "type": type,
             "function": [
                 "name": function.name,
-                "arguments": function.arguments
-            ]
+                "arguments": function.arguments,
+            ],
         ]
     }
 }
@@ -104,14 +104,14 @@ public struct ToolDefinition {
     public let function: FunctionDefinition
 
     public init(function: FunctionDefinition) {
-        self.type = "function"
+        type = "function"
         self.function = function
     }
 
     func toDictionary() -> [String: Any] {
-        return [
+        [
             "type": type,
-            "function": function.toDictionary()
+            "function": function.toDictionary(),
         ]
     }
 }
@@ -129,10 +129,10 @@ public struct FunctionDefinition {
     }
 
     func toDictionary() -> [String: Any] {
-        return [
+        [
             "name": name,
             "description": description,
-            "parameters": parameters.toDictionary()
+            "parameters": parameters.toDictionary(),
         ]
     }
 }
@@ -162,7 +162,7 @@ public struct JSONSchema {
         return [
             "type": type,
             "properties": propsDict,
-            "required": required
+            "required": required,
         ]
     }
 }
@@ -195,17 +195,17 @@ public struct PropertySchema {
     func toDictionary() -> [String: Any] {
         var dict: [String: Any] = [
             "type": type,
-            "description": description
+            "description": description,
         ]
-        if let enumValues = enumValues {
+        if let enumValues {
             dict["enum"] = enumValues
         }
-        if let itemsType = itemsType {
+        if let itemsType {
             var itemsDict: [String: Any] = ["type": itemsType]
-            if let itemsDescription = itemsDescription {
+            if let itemsDescription {
                 itemsDict["description"] = itemsDescription
             }
-            if let itemsEnumValues = itemsEnumValues {
+            if let itemsEnumValues {
                 itemsDict["enum"] = itemsEnumValues
             }
             dict["items"] = itemsDict
@@ -331,16 +331,16 @@ public struct LLMExecution: Codable {
 
 /// A step in the execution timeline
 public enum TimelineStep: Codable {
-    case user(String)  // User message content
+    case user(String) // User message content
     case llm(LLMExecution)
     case tool(ToolExecution)
-    case assistant(String)  // Final assistant response
+    case assistant(String) // Final assistant response
 
     public var executionTime: TimeInterval {
         switch self {
-        case .user, .assistant: return 0
-        case .llm(let exec): return exec.executionTime
-        case .tool(let exec): return exec.executionTime
+        case .user, .assistant: 0
+        case let .llm(exec): exec.executionTime
+        case let .tool(exec): exec.executionTime
         }
     }
 }

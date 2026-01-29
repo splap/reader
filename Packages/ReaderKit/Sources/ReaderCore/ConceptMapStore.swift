@@ -17,7 +17,7 @@ public actor ConceptMapStore {
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let readerDir = appSupport.appendingPathComponent("com.splap.reader", isDirectory: true)
-        self.storeDirectory = readerDir.appendingPathComponent("concept_maps", isDirectory: true)
+        storeDirectory = readerDir.appendingPathComponent("concept_maps", isDirectory: true)
 
         // Ensure directory exists
         try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
@@ -119,7 +119,7 @@ public actor ConceptMapStore {
 // MARK: - Concept Map Builder
 
 /// Builds a concept map from book data
-public struct ConceptMapBuilder {
+public enum ConceptMapBuilder {
     private static let logger = Logger(subsystem: "com.splap.reader", category: "ConceptMapBuilder")
 
     /// Builds a complete concept map for a book
@@ -146,7 +146,7 @@ public struct ConceptMapBuilder {
 
         // Step 3: Compute chapter embeddings (mean of chunk embeddings if available)
         var chapterCentroids: [String: [Float]]? = nil
-        if let chunkEmbeddings = chunkEmbeddings, !chunkEmbeddings.isEmpty {
+        if let chunkEmbeddings, !chunkEmbeddings.isEmpty {
             chapterCentroids = computeChapterCentroids(chapters: chapters, chunkEmbeddings: chunkEmbeddings)
         }
 
@@ -161,7 +161,7 @@ public struct ConceptMapBuilder {
         let events = detectEvents(entities: entities, entityCandidates: entityCandidates)
 
         // Compute stats
-        let totalBlocks = chapters.flatMap { $0.htmlSections.flatMap { $0.blocks } }.count
+        let totalBlocks = chapters.flatMap { $0.htmlSections.flatMap(\.blocks) }.count
         let processingTimeMs = Int(Date().timeIntervalSince(startTime) * 1000)
 
         let stats = ConceptMap.BuildStats(
@@ -206,20 +206,20 @@ public struct ConceptMapBuilder {
                 var centroid = [Float](repeating: 0, count: dim)
 
                 for embedding in chapterEmbeddings {
-                    for i in 0..<dim {
+                    for i in 0 ..< dim {
                         centroid[i] += embedding[i]
                     }
                 }
 
                 let count = Float(chapterEmbeddings.count)
-                for i in 0..<dim {
+                for i in 0 ..< dim {
                     centroid[i] /= count
                 }
 
                 // L2 normalize
                 let norm = sqrt(centroid.reduce(0) { $0 + $1 * $1 })
                 if norm > 0 {
-                    for i in 0..<dim {
+                    for i in 0 ..< dim {
                         centroid[i] /= norm
                     }
                 }
@@ -269,12 +269,12 @@ public struct ConceptMapBuilder {
                 // Create event
                 let participants = [
                     entityTexts[candidate.id] ?? candidate.text,
-                    entityTexts[otherEntityId] ?? otherEntityId
+                    entityTexts[otherEntityId] ?? otherEntityId,
                 ]
 
                 events.append(BookEvent(
                     id: eventId,
-                    label: nil,  // Will be labeled by LLM later
+                    label: nil, // Will be labeled by LLM later
                     participants: participants,
                     chapterIds: commonChapters,
                     evidence: []

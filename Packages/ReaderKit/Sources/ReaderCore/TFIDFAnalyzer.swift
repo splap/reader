@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 /// Analyzes text using TF-IDF to extract important keywords per chapter
-public struct TFIDFAnalyzer {
+public enum TFIDFAnalyzer {
     private static let logger = Logger(subsystem: "com.splap.reader", category: "TFIDFAnalyzer")
 
     /// A keyword with its TF-IDF score and supporting metrics
@@ -62,7 +62,7 @@ public struct TFIDFAnalyzer {
 
         // Step 1: Tokenize each chapter and compute term frequencies
         var chapterTermFreqs: [String: [String: Int]] = [:]
-        var documentFrequency: [String: Int] = [:]  // How many chapters contain each term
+        var documentFrequency: [String: Int] = [:] // How many chapters contain each term
 
         for chapter in chapters {
             let text = extractText(from: chapter)
@@ -166,14 +166,14 @@ public struct TFIDFAnalyzer {
 
         // Sort by total score and return top terms
         let sortedTerms = termScores.sorted { $0.value > $1.value }
-        return sortedTerms.prefix(maxTerms).map { $0.key }
+        return sortedTerms.prefix(maxTerms).map(\.key)
     }
 
     // MARK: - Private Helpers
 
     /// Extracts plain text from a chapter
     private static func extractText(from chapter: Chapter) -> String {
-        chapter.htmlSections.flatMap { $0.blocks }.map { $0.textContent }.joined(separator: " ")
+        chapter.htmlSections.flatMap(\.blocks).map(\.textContent).joined(separator: " ")
     }
 
     /// Tokenizes text into lowercase words
@@ -248,9 +248,9 @@ public struct TFIDFAnalyzer {
 
 // MARK: - Bigram Support
 
-extension TFIDFAnalyzer {
+public extension TFIDFAnalyzer {
     /// A bigram (two-word phrase) with its score
-    public struct BigramScore: Codable, Equatable {
+    struct BigramScore: Codable, Equatable {
         public let bigram: String
         public let tfidf: Double
         public let tf: Int
@@ -267,7 +267,7 @@ extension TFIDFAnalyzer {
     /// Extracts significant bigrams from chapters
     /// - Parameter chapters: The chapters to analyze
     /// - Returns: Bigrams per chapter, keyed by chapter ID
-    public static func extractBigrams(chapters: [Chapter]) -> [String: [BigramScore]] {
+    static func extractBigrams(chapters: [Chapter]) -> [String: [BigramScore]] {
         guard !chapters.isEmpty else { return [:] }
 
         var chapterBigramFreqs: [String: [String: Int]] = [:]
@@ -315,7 +315,7 @@ extension TFIDFAnalyzer {
         guard tokens.count >= 2 else { return [:] }
 
         var freq: [String: Int] = [:]
-        for i in 0..<(tokens.count - 1) {
+        for i in 0 ..< (tokens.count - 1) {
             let bigram = "\(tokens[i]) \(tokens[i + 1])"
             freq[bigram, default: 0] += 1
         }

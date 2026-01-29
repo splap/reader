@@ -160,7 +160,8 @@ final class TOCTests: XCTestCase {
                 let label = button.label
                 // Skip control buttons and empty labels
                 if label.isEmpty || label == "Back" || label == "Settings" ||
-                   label == "Chat" || label == "Table of Contents" {
+                    label == "Chat" || label == "Table of Contents"
+                {
                     continue
                 }
                 // Skip if it looks like the first chapter (often titles or "Letter" for Frankenstein)
@@ -247,7 +248,7 @@ final class TOCTests: XCTestCase {
 
         for button in menuButtons {
             let label = button.label.lowercased()
-            if label.contains("chapter") && (label.contains("1") || label.contains("i")) {
+            if label.contains("chapter"), label.contains("1") || label.contains("i") {
                 print("Tapping: \(button.label)")
                 button.tap()
                 foundChapter = true
@@ -259,7 +260,7 @@ final class TOCTests: XCTestCase {
             // Try looking for "Letter" entries (Frankenstein starts with letters)
             for button in menuButtons {
                 let label = button.label.lowercased()
-                if label.contains("letter") && label.contains("4") {
+                if label.contains("letter"), label.contains("4") {
                     print("Tapping: \(button.label)")
                     button.tap()
                     foundChapter = true
@@ -294,7 +295,7 @@ final class TOCTests: XCTestCase {
             let newPageText = pageLabel.label
             print("After navigation: \(newPageText)")
             // We should be on a different page than page 1
-            if initialPageText.contains("Page 1 of") && !newPageText.contains("Page 1 of") {
+            if initialPageText.contains("Page 1 of"), !newPageText.contains("Page 1 of") {
                 print("Page changed from initial position")
             }
         }
@@ -331,9 +332,10 @@ final class TOCTests: XCTestCase {
         var tappedChapter = false
         for button in menuButtons {
             let label = button.label
-            if !label.isEmpty && label != "Back" && label != "Settings" &&
-               label != "Chat" && label != "Table of Contents" &&
-               label.count > 3 {
+            if !label.isEmpty, label != "Back", label != "Settings",
+               label != "Chat", label != "Table of Contents",
+               label.count > 3
+            {
                 print("Tapping chapter: \(label)")
                 button.tap()
                 tappedChapter = true
