@@ -88,12 +88,16 @@ public enum CSSManager {
     public static func sanitizePublisherCSS(_ css: String) -> String {
         var result = css
 
-        // Remove percentage-based horizontal margins (e.g., "margin: 0 45%;" or "margin-left: 56%;")
-        // These break CSS columns by shrinking content to tiny widths
-        // Pattern: margin(-left|-right)?: ... NN% ...
-        let percentMarginPattern = #"margin(-left|-right)?\s*:\s*[^;]*\d+%[^;]*;"#
-        if let regex = try? NSRegularExpression(pattern: percentMarginPattern, options: [.caseInsensitive]) {
-            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "/* [sanitized margin] */")
+        // NOTE: We intentionally do NOT sanitize percentage margins like "margin: 1.25em 45%"
+        // These are commonly used for centered decorative elements (section dividers, ornaments)
+        // and work correctly within CSS column layouts since the percentage is relative to the
+        // column width, not the viewport.
+
+        // Only sanitize margin-left/right when they're standalone declarations using percentages
+        // that would push content to one side (e.g., margin-left: 56% would push content to the right edge)
+        let sideMarginPattern = #"margin-(left|right)\s*:\s*(\d+)%\s*;"#
+        if let regex = try? NSRegularExpression(pattern: sideMarginPattern, options: [.caseInsensitive]) {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "/* [sanitized margin-$1] */")
         }
 
         // Remove percentage-based padding that could cause similar issues

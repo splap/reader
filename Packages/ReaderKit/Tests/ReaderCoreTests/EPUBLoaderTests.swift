@@ -19,7 +19,7 @@ final class EPUBLoaderTests: XCTestCase {
         let css = CSSManager.houseCSS(fontScale: 2.0)
 
         // Verify house CSS contains critical pagination properties
-        XCTAssertTrue(css.contains("font-size: 32px"), "House CSS should scale font size")
+        XCTAssertTrue(css.contains("font-size: 32.0px"), "House CSS should scale font size")
         // Default margin is 32px, total margin (both sides) is 64px
         XCTAssertTrue(css.contains("column-width: calc(100vw - 64px)"), "House CSS should set column width for pagination")
     }
@@ -41,17 +41,33 @@ final class EPUBLoaderTests: XCTestCase {
 
     func testCSSManagerSanitizesPercentageMargins() {
         let publisherCSS = """
-        .narrow { margin: 0 45%; }
         .wide { margin-left: 56%; }
         p { font-style: italic; }
         """
 
         let combined = CSSManager.generateCompleteCSS(fontScale: 1.0, publisherCSS: publisherCSS)
 
-        // Percentage margins should be sanitized (they break CSS column pagination)
-        XCTAssertFalse(combined.contains("margin: 0 45%"), "Percentage margins should be sanitized")
+        // Side-only percentage margins should be sanitized (they push content to one side)
         XCTAssertFalse(combined.contains("margin-left: 56%"), "Percentage margin-left should be sanitized")
         // Safe CSS should be preserved
         XCTAssertTrue(combined.contains("font-style: italic"), "Safe CSS should be preserved")
+    }
+
+    func testCSSManagerPreservesCenteredPercentageMargins() {
+        // CSS like "margin: 1.25em 45%;" is used for centered decorative elements
+        // It should be preserved as-is (works correctly in CSS column layouts)
+        let publisherCSS = """
+        div.transition {
+            margin: 1.25em 45%;
+            border-bottom: 3px double #757575;
+        }
+        """
+
+        let combined = CSSManager.generateCompleteCSS(fontScale: 1.0, publisherCSS: publisherCSS)
+
+        // The percentage margin should be preserved (not sanitized)
+        XCTAssertTrue(combined.contains("margin: 1.25em 45%"), "Centered percentage margins should be preserved for decorative elements")
+        // Border should be preserved
+        XCTAssertTrue(combined.contains("border-bottom: 3px double #757575"), "Border styling should be preserved")
     }
 }
