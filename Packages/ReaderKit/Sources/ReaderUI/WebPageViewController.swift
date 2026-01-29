@@ -308,6 +308,10 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             return
         }
 
+        // Store restore parameters BEFORE prepareForPositionRestore so hiding logic can see them
+        self.pendingCFIRestore = restoreCFI
+        self.pendingScrollToEnd = atEnd
+
         prepareForPositionRestore()
 
         // Reset CSS column width - will be re-queried after new content loads
@@ -336,8 +340,14 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         Self.logger.debug("SPINE: Section HTML: \(processedHTML.count) chars, CSS: \(publisherCSS.count) chars")
 
         // Generate CSS using CSSManager (house CSS + publisher CSS)
+        // Read fontScale from the global singleton (source of truth persisted to UserDefaults)
+        // rather than the instance property, which may be stale when loading adjacent spines
+        let currentFontScale = FontScaleManager.shared.fontScale
         let marginSize = ReaderPreferences.shared.marginSize
-        let css = CSSManager.generateCompleteCSS(fontScale: fontScale, marginSize: marginSize, publisherCSS: publisherCSS.isEmpty ? nil : publisherCSS)
+        if fontScale != currentFontScale {
+            Self.logger.error("SPINE: fontScale mismatch! property=\(self.fontScale) manager=\(currentFontScale)")
+        }
+        let css = CSSManager.generateCompleteCSS(fontScale: currentFontScale, marginSize: marginSize, publisherCSS: publisherCSS.isEmpty ? nil : publisherCSS)
 
         // Wrap HTML with house CSS
         let wrappedHTML = """
@@ -399,35 +409,77 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                 };
 
                 // Generate CFI for the first visible text position
-                // Accepts optional page number from Swift (more reliable than calculating from scrollX)
+                // Uses caretRangeFromPoint to find the actual text at the top of the viewport,
+                // walks up to the nearest block ancestor, and computes a character offset.
                 window.generateCFIForCurrentPosition = function(pageFromSwift) {
-                    var currentPage = pageFromSwift || 0;
+                    var BLOCK_TAGS = {
+                        'P':1,'H1':1,'H2':1,'H3':1,'H4':1,'H5':1,'H6':1,
+                        'LI':1,'BLOCKQUOTE':1,'DIV':1,'SECTION':1,'ARTICLE':1,
+                        'FIGURE':1,'FIGCAPTION':1,'PRE':1,'TR':1,'TD':1,'TH':1
+                    };
 
-                    // Find the first content container (pagination-container or body)
-                    var container = document.body.querySelector('#pagination-container') || document.body;
+                    // Probe several points near the top-left of the viewport to find visible text
+                    var range = null;
+                    var probeX = [30, 60, 120, 200];
+                    var probeY = [20, 60, 120, 200, 300];
+                    for (var yi = 0; yi < probeY.length && !range; yi++) {
+                        for (var xi = 0; xi < probeX.length && !range; xi++) {
+                            var r = document.caretRangeFromPoint(probeX[xi], probeY[yi]);
+                            if (r && r.startContainer && r.startContainer.nodeType === 3) {
+                                range = r;
+                            }
+                        }
+                    }
 
-                    // For the test chapter and most EPUBs, each page is a direct child of the container
-                    // The domPath should be [containerIndex, pageIndex]
-                    var containerPath = window.buildDOMPath(container);
+                    // Fallback: find first visible child of container
+                    if (!range) {
+                        var container = document.body.querySelector('#pagination-container') || document.body;
+                        var viewportLeft = window.scrollX || document.documentElement.scrollLeft;
+                        var viewportRight = viewportLeft + window.innerWidth;
+                        var children = container.children;
+                        var fallbackEl = children[0] || container;
+                        for (var i = 0; i < children.length; i++) {
+                            var cr = children[i].getBoundingClientRect();
+                            if (cr.right + viewportLeft > viewportLeft && cr.left + viewportLeft < viewportRight) {
+                                fallbackEl = children[i];
+                                break;
+                            }
+                        }
+                        var spineEl = fallbackEl.closest ? fallbackEl.closest('[data-spine-item-id]') : null;
+                        return {
+                            domPath: window.buildDOMPath(fallbackEl),
+                            charOffset: 0,
+                            spineItemId: spineEl ? spineEl.dataset.spineItemId : null
+                        };
+                    }
 
-                    // Find the child element at the current page position
-                    // This assumes one element per CSS column page
-                    var pageElements = container.children;
-                    var pageIndex = Math.min(currentPage, pageElements.length - 1);
+                    // Walk up from the text node to the nearest block ancestor
+                    var textNode = range.startContainer;
+                    var block = textNode.parentElement;
+                    while (block && block !== document.body && !BLOCK_TAGS[block.tagName]) {
+                        block = block.parentElement;
+                    }
+                    if (!block || block === document.body) {
+                        block = textNode.parentElement;
+                    }
 
-                    // Build full path: container path + page index
-                    var path = containerPath.concat([pageIndex]);
+                    // Compute character offset: count text from block start to caret position
                     var charOffset = 0;
+                    try {
+                        var countRange = document.createRange();
+                        countRange.setStart(block, 0);
+                        countRange.setEnd(range.startContainer, range.startOffset);
+                        charOffset = countRange.toString().length;
+                    } catch(e) {
+                        charOffset = 0;
+                    }
 
-                    // Get the actual page element for spine item lookup
-                    var pageElement = pageElements[pageIndex];
-
-                    // Get spine item ID if available
-                    var spineItemEl = pageElement ? pageElement.closest('[data-spine-item-id]') : null;
+                    var domPath = window.buildDOMPath(block);
+                    var spineItemEl = block.closest ? block.closest('[data-spine-item-id]') : null;
                     var spineItemId = spineItemEl ? spineItemEl.dataset.spineItemId : null;
 
                     return {
-                        domPath: path,
+                        domPath: domPath,
                         charOffset: charOffset,
                         spineItemId: spineItemId
                     };
@@ -448,20 +500,57 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
                 // Resolve a CFI and scroll to that position
                 // Input: { domPath: [int], charOffset: int }
+                // charOffset > 0: walk text nodes inside the element, create a Range at the
+                // target character, and scroll to the page containing that Range's rect.
+                // charOffset == 0 or missing: scroll to the page containing the element.
                 window.resolveCFI = function(cfiData) {
                     if (!cfiData || !cfiData.domPath) return false;
 
                     var element = window.getElementFromPath(cfiData.domPath);
                     if (!element) return false;
 
-                    var rect = element.getBoundingClientRect();
-                    var scrollLeft = window.scrollX || document.documentElement.scrollLeft;
                     var viewportWidth = window.innerWidth;
+                    var scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+                    var charOffset = cfiData.charOffset || 0;
+
+                    if (charOffset > 0) {
+                        // Walk text nodes inside element, accumulate chars until we reach offset
+                        var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+                        var accumulated = 0;
+                        var node;
+                        var targetNode = null;
+                        var targetOffset = 0;
+
+                        while ((node = walker.nextNode())) {
+                            var nodeLen = node.textContent.length;
+                            if (accumulated + nodeLen >= charOffset) {
+                                targetNode = node;
+                                targetOffset = charOffset - accumulated;
+                                break;
+                            }
+                            accumulated += nodeLen;
+                        }
+
+                        if (targetNode) {
+                            // Clamp offset to actual node length
+                            targetOffset = Math.min(targetOffset, targetNode.textContent.length);
+                            var range = document.createRange();
+                            range.setStart(targetNode, targetOffset);
+                            range.setEnd(targetNode, targetOffset);
+                            var rect = range.getBoundingClientRect();
+                            var absLeft = rect.left + scrollLeft;
+                            var targetPage = Math.floor(absLeft / viewportWidth);
+                            window.scrollTo(targetPage * viewportWidth, 0);
+                            return true;
+                        }
+                        // Fallback: charOffset exceeds text length, scroll to element start
+                    }
+
+                    // charOffset == 0 or fallback: scroll to element
+                    var rect = element.getBoundingClientRect();
                     var elementLeft = rect.left + scrollLeft;
                     var targetPage = Math.floor(elementLeft / viewportWidth);
-                    var targetX = targetPage * viewportWidth;
-
-                    window.scrollTo(targetX, 0);
+                    window.scrollTo(targetPage * viewportWidth, 0);
                     return true;
                 };
 
@@ -497,10 +586,6 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         </body>
         </html>
         """
-
-        // Store restore parameters for use after content loads
-        pendingCFIRestore = restoreCFI
-        pendingScrollToEnd = atEnd
 
         let prepTime = CFAbsoluteTimeGetCurrent() - loadStart
         Self.logger.debug("SPINE: Prepared HTML in \(String(format: "%.3f", prepTime))s, \(wrappedHTML.count) chars")
@@ -693,20 +778,19 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     private func reloadWithNewFontScale() {
-        // Query current CFI before reloading
+        // Save CFI position before reloading. The rewritten generateCFIForCurrentPosition
+        // returns a deep DOM path + character offset, which survives font/margin changes.
         queryCurrentCFI { [weak self] _, domPath, charOffset, _ in
             guard let self else { return }
-
-            // Store position for restore after reload
-            let restoreCFI: (domPath: [Int], charOffset: Int?)? = domPath.map { ($0, charOffset) }
-
-            // Reset state for fresh load
-            hasRestoredPosition = false
-
-            Self.logger.debug("SPINE: Font scale changed, reloading spine \(currentSpineIndex) with CFI restore")
-
-            // Reload current spine item with CFI restore
-            loadSpineItem(at: currentSpineIndex, restoreCFI: restoreCFI)
+            guard let domPath else {
+                Self.logger.info("SPINE: Font scale changed, no CFI available — reloading at start")
+                self.hasRestoredPosition = false
+                self.loadSpineItem(at: self.currentSpineIndex)
+                return
+            }
+            Self.logger.info("SPINE: Font scale changed, saving CFI path \(domPath) offset \(charOffset ?? 0) before reload")
+            self.hasRestoredPosition = false
+            self.loadSpineItem(at: self.currentSpineIndex, restoreCFI: (domPath, charOffset))
         }
     }
 
@@ -1086,7 +1170,10 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         // During animated transitions, the animator manages webView visibility
         // via alpha/transform — don't hide with isHidden
         guard !transitionAnimator.isAnimating else { return }
-        let shouldHide = PositionRestorePolicy.shouldHideUntilRestore(initialCFI: initialCFI)
+        let shouldHide = PositionRestorePolicy.shouldHideUntilRestore(
+            initialCFI: initialCFI,
+            pendingCFI: pendingCFIRestore != nil
+        )
         isWaitingForInitialRestore = shouldHide
         webView.isHidden = shouldHide
     }
@@ -1374,7 +1461,7 @@ extension WebPageViewController: WKNavigationDelegate {
                         let totalLoadTime = self.webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - self.webViewLoadStartTime : 0
                         Self.logger.info("PERF: Content ready in \(String(format: "%.3f", totalLoadTime))s total")
 
-                        // Priority 1: CFI-based restoration (most precise)
+                        // Priority 1: CFI-based restoration (for initial load, cross-session, and font resize)
                         if let cfiRestore = self.pendingCFIRestore {
                             Self.logger.info("SPINE: Restoring position via CFI path")
                             self.pendingCFIRestore = nil
