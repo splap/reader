@@ -24,9 +24,9 @@ final class PaginationUITests: XCTestCase {
         XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(3) // Let content render
 
         print("Book loaded, now swiping to page 3...")
@@ -106,9 +106,9 @@ final class PaginationUITests: XCTestCase {
 
         print("Tapped book to open")
 
-        // Wait for reader to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for reader to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(1) // Brief pause for content to stabilize
         print("Book loaded")
 
@@ -310,9 +310,9 @@ final class PaginationUITests: XCTestCase {
             print("Still on library after 90 seconds")
         }
 
-        // Wait for WebView
-        print("Waiting for WebView...")
-        let webView = app.webViews.firstMatch
+        // Wait for reader view (works with both WebView and native renderer)
+        print("Waiting for reader view...")
+        let webView = getReaderView(in: app)
         if !webView.waitForExistence(timeout: 10) {
             let debugScreenshot = XCUIScreen.main.screenshot()
             let debugAttachment = XCTAttachment(screenshot: debugScreenshot)
@@ -321,10 +321,10 @@ final class PaginationUITests: XCTestCase {
             add(debugAttachment)
             try? FileManager.default.createDirectory(atPath: "/tmp/reader-tests", withIntermediateDirectories: true)
             try? debugScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/reader-tests/after-book-tap.png"))
-            XCTFail("WebView should exist - app may be in native render mode instead of WebView mode")
+            XCTFail("Reader view should exist")
             return
         }
-        print("WebView found!")
+        print("Reader view found!")
         sleep(2)
 
         // Navigate to page 2 (middle of content, not first page which may have special layout)
@@ -369,9 +369,9 @@ final class PaginationUITests: XCTestCase {
         XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(3) // Let content render and pagination stabilize
 
         print("Book loaded, taking screenshot before double-tap...")

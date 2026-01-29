@@ -140,7 +140,8 @@ public final class ReaderViewController: UIViewController {
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale
+                fontScale: viewModel.fontScale,
+                initialCFI: viewModel.initialCFI
             )
 
         case .webView:
@@ -664,7 +665,8 @@ public final class ReaderViewController: UIViewController {
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale
+                fontScale: viewModel.fontScale,
+                initialCFI: viewModel.currentCFI
             )
 
         case .webView:

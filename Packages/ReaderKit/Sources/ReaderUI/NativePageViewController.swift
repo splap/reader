@@ -39,9 +39,14 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     private var attributedContent: AttributedContent?
     private var pageRanges: [NSRange] = []
     private var pageBlockIds: [[String]] = []
+    /// Maps page index to spine item index for chapter display
+    private var pageSpineIndices: [Int] = []
 
     private var hasBuiltPages = false
     private var loadingOverlay: UIView?
+
+    /// CFI to restore after pages are built
+    private var initialCFI: String?
 
     /// Cached layout for the current chapter
     private var cachedLayout: ChapterLayout?
@@ -57,7 +62,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         bookTitle: String? = nil,
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
-        fontScale: CGFloat = 1.4
+        fontScale: CGFloat = 1.4,
+        initialCFI: String? = nil
     ) {
         self.htmlSections = htmlSections
         self.bookId = bookId
@@ -65,6 +71,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         self.bookAuthor = bookAuthor
         self.chapterTitle = chapterTitle
         self.fontScale = fontScale
+        self.initialCFI = initialCFI
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -260,7 +267,12 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 // Hide loading overlay
                 self.hideLoadingOverlay()
 
-                self.onPageChanged?(self.currentPageIndex, self.totalPages)
+                // Restore position from initialCFI if present
+                self.restorePositionFromCFI()
+
+                // Report initial per-chapter page info
+                self.reportPositionChange()
+
                 self.onRenderReady?()
             }
         }
@@ -432,6 +444,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         pageViews.removeAll()
         pageRanges.removeAll()
         pageBlockIds.removeAll()
+        pageSpineIndices.removeAll()
 
         let pageWidth = view.bounds.width
         let pageHeight = view.bounds.height
@@ -456,11 +469,18 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 let blockIds = findBlockIds(in: range, attributedString: attributedString)
                 pageBlockIds.append(blockIds)
 
+                // Find spine index for this page
+                let spineIndex = findSpineIndex(for: range, in: attributedString)
+                pageSpineIndices.append(spineIndex)
+
             case let .image(path, blockId, imageCache):
                 let imageView = createImagePageView(path: path, imageCache: imageCache)
                 pageView = imageView
                 pageRanges.append(NSRange(location: 0, length: 0)) // Placeholder
                 pageBlockIds.append([blockId])
+                // Images inherit spine index from previous page, or 0 if first
+                let prevSpineIndex = pageSpineIndices.last ?? 0
+                pageSpineIndices.append(prevSpineIndex)
             }
 
             pageView.frame = CGRect(x: CGFloat(index) * pageWidth, y: 0, width: pageWidth, height: pageHeight)
@@ -569,6 +589,28 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             }
         }
         return blockIds
+    }
+
+    /// Finds the spine item index for a given character range
+    private func findSpineIndex(for range: NSRange, in attributedString: NSAttributedString) -> Int {
+        let safeRange = NSRange(
+            location: range.location,
+            length: min(range.length, attributedString.length - range.location)
+        )
+
+        guard safeRange.length > 0 else { return 0 }
+
+        var foundSpineItemId: String?
+        attributedString.enumerateAttribute(.spineItemId, in: safeRange, options: []) { value, _, stop in
+            if let id = value as? String {
+                foundSpineItemId = id
+                stop.pointee = true
+            }
+        }
+
+        // Find the index of this spine item in htmlSections
+        guard let spineItemId = foundSpineItemId else { return 0 }
+        return htmlSections.firstIndex { $0.spineItemId == spineItemId } ?? 0
     }
 
     private func rebuildPagesAsync() {
@@ -703,7 +745,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                     self.navigateToBlock(blockId, animated: false)
                 }
 
-                self.onPageChanged?(self.currentPageIndex, self.totalPages)
+                // Report per-chapter page info
+                self.reportPositionChange()
             }
         }
     }
@@ -756,17 +799,42 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
     public func navigateToNextPage() {
         let nextPage = min(currentPageIndex + 1, totalPages - 1)
-        navigateToPage(nextPage, animated: true)
+        navigateToGlobalPage(nextPage, animated: true)
     }
 
     public func navigateToPreviousPage() {
         let prevPage = max(currentPageIndex - 1, 0)
-        navigateToPage(prevPage, animated: true)
+        navigateToGlobalPage(prevPage, animated: true)
     }
 
+    /// Navigate to a page index within the current chapter (protocol method)
+    /// The pageIndex is interpreted as a per-chapter index to match HTML renderer behavior
     public func navigateToPage(_ pageIndex: Int, animated: Bool) {
         guard totalPages > 0 else { return }
-        let targetPage = max(0, min(pageIndex, totalPages - 1))
+
+        // pageIndex is per-chapter, convert to global page index
+        let (_, pagesInCurrentChapter, currentSpineIndex) = calculateChapterPageInfo()
+
+        // Find first global page of current chapter
+        var firstGlobalPageInChapter = 0
+        for (globalIdx, spineIdx) in pageSpineIndices.enumerated() {
+            if spineIdx == currentSpineIndex {
+                firstGlobalPageInChapter = globalIdx
+                break
+            }
+        }
+
+        // Convert per-chapter index to global index
+        let clampedChapterPage = max(0, min(pageIndex, pagesInCurrentChapter - 1))
+        let globalPage = firstGlobalPageInChapter + clampedChapterPage
+
+        navigateToGlobalPage(globalPage, animated: animated)
+    }
+
+    /// Navigate to a global page index (internal use)
+    private func navigateToGlobalPage(_ globalPageIndex: Int, animated: Bool) {
+        guard totalPages > 0 else { return }
+        let targetPage = max(0, min(globalPageIndex, totalPages - 1))
         let targetX = CGFloat(targetPage) * view.bounds.width
         scrollView.setContentOffset(CGPoint(x: targetX, y: 0), animated: animated)
 
@@ -777,11 +845,11 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     }
 
     public func navigateToBlock(_ blockId: String, animated: Bool) {
-        // Find page containing this block
+        // Find page containing this block (index is global page index)
         for (index, blockIds) in pageBlockIds.enumerated() {
             if blockIds.contains(blockId) {
                 Self.logger.info("Found block \(blockId) on page \(index)")
-                navigateToPage(index, animated: animated)
+                navigateToGlobalPage(index, animated: animated)
                 return
             }
         }
@@ -842,10 +910,132 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         completion(firstBlockId, spineItemId)
     }
 
+    // MARK: - Position Restoration
+
+    /// Restores reading position from initialCFI after pages are built
+    private func restorePositionFromCFI() {
+        guard let cfi = initialCFI else { return }
+        guard let parsed = CFIParser.parseFullCFI(cfi) else {
+            Self.logger.warning("Failed to parse initialCFI: \(cfi)")
+            return
+        }
+
+        let targetSpineIndex = parsed.spineIndex
+        let targetCharOffset = parsed.charOffset
+        Self.logger.info("CFI RESTORE: navigating to spine \(targetSpineIndex), charOffset \(targetCharOffset ?? -1) from \(cfi)")
+
+        // Find all pages belonging to the target spine item
+        var pagesInTargetSpine: [Int] = []
+        for (pageIndex, spineIndex) in pageSpineIndices.enumerated() {
+            if spineIndex == targetSpineIndex {
+                pagesInTargetSpine.append(pageIndex)
+            }
+        }
+
+        guard !pagesInTargetSpine.isEmpty else {
+            Self.logger.warning("CFI RESTORE: spine \(targetSpineIndex) not found in pageSpineIndices")
+            return
+        }
+
+        // If we have a character offset and cached layout, find the best matching page
+        if let charOffset = targetCharOffset, let layout = cachedLayout {
+            // Find page with closest firstBlockCharOffset
+            var bestPage = pagesInTargetSpine[0]
+            var bestDiff = Int.max
+
+            for pageIndex in pagesInTargetSpine {
+                if pageIndex < layout.pageOffsets.count {
+                    let pageCharOffset = layout.pageOffsets[pageIndex].firstBlockCharOffset
+                    let diff = abs(pageCharOffset - charOffset)
+                    if diff < bestDiff {
+                        bestDiff = diff
+                        bestPage = pageIndex
+                    }
+                }
+            }
+
+            Self.logger.info("CFI RESTORE: found best page \(bestPage) with charOffset diff \(bestDiff)")
+            navigateToGlobalPage(bestPage, animated: false)
+        } else {
+            // No character offset - just go to first page of chapter
+            let targetPage = pagesInTargetSpine[0]
+            Self.logger.info("CFI RESTORE: no charOffset, using first page \(targetPage)")
+            navigateToGlobalPage(targetPage, animated: false)
+        }
+    }
+
     // MARK: - Private Helpers
 
+    /// Calculates per-chapter page info for the current position
+    /// Returns (pageWithinChapter, pagesInChapter, spineIndex)
+    private func calculateChapterPageInfo() -> (page: Int, total: Int, spineIndex: Int) {
+        guard !pageSpineIndices.isEmpty else { return (0, 1, 0) }
+
+        let currentSpineIndex = pageSpineIndices.indices.contains(currentPageIndex)
+            ? pageSpineIndices[currentPageIndex]
+            : 0
+
+        // Find all pages belonging to the current spine item
+        var firstPageInChapter = 0
+        var pagesInChapter = 0
+
+        for (pageIndex, spineIdx) in pageSpineIndices.enumerated() {
+            if spineIdx == currentSpineIndex {
+                if pagesInChapter == 0 {
+                    firstPageInChapter = pageIndex
+                }
+                pagesInChapter += 1
+            }
+        }
+
+        // Calculate page offset within chapter (0-indexed)
+        let pageWithinChapter = currentPageIndex - firstPageInChapter
+
+        return (pageWithinChapter, max(1, pagesInChapter), currentSpineIndex)
+    }
+
     private func reportPositionChange() {
-        onPageChanged?(currentPageIndex, totalPages)
+        // Calculate per-chapter pagination (matches HTML renderer behavior)
+        let (pageWithinChapter, pagesInChapter, spineIndex) = calculateChapterPageInfo()
+
+        // Report per-chapter page numbers for scrubber display
+        onPageChanged?(pageWithinChapter, pagesInChapter)
+
+        // Report spine change for chapter display in scrubber
+        onSpineChanged?(spineIndex, htmlSections.count)
+
+        // Report CFI position for persistence
+        updateCFIPosition()
+    }
+
+    /// Generates a CFI for the current position and reports it via callback
+    private func updateCFIPosition() {
+        guard onCFIPositionChanged != nil else { return }
+        guard !pageSpineIndices.isEmpty, currentPageIndex < pageSpineIndices.count else { return }
+
+        let spineIndex = pageSpineIndices[currentPageIndex]
+        let spineItemId = spineIndex < htmlSections.count
+            ? htmlSections[spineIndex].spineItemId
+            : nil
+
+        // Get character offset from cached layout if available
+        var charOffset: Int?
+        if let layout = cachedLayout,
+           currentPageIndex < layout.pageOffsets.count
+        {
+            charOffset = layout.pageOffsets[currentPageIndex].firstBlockCharOffset
+        }
+
+        // Generate CFI - native renderer uses spine + character offset (no DOM path)
+        let cfi = CFIParser.generateFullCFI(
+            spineIndex: spineIndex,
+            idref: spineItemId,
+            domPath: [],
+            charOffset: charOffset
+        )
+
+        Self.logger.debug("CFI: Generated \(cfi) at spine \(spineIndex)")
+        onCFIPositionChanged?(cfi, spineIndex)
     }
 }
 

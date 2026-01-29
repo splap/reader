@@ -33,9 +33,9 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         bookCell.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(2)
 
         // Tap to reveal overlay
@@ -336,9 +336,9 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         bookCell.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(2)
 
         // Tap to reveal overlay
@@ -479,9 +479,9 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein book should be visible")
         bookCell.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(2)
 
         // Tap to reveal overlay and open chat

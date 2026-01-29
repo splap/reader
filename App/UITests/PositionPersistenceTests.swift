@@ -13,16 +13,17 @@ final class PositionPersistenceTests: XCTestCase {
         super.tearDown()
     }
 
-    func testPositionPersistence() {
+    func testPositionPersistence() throws {
         // This test verifies that reading position is saved and restored using a real book.
-        // We navigate to a specific chapter, restart the app, and verify we're still there.
+        // We navigate to a specific chapter, slide to the MIDDLE of that chapter,
+        // restart the app, and verify both chapter AND page position are restored.
 
-        // First launch: clean state, navigate to chapter 3
+        // First launch: clean state
         app = XCUIApplication()
         app.launchArguments = [
             "--uitesting",
             "--uitesting-skip-indexing",
-            "--uitesting-webview",
+            rendererArgument,
             "--uitesting-clean-all-data",
         ]
         app.launch()
@@ -37,7 +38,7 @@ final class PositionPersistenceTests: XCTestCase {
         }
         print("Frankenstein opened (clean state)")
 
-        // Show overlay and navigate to a later chapter via TOC
+        // Navigate to a later chapter via TOC
         webView.tap()
         sleep(1)
 
@@ -49,11 +50,11 @@ final class PositionPersistenceTests: XCTestCase {
         tocButton.tap()
         sleep(1)
 
-        // Find and tap a chapter that's NOT the first one (Letter 3 or similar)
+        // Find and tap a chapter that's NOT the first one
         let buttons = app.buttons.allElementsBoundByIndex
         for button in buttons {
             let label = button.label
-            if label == "III" || label == "IV" || label.contains("Letter 3") || label.contains("Chapter 3") {
+            if label == "I" || label == "Chapter 1" || label.contains("Chapter I") {
                 print("Navigating to chapter: \(label)")
                 button.tap()
                 break
@@ -61,9 +62,9 @@ final class PositionPersistenceTests: XCTestCase {
         }
         sleep(3)
 
-        // Verify we're in a later chapter
+        // Show overlay and get page info
         webView.tap()
-        sleep(2)
+        sleep(1)
 
         let pageLabel = app.staticTexts["scrubber-page-label"]
         guard pageLabel.waitForExistence(timeout: 5) else {
@@ -71,21 +72,67 @@ final class PositionPersistenceTests: XCTestCase {
             return
         }
 
-        let positionText = pageLabel.label
-        print("Navigated to position: \(positionText)")
-
-        // Record the chapter we're in
-        guard let savedInfo = parseScrubberLabel(positionText) else {
-            XCTFail("Could not parse scrubber label: \(positionText)")
+        guard let startInfo = parseScrubberLabel(pageLabel.label) else {
+            XCTFail("Could not parse scrubber label: \(pageLabel.label)")
             return
         }
-        let savedChapter = savedInfo.currentChapter
-        print("Saved at chapter \(savedChapter)")
+        print("Starting position: Page \(startInfo.currentPage) of \(startInfo.pagesInChapter) · Ch. \(startInfo.currentChapter)")
 
-        // Wait for CFI position save to complete (async operation)
+        // If chapter doesn't have enough pages for mid-chapter test, navigate forward
+        if startInfo.pagesInChapter < 3 {
+            print("Chapter only has \(startInfo.pagesInChapter) pages, navigating to find a longer chapter...")
+            for _ in 1 ... 5 {
+                webView.swipeLeft()
+                usleep(500_000)
+            }
+            sleep(1)
+            webView.tap()
+            sleep(1)
+
+            guard pageLabel.waitForExistence(timeout: 5),
+                  let currentInfo = parseScrubberLabel(pageLabel.label),
+                  currentInfo.pagesInChapter >= 3
+            else {
+                throw XCTSkip("Could not find chapter with enough pages for mid-chapter test")
+            }
+            print("Found chapter with \(currentInfo.pagesInChapter) pages")
+        }
+
+        // Use scrubber to navigate to ~50% of the chapter
+        let scrubber = app.sliders["Page scrubber"]
+        guard scrubber.waitForExistence(timeout: 3) else {
+            XCTFail("Scrubber not found")
+            return
+        }
+
+        scrubber.adjust(toNormalizedSliderPosition: 0.5)
         sleep(2)
 
-        // Go back to library to ensure clean state
+        // Read the saved position
+        if !pageLabel.waitForExistence(timeout: 3) {
+            webView.tap()
+            sleep(1)
+        }
+        guard pageLabel.waitForExistence(timeout: 5) else {
+            XCTFail("Page label not found after scrubber adjustment")
+            return
+        }
+
+        guard let savedInfo = parseScrubberLabel(pageLabel.label) else {
+            XCTFail("Could not parse scrubber label after adjustment: \(pageLabel.label)")
+            return
+        }
+
+        // Verify we're not at page 1 (we should be in the middle)
+        XCTAssertGreaterThan(savedInfo.currentPage, 1,
+                             "After sliding to 50%, should not be at page 1. Got: \(pageLabel.label)")
+
+        print("Saved position: Page \(savedInfo.currentPage) of \(savedInfo.pagesInChapter) · Ch. \(savedInfo.currentChapter)")
+
+        // Wait for CFI position save to complete
+        sleep(2)
+
+        // Go back to library
         let backButton = app.buttons["Back"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 3), "Back button should exist")
         backButton.tap()
@@ -98,15 +145,13 @@ final class PositionPersistenceTests: XCTestCase {
         app.launchArguments = [
             "--uitesting",
             "--uitesting-keep-state",
-            "--uitesting-webview",
+            rendererArgument,
         ]
         app.launch()
 
-        // App may auto-open to the last book (reader) or show library
-        // Wait for either the webview (reader) or library to appear
-        let webView2 = app.webViews.firstMatch
+        // Wait for reader or library
+        let webView2 = getReaderView(in: app)
         if !webView2.waitForExistence(timeout: 10) {
-            // If not in reader, check library and open book
             XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5), "Neither reader nor library appeared")
             guard let openedWebView = openBook(in: app, named: "Frankenstein") else {
                 XCTFail("Failed to reopen Frankenstein from library")
@@ -117,7 +162,7 @@ final class PositionPersistenceTests: XCTestCase {
         } else {
             print("App auto-opened to reader (last opened book)")
         }
-        sleep(2) // Let content render
+        sleep(2)
 
         // Check the restored position
         webView2.tap()
@@ -136,33 +181,36 @@ final class PositionPersistenceTests: XCTestCase {
         let restoredText = pageLabel2.label
         print("Restored position: \(restoredText)")
 
-        // Verify we're NOT at Chapter 1 (starting position) - we should be restored
         guard let restoredInfo = parseScrubberLabel(restoredText) else {
             XCTFail("Could not parse restored scrubber label: \(restoredText)")
             return
         }
 
-        // We should be within 1 chapter of where we saved (layout differences can cause small shifts)
-        let chapterDiff = abs(restoredInfo.currentChapter - savedChapter)
-        XCTAssertLessThanOrEqual(
-            chapterDiff, 1,
-            "Position should be restored near chapter \(savedChapter), got chapter \(restoredInfo.currentChapter)"
-        )
-        XCTAssertGreaterThan(
-            restoredInfo.currentChapter, 1,
-            "Position should NOT start at chapter 1 - got: \(restoredText)"
-        )
+        // Verify chapter is restored
+        XCTAssertEqual(restoredInfo.currentChapter, savedInfo.currentChapter,
+                       "Chapter should be restored. Saved: Ch.\(savedInfo.currentChapter), Restored: Ch.\(restoredInfo.currentChapter)")
 
-        print("Position persistence verified! Saved at Ch.\(savedChapter), restored to Ch.\(restoredInfo.currentChapter)")
+        // Verify page within chapter is restored (not reset to page 1)
+        XCTAssertGreaterThan(restoredInfo.currentPage, 1,
+                             "Page should NOT start at page 1 - mid-chapter position was lost. Got: \(restoredText)")
+
+        // Page should be close to what we saved (allow ±1 for rendering differences)
+        let pageDiff = abs(restoredInfo.currentPage - savedInfo.currentPage)
+        XCTAssertLessThanOrEqual(pageDiff, 1,
+                                 "Page should be restored near page \(savedInfo.currentPage), got page \(restoredInfo.currentPage)")
+
+        print("Position persistence verified!")
+        print("  Saved: Page \(savedInfo.currentPage) of \(savedInfo.pagesInChapter) · Ch. \(savedInfo.currentChapter)")
+        print("  Restored: Page \(restoredInfo.currentPage) of \(restoredInfo.pagesInChapter) · Ch. \(restoredInfo.currentChapter)")
     }
 
-    func testPositionRestorationOnDifferentSpine() {
+    func testPositionRestorationOnDifferentSpine() throws {
         // Tests that position is correctly restored when the saved position is on a different spine
         // than spine 0. This exposes the bug where opening a book always starts at the beginning.
 
         // Open Frankenstein with clean state
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting", "--uitesting-webview", "--uitesting-clean-all-data"]
+        app.launchArguments = ["--uitesting", rendererArgument, "--uitesting-clean-all-data"]
         app.launch()
 
         let libraryNavBar = app.navigationBars["Library"]
@@ -242,11 +290,11 @@ final class PositionPersistenceTests: XCTestCase {
         print("Relaunching app to test position restoration...")
         app.terminate()
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting", "--uitesting-webview", "--uitesting-keep-state"]
+        app.launchArguments = ["--uitesting", rendererArgument, "--uitesting-keep-state"]
         app.launch()
 
         // App may auto-open to the last book (reader) or show library
-        let webView2 = app.webViews.firstMatch
+        let webView2 = getReaderView(in: app)
         if !webView2.waitForExistence(timeout: 10) {
             // If not in reader, check library and open book
             XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5), "Neither reader nor library appeared after relaunch")

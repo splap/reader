@@ -76,9 +76,9 @@ final class ScrubberTests: XCTestCase {
         XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(2)
 
         print("Book loaded, navigating to a chapter with more pages...")
@@ -193,9 +193,9 @@ final class ScrubberTests: XCTestCase {
         XCTAssertTrue(banksAuthor.waitForExistence(timeout: 5), "Frankenstein book should be visible in library")
         banksAuthor.tap()
 
-        // Wait for book to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for book to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(3)
 
         print("Book loaded, navigating forward 5 pages...")

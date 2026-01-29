@@ -43,9 +43,9 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(bookCell.waitForExistence(timeout: 5), "Frankenstein should be visible")
         bookCell.tap()
 
-        // Wait for reader to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView should exist")
+        // Wait for reader to load (works with both WebView and native renderer)
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view should exist")
         sleep(2)
 
         // Tap to reveal overlay
@@ -90,12 +90,12 @@ final class LibraryTests: XCTestCase {
         // Give reader time to load and render
         sleep(3)
 
-        // Verify we're in the reader by checking for WebView (book content)
+        // Verify we're in the reader by checking for reader content (works with both renderers)
         print("Looking for book content...")
 
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5), "WebView containing book should exist")
-        print("WebView found - book is loaded")
+        let webView = getReaderView(in: app)
+        XCTAssertTrue(webView.waitForExistence(timeout: 5), "Reader view containing book should exist")
+        print("Reader view found - book is loaded")
 
         // Tap to reveal overlay (buttons start hidden)
         webView.tap()

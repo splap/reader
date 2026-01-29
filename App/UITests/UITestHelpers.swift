@@ -20,6 +20,12 @@ extension XCTestCase {
         configuredRenderer == "native"
     }
 
+    /// Returns the appropriate renderer argument based on test configuration
+    /// Use this when building custom launch arguments instead of launchReaderApp()
+    var rendererArgument: String {
+        isNativeRenderer ? "--uitesting-native" : "--uitesting-webview"
+    }
+
     /// Launches the Reader app with standard UI testing arguments
     /// - Parameter extraArgs: Additional launch arguments to append
     /// - Returns: The launched XCUIApplication instance

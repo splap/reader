@@ -1,50 +1,63 @@
-# Plan: Fix Snapback Jank in Mid-Chapter Page Navigation
+# Plan: Native Renderer - Position Persistence
 
-## What's In Flight (branch `reader1`)
+## Status: COMPLETED
 
-Page navigation refactor — completed and all tests passing:
-- `PageNavigationResolver.swift` — pure decision function for page turns
-- `SpineTransitionAnimator.swift` — contiguous slide animation for spine transitions (starts immediately, loads content in parallel)
-- `WebPageViewController.swift` — simplified scroll delegate using resolver; deceleration killed before animator starts
-- `PageNavigationResolverTests.swift` — 27 unit tests (all passing)
-- All existing UI tests passing (`testSpineBoundaryNavigation`, `testSimpleSpineCrossing`, `testFrankensteinFirstSpineToSecond`)
-- Removed SwiftLint from `scripts/lint` (wasn't pinned, was building from source every run)
-- Fixed implicit `self` errors in `PageLayoutStore.swift`, `BertTokenizer.swift`, `NativePageViewController.swift`
+Position persistence for native renderer is now implemented and tested, including mid-chapter position.
 
-## The Bug
+## Implementation Summary
 
-When swiping mid-chapter and releasing without enough velocity to trigger a page turn, the snapback is too aggressive. Sometimes the snapback overshoots and skips forward a page. Example: user swipes right slightly (not enough velocity), releases, page snaps back left with such force it advances a page forward.
+**CFI position reporting** - `NativePageViewController.swift`:
+- Added `updateCFIPosition()` method that generates CFI from current page position
+- Uses `pageSpineIndices` to get spine index for current page
+- Uses cached layout `PageOffset.firstBlockCharOffset` for sub-page precision
+- Calls `onCFIPositionChanged?(cfi, spineIndex)` on every page change
+- Called from `reportPositionChange()` which fires on scroll/navigation
 
-This is a **mid-chapter** issue, not a spine boundary issue. Within-spine page turns must feel native.
+**Position restoration** - `NativePageViewController.swift`:
+- Added `initialCFI` parameter to init (matching WebPageViewController)
+- Added `restorePositionFromCFI()` method that:
+  1. Parses CFI to get spine index and character offset
+  2. Finds all pages in target spine item
+  3. Uses character offset to find the best matching page (not just first page)
+- Called after pages are built in `buildPages()`
 
-## Root Cause
+**Wiring** - `ReaderViewController.swift`:
+- Updated both NativePageViewController creation sites to pass `initialCFI`
+- Initial creation: `viewModel.initialCFI`
+- Renderer switch: `viewModel.currentCFI`
 
-In `scrollViewWillEndDragging`, the resolver computes `startPage` from `dragStartOffset` (where the finger initially touched down). When velocity is below threshold, it returns `.snapToPage(startPage)`. The scroll delegate then sets `targetContentOffset` to `startPage * pageWidth`.
+## Test Results
 
-The problem: `targetContentOffset` is the position UIScrollView will *decelerate toward*. When the user dragged partway to another page and releases, the current offset is between pages. UIScrollView decelerates from the current drag position back to `startPage * pageWidth` using its built-in physics, which can overshoot.
+```
+# Chapter-level persistence
+RENDERER=native ./scripts/test ui:testPositionPersistence
+# Output: "Position persistence verified! Saved at Ch.6, restored to Ch.6"
+# TEST SUCCEEDED
 
-The old code handled the no-velocity case with `round(currentOffset / pageWidth)` — snapping to whichever page is *nearest to where the finger currently is*, not where it started.
+# Mid-chapter persistence (new test)
+RENDERER=native ./scripts/test ui:testMidChapterPositionPersistence
+# Output: "Saved: Page 3 of 6 · Ch. 8, Restored: Page 3 of 6 · Ch. 8"
+# TEST SUCCEEDED
+```
 
-## Fix
-
-Add `currentPage` to `NavigationInput`, computed from the current scroll offset at finger lift (`round(currentOffset / pageWidth)`). When velocity is below threshold, snap to `currentPage` instead of `startPage`:
-- Low velocity + finger near start page → snaps to start page (natural)
-- Low velocity + finger dragged past halfway → snaps to next page (natural)
-- No overshoot because the target is always the nearest page to the finger
-
-## Files to Change
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `PageNavigationResolver.swift` | Add `currentPage` to `NavigationInput`, use it in below-threshold case |
-| `PageNavigationResolverTests.swift` | Add tests for snapback: drag past halfway, drag slightly, drag backward past halfway |
-| `WebPageViewController.swift` | Compute and pass `currentPage` from current scroll offset |
+| `NativePageViewController.swift` | Added `updateCFIPosition()`, `restorePositionFromCFI()` with character offset matching, `initialCFI` parameter |
+| `ReaderViewController.swift` | Pass `initialCFI` when creating native renderer |
+| `PositionPersistenceTests.swift` | Added `testMidChapterPositionPersistence` test |
 
-## Test Plan
+## Key Insight
 
-1. Add unit tests to `PageNavigationResolverTests`
-2. `./scripts/test PageNavigationResolverTests`
-3. `./scripts/test` (all unit tests)
-4. `./scripts/test ui:testSpineBoundaryNavigation`
-5. `./scripts/test ui:testSimpleSpineCrossing`
-6. `./scripts/run` for manual validation
+The new `testMidChapterPositionPersistence` test exposed that the HTML renderer also fails mid-chapter restoration (resets to page 1 of chapter). This is a separate issue not addressed in this PR - the native renderer now correctly persists and restores mid-chapter positions.
+
+## Verification
+
+Position persistence now works for native renderer:
+1. Open book, navigate to chapter 6, slide to middle of chapter
+2. Kill app completely
+3. Reopen app
+4. Book opens to the same page within the chapter (not page 1)
+
+The CFI format used: `epubcfi(/6/N[spineItemId]!:charOffset)`
