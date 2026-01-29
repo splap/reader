@@ -325,8 +325,8 @@ extension XCTestCase {
 
         // Tap to reveal overlay; if the overlay was already showing, the first tap
         // may dismiss it, so try twice.
-        for _ in 0..<2 {
-            if tocButton.exists && tocButton.isHittable {
+        for _ in 0 ..< 2 {
+            if tocButton.exists, tocButton.isHittable {
                 break
             }
             webView.tap()

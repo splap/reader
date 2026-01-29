@@ -309,8 +309,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         }
 
         // Store restore parameters BEFORE prepareForPositionRestore so hiding logic can see them
-        self.pendingCFIRestore = restoreCFI
-        self.pendingScrollToEnd = atEnd
+        pendingCFIRestore = restoreCFI
+        pendingScrollToEnd = atEnd
 
         prepareForPositionRestore()
 
@@ -345,7 +345,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         let currentFontScale = FontScaleManager.shared.fontScale
         let marginSize = ReaderPreferences.shared.marginSize
         if fontScale != currentFontScale {
-            Self.logger.error("SPINE: fontScale mismatch! property=\(self.fontScale) manager=\(currentFontScale)")
+            Self.logger.error("SPINE: fontScale mismatch! property=\(fontScale) manager=\(currentFontScale)")
         }
         let css = CSSManager.generateCompleteCSS(fontScale: currentFontScale, marginSize: marginSize, publisherCSS: publisherCSS.isEmpty ? nil : publisherCSS)
 
@@ -784,13 +784,13 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             guard let self else { return }
             guard let domPath else {
                 Self.logger.info("SPINE: Font scale changed, no CFI available — reloading at start")
-                self.hasRestoredPosition = false
-                self.loadSpineItem(at: self.currentSpineIndex)
+                hasRestoredPosition = false
+                loadSpineItem(at: currentSpineIndex)
                 return
             }
             Self.logger.info("SPINE: Font scale changed, saving CFI path \(domPath) offset \(charOffset ?? 0) before reload")
-            self.hasRestoredPosition = false
-            self.loadSpineItem(at: self.currentSpineIndex, restoreCFI: (domPath, charOffset))
+            hasRestoredPosition = false
+            loadSpineItem(at: currentSpineIndex, restoreCFI: (domPath, charOffset))
         }
     }
 

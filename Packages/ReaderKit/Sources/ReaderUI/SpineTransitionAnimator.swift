@@ -80,7 +80,7 @@ public final class SpineTransitionAnimator {
             webView.transform = .identity
             webView.alpha = 1
             snapshot.removeFromSuperview()
-            self.isAnimating = false
+            isAnimating = false
             Self.logger.info("Transition: complete")
         }
 

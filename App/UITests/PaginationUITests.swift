@@ -258,25 +258,25 @@ final class PaginationUITests: XCTestCase {
 
         // Assert: same chapter (font change must not jump chapters)
         XCTAssertEqual(resizedInfo.currentChapter, 5,
-                      "Should still be in chapter 5 (Letter 2) after font resize")
+                       "Should still be in chapter 5 (Letter 2) after font resize")
 
         // Assert: resize actually took effect (more pages at larger font)
         XCTAssertGreaterThan(resizedInfo.pagesInChapter, originalTotalPages,
-                            "Increasing font size should increase page count " +
-                            "(was \(originalTotalPages), now \(resizedInfo.pagesInChapter))")
+                             "Increasing font size should increase page count " +
+                                 "(was \(originalTotalPages), now \(resizedInfo.pagesInChapter))")
 
         // Assert: CFI restored to a mid-chapter position (not reset to page 1)
         XCTAssertGreaterThan(resizedInfo.currentPage, 1,
-                            "CFI restore should land past page 1. " +
-                            "Page 1 means position was reset to start instead of restored. " +
-                            "Was on page \(initialInfo.currentPage)/\(originalTotalPages), " +
-                            "now page \(resizedInfo.currentPage)/\(resizedInfo.pagesInChapter)")
+                             "CFI restore should land past page 1. " +
+                                 "Page 1 means position was reset to start instead of restored. " +
+                                 "Was on page \(initialInfo.currentPage)/\(originalTotalPages), " +
+                                 "now page \(resizedInfo.currentPage)/\(resizedInfo.pagesInChapter)")
 
         // Assert: not on the last page (didn't jump to end)
         XCTAssertLessThan(resizedInfo.currentPage, resizedInfo.pagesInChapter,
-                         "CFI restore should not land on the last page. " +
-                         "Was on page \(initialInfo.currentPage)/\(originalTotalPages), " +
-                         "now page \(resizedInfo.currentPage)/\(resizedInfo.pagesInChapter)")
+                          "CFI restore should not land on the last page. " +
+                              "Was on page \(initialInfo.currentPage)/\(originalTotalPages), " +
+                              "now page \(resizedInfo.currentPage)/\(resizedInfo.pagesInChapter)")
 
         print("Text size change preserves position - test passed!")
     }
@@ -563,13 +563,13 @@ final class PaginationUITests: XCTestCase {
 
         // Assert: correct chapter
         XCTAssertEqual(newInfo.currentChapter, 6,
-                      "Should be on chapter 6 (Letter 3)")
+                       "Should be on chapter 6 (Letter 3)")
 
         // Assert: font propagated (more pages at larger font)
         XCTAssertGreaterThan(newPages, baselinePages,
-                            "Font size increase should produce more pages in Letter 3 " +
-                            "(baseline: \(baselinePages), now: \(newPages)). " +
-                            "If equal, font didn't propagate to other spine items.")
+                             "Font size increase should produce more pages in Letter 3 " +
+                                 "(baseline: \(baselinePages), now: \(newPages)). " +
+                                 "If equal, font didn't propagate to other spine items.")
 
         print("Cross-spine font propagation test passed!")
     }

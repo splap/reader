@@ -29,6 +29,17 @@ if [ ! -d "$PROJECT" ]; then
   exit 1
 fi
 
+# Restart SpringBoard to prevent flaky UI test failures
+# SpringBoard hosts the accessibility infrastructure XCTest uses, and can get
+# into a corrupted state after many test runs, causing spurious failures.
+restart_springboard() {
+  if [ -n "${UDID:-}" ]; then
+    echo "Restarting SpringBoard on simulator $UDID..."
+    xcrun simctl spawn "$UDID" launchctl kickstart -k system/com.apple.SpringBoard 2>/dev/null || true
+    sleep 2
+  fi
+}
+
 run_tests() {
   local scheme="$1"
   local test_filter="${2:-}"
@@ -70,12 +81,15 @@ EOF
 
 case "$TEST_TYPE" in
   unit)
+    restart_springboard
     run_tests "ReaderApp"
     ;;
   ui)
+    restart_springboard
     run_tests "ReaderAppUITests"
     ;;
   all)
+    restart_springboard
     run_tests "ReaderApp"
     echo ""
     run_tests "ReaderAppUITests"
@@ -162,6 +176,7 @@ case "$TEST_TYPE" in
       exit 1
     fi
 
+    restart_springboard
     run_tests "ReaderAppUITests" "ReaderAppUITests/$UI_TEST_CLASS/$TEST_NAME"
     ;;
   *)
@@ -225,6 +240,7 @@ case "$TEST_TYPE" in
     fi
 
     echo "Found: $TEST_FILTER"
+    restart_springboard
     run_tests "ReaderApp" "$TEST_FILTER"
     ;;
 esac

@@ -1033,7 +1033,7 @@ private struct ChatMessage {
 
     let id: UUID
     let role: Role
-    var content: String  // Mutable for typewriter effect
+    var content: String // Mutable for typewriter effect
     let title: String? // For collapsed system messages
     var isCollapsed: Bool // For system messages
     let hasTrace: Bool // Whether this message has an execution trace
