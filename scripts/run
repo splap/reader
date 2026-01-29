@@ -13,6 +13,7 @@ SCREENSHOT_CFI=""
 SCREENSHOT_OUTPUT=""
 SCREENSHOT_RENDERER=""
 SCREENSHOT_FONT_SCALE=""
+TARGET_DEVICE=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -39,6 +40,9 @@ for arg in "$@"; do
       ;;
     --font-scale=*)
       SCREENSHOT_FONT_SCALE="${arg#--font-scale=}"
+      ;;
+    --device=*)
+      TARGET_DEVICE="${arg#--device=}"
       ;;
   esac
 done
@@ -115,23 +119,57 @@ if [ "$USE_SIMULATOR" = "1" ]; then
   fi
 else
   echo "Running on physical iPad..."
-  # Find first connected iOS device using JSON for reliable UDID extraction
+  # Find iOS device using JSON for reliable UDID extraction
   DEVICES_JSON=$(mktemp)
   xcrun devicectl list devices -j "$DEVICES_JSON" 2>/dev/null
-  DEVICE_UDID=$(jq -r '
-    .result.devices[] |
-    select(.connectionProperties.tunnelState == "connected") |
-    .hardwareProperties.udid
-  ' "$DEVICES_JSON" | head -1)
-  DEVICE_NAME=$(jq -r '
-    .result.devices[] |
-    select(.connectionProperties.tunnelState == "connected") |
-    .deviceProperties.name
-  ' "$DEVICES_JSON" | head -1)
+
+  if [ -n "$TARGET_DEVICE" ]; then
+    # Find device by name (case-insensitive partial match)
+    MATCHING_DEVICES=$(jq -r --arg name "$TARGET_DEVICE" '
+      [.result.devices[] |
+       select(.deviceProperties.name | ascii_downcase | contains($name | ascii_downcase)) |
+       .deviceProperties.name] | .[]
+    ' "$DEVICES_JSON")
+    MATCH_COUNT=$(echo "$MATCHING_DEVICES" | grep -c . || true)
+
+    if [ "$MATCH_COUNT" -gt 1 ]; then
+      echo "Ambiguous device name '$TARGET_DEVICE' matches $MATCH_COUNT devices:" >&2
+      echo "$MATCHING_DEVICES" | sed 's/^/  /' >&2
+      rm -f "$DEVICES_JSON"
+      exit 1
+    fi
+
+    DEVICE_UDID=$(jq -r --arg name "$TARGET_DEVICE" '
+      .result.devices[] |
+      select(.deviceProperties.name | ascii_downcase | contains($name | ascii_downcase)) |
+      .hardwareProperties.udid
+    ' "$DEVICES_JSON" | head -1)
+    DEVICE_NAME=$(jq -r --arg name "$TARGET_DEVICE" '
+      .result.devices[] |
+      select(.deviceProperties.name | ascii_downcase | contains($name | ascii_downcase)) |
+      .deviceProperties.name
+    ' "$DEVICES_JSON" | head -1)
+  else
+    # Use first connected device
+    DEVICE_UDID=$(jq -r '
+      .result.devices[] |
+      select(.connectionProperties.tunnelState == "connected") |
+      .hardwareProperties.udid
+    ' "$DEVICES_JSON" | head -1)
+    DEVICE_NAME=$(jq -r '
+      .result.devices[] |
+      select(.connectionProperties.tunnelState == "connected") |
+      .deviceProperties.name
+    ' "$DEVICES_JSON" | head -1)
+  fi
   rm -f "$DEVICES_JSON"
 
   if [ -z "$DEVICE_UDID" ]; then
-    echo "No connected physical device found." >&2
+    if [ -n "$TARGET_DEVICE" ]; then
+      echo "No device matching '$TARGET_DEVICE' found." >&2
+    else
+      echo "No connected physical device found." >&2
+    fi
     echo "Available devices:" >&2
     xcrun devicectl list devices 2>/dev/null | grep -E "iPad|iPhone" >&2
     exit 1
@@ -283,5 +321,20 @@ if [ "$USE_SIMULATOR" = "1" ]; then
   echo ""
   xcrun simctl spawn "$DEVICE_UDID" log stream --style compact --level debug --predicate 'subsystem == "com.splap.reader"' 2>/dev/null
 else
-  xcrun devicectl device process launch --device "$DEVICE_UDID" "$APP_BUNDLE_ID" --console
+  xcrun devicectl device process launch --device "$DEVICE_UDID" "$APP_BUNDLE_ID"
+
+  echo ""
+  echo "=== App Logs (com.splap.reader) ==="
+  echo "Press Ctrl+C to stop"
+  echo ""
+
+  if command -v idevicesyslog >/dev/null 2>&1; then
+    # Filter to our app process, then grep for our Logger output only
+    # Our logs appear as ReaderApp(ReaderApp.debug.dylib) or ReaderApp(ReaderApp.dylib)
+    idevicesyslog -u "$DEVICE_UDID" -p ReaderApp 2>/dev/null \
+      | grep --line-buffered -E "ReaderApp\.(debug\.)?dylib"
+  else
+    echo "Install libimobiledevice for device logs: brew install libimobiledevice"
+    echo "App launched. Logs not available without idevicesyslog."
+  fi
 fi
