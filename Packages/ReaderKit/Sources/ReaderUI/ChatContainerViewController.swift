@@ -8,9 +8,16 @@ public final class ChatContainerViewController: UIViewController {
     private let context: BookContext
     private let initialSelection: SelectionPayload?
 
+    // Top bar (fixed, never moves)
+    private let topBar = UIView()
+    private let sidebarButton = UIButton(type: .system)
+    private let debugButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .system)
+
+    // Content area (below top bar)
+    private let contentContainer = UIView()
     private var drawerViewController: ConversationDrawerViewController!
     private var chatViewController: BookChatViewController!
-    private var chatNavController: UINavigationController!
     private var drawerWidthConstraint: NSLayoutConstraint!
 
     private var isDrawerVisible = false
@@ -40,12 +47,75 @@ public final class ChatContainerViewController: UIViewController {
 
         view.backgroundColor = .systemBackground
 
+        setupTopBar()
+        setupContentContainer()
         setupDrawer()
         setupChat()
         setupGestures()
     }
 
     // MARK: - Setup
+
+    private func setupTopBar() {
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+        topBar.backgroundColor = .systemBackground
+        view.addSubview(topBar)
+
+        // Sidebar toggle button (left)
+        sidebarButton.translatesAutoresizingMaskIntoConstraints = false
+        sidebarButton.setImage(UIImage(systemName: "sidebar.left"), for: .normal)
+        sidebarButton.addTarget(self, action: #selector(toggleDrawer), for: .touchUpInside)
+        topBar.addSubview(sidebarButton)
+
+        // Close button (right)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.tintColor = .secondaryLabel
+        closeButton.addTarget(self, action: #selector(dismissChat), for: .touchUpInside)
+        topBar.addSubview(closeButton)
+
+        // Debug button (right, before close)
+        debugButton.translatesAutoresizingMaskIntoConstraints = false
+        debugButton.setImage(UIImage(systemName: "doc.text"), for: .normal)
+        debugButton.addTarget(self, action: #selector(copyDebugTranscript), for: .touchUpInside)
+        topBar.addSubview(debugButton)
+
+        let topBarHeight: CGFloat = 44
+
+        NSLayoutConstraint.activate([
+            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBar.heightAnchor.constraint(equalToConstant: topBarHeight),
+
+            sidebarButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
+            sidebarButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            sidebarButton.widthAnchor.constraint(equalToConstant: 44),
+            sidebarButton.heightAnchor.constraint(equalToConstant: 44),
+
+            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
+            closeButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+
+            debugButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
+            debugButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            debugButton.widthAnchor.constraint(equalToConstant: 44),
+            debugButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
+    }
+
+    private func setupContentContainer() {
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(contentContainer)
+
+        NSLayoutConstraint.activate([
+            contentContainer.topAnchor.constraint(equalTo: topBar.bottomAnchor),
+            contentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
 
     private func setupDrawer() {
         drawerViewController = ConversationDrawerViewController(context: context)
@@ -60,7 +130,7 @@ public final class ChatContainerViewController: UIViewController {
         }
 
         addChild(drawerViewController)
-        view.addSubview(drawerViewController.view)
+        contentContainer.addSubview(drawerViewController.view)
         drawerViewController.didMove(toParent: self)
 
         drawerViewController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -68,33 +138,27 @@ public final class ChatContainerViewController: UIViewController {
         drawerWidthConstraint = drawerViewController.view.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
-            drawerViewController.view.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
-            drawerViewController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            drawerViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14),
+            drawerViewController.view.leadingAnchor.constraint(equalTo: contentContainer.layoutMarginsGuide.leadingAnchor),
+            drawerViewController.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            drawerViewController.view.bottomAnchor.constraint(equalTo: contentContainer.safeAreaLayoutGuide.bottomAnchor, constant: -14),
             drawerWidthConstraint,
         ])
     }
 
     private func setupChat() {
         chatViewController = BookChatViewController(context: context, selection: initialSelection)
-        chatViewController.onToggleDrawer = { [weak self] in
-            self?.toggleDrawer()
-        }
 
-        // Wrap chat in its own nav controller
-        chatNavController = UINavigationController(rootViewController: chatViewController)
+        addChild(chatViewController)
+        contentContainer.addSubview(chatViewController.view)
+        chatViewController.didMove(toParent: self)
 
-        addChild(chatNavController)
-        view.addSubview(chatNavController.view)
-        chatNavController.didMove(toParent: self)
-
-        chatNavController.view.translatesAutoresizingMaskIntoConstraints = false
+        chatViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
-            chatNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
-            chatNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            chatNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            chatNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            chatViewController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
+            chatViewController.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            chatViewController.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            chatViewController.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
     }
 
@@ -102,12 +166,12 @@ public final class ChatContainerViewController: UIViewController {
         // Swipe gesture to open drawer
         let swipeRight = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe))
         swipeRight.direction = .right
-        view.addGestureRecognizer(swipeRight)
+        contentContainer.addGestureRecognizer(swipeRight)
 
         // Swipe gesture to close drawer
         let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe))
         swipeLeft.direction = .left
-        view.addGestureRecognizer(swipeLeft)
+        contentContainer.addGestureRecognizer(swipeLeft)
     }
 
     // MARK: - Actions
@@ -120,7 +184,7 @@ public final class ChatContainerViewController: UIViewController {
         }
     }
 
-    private func toggleDrawer() {
+    @objc private func toggleDrawer() {
         if isDrawerVisible {
             hideDrawer()
         } else {
@@ -146,39 +210,50 @@ public final class ChatContainerViewController: UIViewController {
         }
     }
 
+    @objc private func dismissChat() {
+        chatViewController.saveConversation()
+        dismiss(animated: true)
+    }
+
+    @objc private func copyDebugTranscript() {
+        let transcript = chatViewController.buildDebugTranscript()
+        UIPasteboard.general.string = transcript
+
+        let alert = UIAlertController(
+            title: "Copied",
+            message: "Debug transcript copied to clipboard (\(transcript.count) chars)",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
     private func loadConversation(id: UUID) {
         // Create new chat with conversation
         let newChatViewController = BookChatViewController(context: context, selection: nil, conversationId: id)
-        newChatViewController.onToggleDrawer = { [weak self] in
-            self?.toggleDrawer()
-        }
-
-        // Wrap in nav controller
-        let newNavController = UINavigationController(rootViewController: newChatViewController)
-        newNavController.view.translatesAutoresizingMaskIntoConstraints = false
+        newChatViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Add new view first (underneath)
-        addChild(newNavController)
-        view.insertSubview(newNavController.view, belowSubview: chatNavController.view)
-        newNavController.didMove(toParent: self)
+        addChild(newChatViewController)
+        contentContainer.insertSubview(newChatViewController.view, belowSubview: chatViewController.view)
+        newChatViewController.didMove(toParent: self)
 
         NSLayoutConstraint.activate([
-            newNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
-            newNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            newNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            newChatViewController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
+            newChatViewController.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            newChatViewController.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            newChatViewController.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
 
         // Force layout so new view is ready
-        view.layoutIfNeeded()
+        contentContainer.layoutIfNeeded()
 
-        // Remove old chat nav controller
-        chatNavController.willMove(toParent: nil)
-        chatNavController.view.removeFromSuperview()
-        chatNavController.removeFromParent()
+        // Remove old chat view controller
+        chatViewController.willMove(toParent: nil)
+        chatViewController.view.removeFromSuperview()
+        chatViewController.removeFromParent()
 
-        // Update references
-        chatNavController = newNavController
+        // Update reference
         chatViewController = newChatViewController
     }
 
@@ -188,36 +263,29 @@ public final class ChatContainerViewController: UIViewController {
 
         // Create new chat
         let newChatViewController = BookChatViewController(context: context, selection: nil)
-        newChatViewController.onToggleDrawer = { [weak self] in
-            self?.toggleDrawer()
-        }
-
-        // Wrap in nav controller
-        let newNavController = UINavigationController(rootViewController: newChatViewController)
-        newNavController.view.translatesAutoresizingMaskIntoConstraints = false
+        newChatViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Add new view first (underneath)
-        addChild(newNavController)
-        view.insertSubview(newNavController.view, belowSubview: chatNavController.view)
-        newNavController.didMove(toParent: self)
+        addChild(newChatViewController)
+        contentContainer.insertSubview(newChatViewController.view, belowSubview: chatViewController.view)
+        newChatViewController.didMove(toParent: self)
 
         NSLayoutConstraint.activate([
-            newNavController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
-            newNavController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            newNavController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            newNavController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            newChatViewController.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
+            newChatViewController.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            newChatViewController.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            newChatViewController.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
 
         // Force layout so new view is ready
-        view.layoutIfNeeded()
+        contentContainer.layoutIfNeeded()
 
-        // Remove old chat nav controller
-        chatNavController.willMove(toParent: nil)
-        chatNavController.view.removeFromSuperview()
-        chatNavController.removeFromParent()
+        // Remove old chat view controller
+        chatViewController.willMove(toParent: nil)
+        chatViewController.view.removeFromSuperview()
+        chatViewController.removeFromParent()
 
-        // Update references
-        chatNavController = newNavController
+        // Update reference
         chatViewController = newChatViewController
     }
 }
