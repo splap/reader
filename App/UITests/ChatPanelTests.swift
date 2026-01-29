@@ -824,4 +824,188 @@ final class ChatPanelTests: XCTestCase {
 
         print("Error response test complete")
     }
+
+    // MARK: - Drawer Navigation Tests
+
+    func testDrawerCurrentChatNavigationMultiHop() {
+        // This test verifies the multi-hop drawer navigation bug fix:
+        // 1. Open chat (new chat A)
+        // 2. Create saved conversations by sending messages and closing
+        // 3. Open chat again (new chat B)
+        // 4. Open drawer, click saved conversation 1
+        // 5. Click saved conversation 2
+        // 6. Click "Current Chat"
+        // 7. Verify we're back to new chat B (not stuck on conv 2)
+
+        let stubApp = launchReaderApp(extraArgs: ["--uitesting-stub-chat-short"])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        let webView = stubApp.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // === Create first saved conversation ===
+        webView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
+
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        XCTAssertTrue(chatInput.waitForExistence(timeout: 5))
+        chatInput.tap()
+        chatInput.typeText("First conversation message")
+
+        let sendButton = stubApp.buttons["chat-send-button"]
+        sendButton.tap()
+        sleep(3) // Wait for stub response
+
+        // Close chat to save first conversation
+        let doneButton = stubApp.buttons["Done"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 3))
+        doneButton.tap()
+        sleep(1)
+
+        // === Create second saved conversation ===
+        webView.tap()
+        sleep(1)
+        chatButton.tap()
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
+
+        chatInput.tap()
+        chatInput.typeText("Second conversation message")
+        sendButton.tap()
+        sleep(3)
+
+        // Close chat to save second conversation
+        doneButton.tap()
+        sleep(1)
+
+        // === Open new chat (this will be our "origin") ===
+        webView.tap()
+        sleep(1)
+        chatButton.tap()
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
+
+        // The chat should be empty (new chat)
+        // Take screenshot of initial new chat state
+        let screenshot1 = XCUIScreen.main.screenshot()
+        let attach1 = XCTAttachment(screenshot: screenshot1)
+        attach1.name = "1-New-Chat-Origin"
+        attach1.lifetime = .keepAlways
+        add(attach1)
+
+        // === Open drawer ===
+        let sidebarButton = stubApp.buttons["chat-sidebar-button"]
+        XCTAssertTrue(sidebarButton.waitForExistence(timeout: 3), "Sidebar button should exist")
+        sidebarButton.tap()
+        sleep(1)
+
+        // Take screenshot of drawer
+        let screenshot2 = XCUIScreen.main.screenshot()
+        let attach2 = XCTAttachment(screenshot: screenshot2)
+        attach2.name = "2-Drawer-Open"
+        attach2.lifetime = .keepAlways
+        add(attach2)
+
+        // Find conversation cells in the drawer
+        let conversationCells = stubApp.cells.allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(conversationCells.count, 3, "Should have Current Chat + 2 saved conversations")
+
+        // First cell (index 0) is "Current Chat"
+        let currentChatCell = conversationCells[0]
+        XCTAssertTrue(currentChatCell.staticTexts["Current Chat"].exists, "First cell should be Current Chat")
+
+        // Remaining cells are saved conversations
+        var savedConversationCells: [XCUIElement] = []
+        for i in 1 ..< conversationCells.count {
+            savedConversationCells.append(conversationCells[i])
+        }
+
+        guard savedConversationCells.count >= 2 else {
+            print("Not enough saved conversations found (\(savedConversationCells.count)), skipping multi-hop test")
+            // Take screenshot for debugging
+            let debugScreenshot = XCUIScreen.main.screenshot()
+            let debugAttach = XCTAttachment(screenshot: debugScreenshot)
+            debugAttach.name = "Debug-Not-Enough-Conversations"
+            debugAttach.lifetime = .keepAlways
+            add(debugAttach)
+            return
+        }
+
+        // === Click first saved conversation ===
+        print("Clicking first saved conversation...")
+        savedConversationCells[0].tap()
+        sleep(1)
+
+        let screenshot3 = XCUIScreen.main.screenshot()
+        let attach3 = XCTAttachment(screenshot: screenshot3)
+        attach3.name = "3-After-Click-Conv1"
+        attach3.lifetime = .keepAlways
+        add(attach3)
+
+        // === Click second saved conversation ===
+        print("Clicking second saved conversation...")
+        savedConversationCells[1].tap()
+        sleep(1)
+
+        let screenshot4 = XCUIScreen.main.screenshot()
+        let attach4 = XCTAttachment(screenshot: screenshot4)
+        attach4.name = "4-After-Click-Conv2"
+        attach4.lifetime = .keepAlways
+        add(attach4)
+
+        // Verify we're showing the second conversation's content
+        // (The stub response contains "short test response")
+        let conv2Content = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "short test response")).firstMatch
+        XCTAssertTrue(conv2Content.waitForExistence(timeout: 3), "Should be showing saved conversation content")
+
+        // === Click "Current Chat" to return to origin ===
+        print("Clicking Current Chat to return to origin...")
+        currentChatCell.tap()
+        sleep(1)
+
+        let screenshot5 = XCUIScreen.main.screenshot()
+        let attach5 = XCTAttachment(screenshot: screenshot5)
+        attach5.name = "5-After-Click-Current-Chat"
+        attach5.lifetime = .keepAlways
+        add(attach5)
+
+        // === Verify we're back to the new (empty) chat ===
+        // The new chat should NOT have any response messages in the chat table
+        // Note: The drawer may still show conversation titles containing the response text,
+        // so we specifically check within the chat message table
+
+        // Get the message cells in the chat table
+        let messageCells = chatTable.cells
+        let messageCellCount = messageCells.count
+
+        // An empty new chat should have 0 message cells
+        // (saved conversations have at least 2: user message + response)
+        print("Message cells in chat table: \(messageCellCount)")
+
+        // Take screenshot showing final state
+        let screenshot6 = XCUIScreen.main.screenshot()
+        let attach6 = XCTAttachment(screenshot: screenshot6)
+        attach6.name = "6-Final-Chat-State"
+        attach6.lifetime = .keepAlways
+        add(attach6)
+
+        // The new chat should have 0 messages (it was never used)
+        XCTAssertEqual(messageCellCount, 0,
+                       "After clicking Current Chat, should return to the empty new chat with 0 messages, but found \(messageCellCount)")
+
+        print("Multi-hop drawer navigation test passed!")
+    }
 }

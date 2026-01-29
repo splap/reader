@@ -22,6 +22,10 @@ public final class ChatContainerViewController: UIViewController {
 
     private var isDrawerVisible = false
 
+    // Origin tracking: the chat state when drawer was opened (for "back" navigation)
+    private var originChatViewController: BookChatViewController?
+    private var originConversationId: UUID?
+
     /// Responsive drawer width - percentage of view width, capped
     private var drawerWidth: CGFloat {
         min(view.bounds.width * 0.4, 350)
@@ -87,6 +91,7 @@ public final class ChatContainerViewController: UIViewController {
         sidebarConfig.baseForegroundColor = iconColor
         sidebarButton.configuration = sidebarConfig
         sidebarButton.addTarget(self, action: #selector(toggleDrawer), for: .touchUpInside)
+        sidebarButton.accessibilityIdentifier = "chat-sidebar-button"
         topBar.addSubview(sidebarButton)
 
         // Centered title (book name)
@@ -108,7 +113,7 @@ public final class ChatContainerViewController: UIViewController {
         closeConfig.contentInsets = .zero
         // Use attributed title for proper font control
         closeConfig.attributedTitle = AttributedString("Done", attributes: AttributeContainer([
-            .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
+            .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
         ]))
         closeButton.configuration = closeConfig
         closeButton.addTarget(self, action: #selector(dismissChat), for: .touchUpInside)
@@ -137,7 +142,7 @@ public final class ChatContainerViewController: UIViewController {
 
             // Done button - vertically centered, close to right edge
             closeButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -12),
+            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
             closeButton.heightAnchor.constraint(equalToConstant: 44),
 
             // Title centered in the entire bar
@@ -170,7 +175,7 @@ public final class ChatContainerViewController: UIViewController {
             self?.startNewChat()
         }
         drawerViewController.onSelectCurrentChat = { [weak self] in
-            self?.hideDrawer()
+            self?.restoreOriginChat()
         }
 
         addChild(drawerViewController)
@@ -237,6 +242,12 @@ public final class ChatContainerViewController: UIViewController {
     }
 
     private func showDrawer() {
+        // Save current state as origin (only if not already browsing)
+        if originChatViewController == nil {
+            originChatViewController = chatViewController
+            originConversationId = chatViewController.currentConversationId
+        }
+
         isDrawerVisible = true
         drawerWidthConstraint.constant = drawerWidth
 
@@ -251,7 +262,50 @@ public final class ChatContainerViewController: UIViewController {
 
         UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseIn) {
             self.view.layoutIfNeeded()
+        } completion: { _ in
+            // Clear origin when drawer closes (user dismissed without navigating back)
+            self.clearOrigin()
         }
+    }
+
+    private func restoreOriginChat() {
+        // If we're already showing the origin, nothing to do
+        guard let origin = originChatViewController, origin !== chatViewController else {
+            return
+        }
+
+        // Restore the origin chat view controller (keep drawer open, like other selections)
+        origin.view.translatesAutoresizingMaskIntoConstraints = false
+
+        // Add origin view (underneath current)
+        addChild(origin)
+        contentContainer.insertSubview(origin.view, belowSubview: chatViewController.view)
+        origin.didMove(toParent: self)
+
+        NSLayoutConstraint.activate([
+            origin.view.leadingAnchor.constraint(equalTo: drawerViewController.view.trailingAnchor),
+            origin.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            origin.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            origin.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+        ])
+
+        contentContainer.layoutIfNeeded()
+
+        // Remove current chat view controller
+        chatViewController.willMove(toParent: nil)
+        chatViewController.view.removeFromSuperview()
+        chatViewController.removeFromParent()
+
+        // Update reference
+        chatViewController = origin
+
+        // Don't clear origin - user can continue browsing and return again
+        // Origin is cleared when drawer closes or "New Chat" is clicked
+    }
+
+    private func clearOrigin() {
+        originChatViewController = nil
+        originConversationId = nil
     }
 
     @objc private func dismissChat() {
@@ -289,6 +343,9 @@ public final class ChatContainerViewController: UIViewController {
     }
 
     private func startNewChat() {
+        // Clear origin - user is explicitly starting fresh
+        clearOrigin()
+
         // Collapse the drawer
         hideDrawer()
 

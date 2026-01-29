@@ -50,6 +50,9 @@ public final class BookChatViewController: UIViewController {
 
     // MARK: - Initialization
 
+    /// The current conversation ID (nil for new unsaved chats)
+    public var currentConversationId: UUID? { conversationId }
+
     public init(context: BookContext, selection: SelectionPayload? = nil, conversationId: UUID? = nil) {
         self.context = context
         initialSelection = selection

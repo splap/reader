@@ -260,6 +260,6 @@ private final class ConversationCell: UITableViewCell {
         titleLabel.text = "Current Chat"
         titleLabel.textColor = .systemBlue
         dateLabel.text = "Active"
-        accessoryType = .none // No chevron for current chat
+        accessoryType = .disclosureIndicator // Same as other rows
     }
 }
