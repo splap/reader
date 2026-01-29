@@ -3,6 +3,12 @@ Core principle
 Make the project boring and deterministic.
 If a human can build/test it with one command, agents will succeed. Otherwise, they will fail unpredictably.
 
+## Single Code Path Principle
+
+Prefer one reliable way to accomplish a goal over multiple alternatives. Don't create "convenience" methods that duplicate functionality - they become maintenance burden and introduce inconsistency.
+
+**Example**: Reading position uses CFI. Don't add alternative navigation methods like "navigate by TOC label" - it's just a worse version of the same thing. Kill the old path, don't preserve it alongside the new one.
+
 ## EPUB Reading Position: CFI is the Source of Truth
 
 Reading positions are tracked using **EPUB CFI (Canonical Fragment Identifiers)** - the EPUB standard for fragment identification. This is the ONLY position tracking mechanism.

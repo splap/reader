@@ -29,6 +29,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let cleanAllData = CommandLine.arguments.contains("--uitesting-clean-all-data")
         let uitestingBook = Self.parseArgument("--uitesting-book=")
         let uitestingSpineItem = Self.parseIntArgument("--uitesting-spine-item=")
+        let uitestingCFI = Self.parseArgument("--uitesting-cfi=")
 
         if isUITesting, cleanAllData {
             NSLog("🧪 UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
@@ -76,12 +77,24 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             NSLog("🚀 UI test opening book by slug: \(bookSlug) -> \(book.title)")
             BookLibraryService.shared.updateLastOpened(bookId: book.id)
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
+
+            // Determine spine item index from explicit arg or CFI
+            var spineItemIndex = uitestingSpineItem
+            if spineItemIndex == nil, let cfi = uitestingCFI {
+                if let parsed = CFIParser.parseBaseCFI(cfi) {
+                    spineItemIndex = parsed.spineIndex
+                    NSLog("🚀 Parsed CFI '\(cfi)' -> spine index \(parsed.spineIndex)")
+                } else {
+                    NSLog("⚠️ Invalid CFI format: \(cfi)")
+                }
+            }
+
             let readerVC = ReaderViewController(
                 epubURL: fileURL,
                 bookId: book.id.uuidString,
                 bookTitle: book.title,
                 bookAuthor: book.author,
-                initialSpineItemIndex: uitestingSpineItem
+                initialSpineItemIndex: spineItemIndex
             )
             navController.pushViewController(readerVC, animated: false)
         } else if autoOpenFirstBook, let book = BookLibraryService.shared.getAllBooks().first {

@@ -770,12 +770,58 @@ public final class WebPageViewController: UIViewController, PageRenderer {
            match.numberOfRanges >= 2
         {
             let contentRange = Range(match.range(at: 1), in: html)!
-            return String(html[contentRange])
+            let bodyContent = String(html[contentRange])
+            // Fix XHTML self-closing tags for HTML5 compatibility
+            return fixXHTMLSelfClosingTags(bodyContent)
         }
 
         // If no body tag found, return original HTML
         // (might be a fragment without full document structure)
-        return html
+        return fixXHTMLSelfClosingTags(html)
+    }
+
+    /// Convert XHTML self-closing non-void elements to properly closed HTML tags.
+    /// XHTML allows `<div/>` but HTML5 parses this as an unclosed `<div>` tag,
+    /// causing all subsequent content to become children of that element.
+    private func fixXHTMLSelfClosingTags(_ html: String) -> String {
+        // HTML5 void elements that ARE self-closing (don't modify these)
+        let voidElements = Set([
+            "area", "base", "br", "col", "command", "embed", "hr", "img",
+            "input", "keygen", "link", "meta", "param", "source", "track", "wbr",
+        ])
+
+        // Match self-closing tags: <tagname attributes />
+        // Captures: (1) tag name, (2) attributes including whitespace before />
+        let pattern = #"<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)\s*/>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return html
+        }
+
+        var result = html
+        // Process matches in reverse order to preserve string indices
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+        for match in matches.reversed() {
+            guard let fullRange = Range(match.range, in: result),
+                  let tagNameRange = Range(match.range(at: 1), in: result) else { continue }
+
+            let tagName = String(result[tagNameRange]).lowercased()
+
+            // Skip void elements - they're correctly self-closing
+            if voidElements.contains(tagName) { continue }
+
+            // Get attributes (may be empty)
+            let attributes = if match.numberOfRanges > 2, let attrRange = Range(match.range(at: 2), in: result) {
+                String(result[attrRange])
+            } else {
+                ""
+            }
+
+            // Convert <tag attrs /> to <tag attrs></tag>
+            let replacement = "<\(tagName)\(attributes)></\(tagName)>"
+            result.replaceSubrange(fullRange, with: replacement)
+        }
+
+        return result
     }
 
     private func reloadWithNewFontScale() {

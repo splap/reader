@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Load local environment from .env if it exists
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 PROJECT="Reader.xcodeproj"
 CONFIGURATION="Debug"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
@@ -40,6 +47,31 @@ restart_springboard() {
   fi
 }
 
+# Load test books from TEST_BOOKS_DIR into the simulator
+# This mirrors the logic in scripts/run
+load_test_books() {
+  if [ -z "${UDID:-}" ]; then
+    return
+  fi
+
+  BOOKS_SOURCE="${TEST_BOOKS_DIR:-}"
+  if [ -z "$BOOKS_SOURCE" ] || [ ! -d "$BOOKS_SOURCE" ]; then
+    return
+  fi
+
+  APP_CONTAINER=$(xcrun simctl get_app_container "$UDID" com.splap.reader data 2>/dev/null || true)
+  if [ -z "$APP_CONTAINER" ]; then
+    echo "Note: App container not found, test books will be loaded on next run"
+    return
+  fi
+
+  BOOKS_DIR="$APP_CONTAINER/Documents/TestBooks"
+  mkdir -p "$BOOKS_DIR"
+  cp "$BOOKS_SOURCE"/*.epub "$BOOKS_DIR/" 2>/dev/null || true
+  BOOK_COUNT=$(ls "$BOOKS_DIR"/*.epub 2>/dev/null | wc -l | xargs)
+  echo "Loaded $BOOK_COUNT test book(s) from TEST_BOOKS_DIR"
+}
+
 run_tests() {
   local scheme="$1"
   local test_filter="${2:-}"
@@ -63,15 +95,16 @@ run_tests() {
 
   # Write test configuration to temp file for UI tests to read
   mkdir -p /tmp/reader-tests
-  cat > /tmp/reader-tests/test-config.json << EOF
-{
-  "book": "${BOOK:-frankenstein}",
-  "chapter": "${CHAPTER:-0}",
-  "page": "${PAGE:-1}",
-  "chapterCount": "${CHAPTER_COUNT:-5}",
-  "renderer": "${RENDERER:-html}"
-}
-EOF
+  printf '%s\n' '{' \
+    "  \"book\": \"${BOOK:-frankenstein}\"," \
+    "  \"bookKeyword\": \"${BOOK_KEYWORD:-}\"," \
+    "  \"bookCFI\": \"${BOOK_CFI:-}\"," \
+    "  \"bookPageOffset\": ${BOOK_PAGE_OFFSET:-0}," \
+    "  \"chapter\": \"${CHAPTER:-0}\"," \
+    "  \"page\": \"${PAGE:-1}\"," \
+    "  \"chapterCount\": \"${CHAPTER_COUNT:-5}\"," \
+    "  \"renderer\": \"${RENDERER:-html}\"" \
+    '}' > /tmp/reader-tests/test-config.json
 
   xcodebuild_args+=(test)
 
@@ -85,10 +118,12 @@ case "$TEST_TYPE" in
     ;;
   ui)
     restart_springboard
+    load_test_books
     run_tests "ReaderAppUITests"
     ;;
   all)
     restart_springboard
+    load_test_books
     run_tests "ReaderApp"
     echo ""
     run_tests "ReaderAppUITests"
@@ -176,6 +211,7 @@ case "$TEST_TYPE" in
     fi
 
     restart_springboard
+    load_test_books
     run_tests "ReaderAppUITests" "ReaderAppUITests/$UI_TEST_CLASS/$TEST_NAME"
     ;;
   *)
