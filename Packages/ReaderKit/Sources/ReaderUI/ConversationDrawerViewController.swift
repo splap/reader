@@ -12,8 +12,10 @@ final class ConversationDrawerViewController: UIViewController {
     var onNewChat: (() -> Void)?
     var onSelectCurrentChat: (() -> Void)?
 
-    private let tableView = UITableView()
+    private let headerView = UIView()
+    private let headerLabel = UILabel()
     private let newChatButton = UIButton(type: .system)
+    private let tableView = UITableView(frame: .zero, style: .plain)
 
     // MARK: - Initialization
 
@@ -52,8 +54,8 @@ final class ConversationDrawerViewController: UIViewController {
     }
 
     @objc private func fontScaleDidChange() {
-        // Update button font
-        newChatButton.titleLabel?.font = fontManager.titleFont
+        // Update header font
+        headerLabel.font = .preferredFont(forTextStyle: .headline)
 
         // Reload table to update cell fonts
         tableView.reloadData()
@@ -67,15 +69,25 @@ final class ConversationDrawerViewController: UIViewController {
     // MARK: - Setup
 
     private func setupUI() {
-        // New chat button at top
+        // Header with title and compose button (iOS standard pattern)
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerView)
+
+        headerLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerLabel.text = "Chats"
+        headerLabel.font = .preferredFont(forTextStyle: .headline)
+        headerView.addSubview(headerLabel)
+
         newChatButton.translatesAutoresizingMaskIntoConstraints = false
-        newChatButton.setTitle("+ New Chat", for: .normal)
-        newChatButton.titleLabel?.font = fontManager.titleFont
+        newChatButton.setImage(UIImage(systemName: "square.and.pencil"), for: .normal)
         newChatButton.addTarget(self, action: #selector(newChatTapped), for: .touchUpInside)
-        newChatButton.backgroundColor = .systemBlue
-        newChatButton.setTitleColor(.white, for: .normal)
-        newChatButton.layer.cornerRadius = 8
-        view.addSubview(newChatButton)
+        headerView.addSubview(newChatButton)
+
+        // Separator under header
+        let separator = UIView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = .separator
+        headerView.addSubview(separator)
 
         // Table view for conversations
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -83,17 +95,28 @@ final class ConversationDrawerViewController: UIViewController {
         tableView.delegate = self
         tableView.backgroundColor = .clear
         tableView.register(ConversationCell.self, forCellReuseIdentifier: "ConversationCell")
-        // Use system default separator inset
         view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
-            newChatButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            newChatButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            newChatButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            // Minimum 44pt touch target per Apple HIG, allows growth with font scale
-            newChatButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 44),
 
-            tableView.topAnchor.constraint(equalTo: newChatButton.bottomAnchor, constant: 16),
+            headerLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+            headerLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            newChatButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -8),
+            newChatButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            newChatButton.widthAnchor.constraint(equalToConstant: 44),
+            newChatButton.heightAnchor.constraint(equalToConstant: 44),
+
+            separator.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
+
+            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -192,42 +215,38 @@ private final class ConversationCell: UITableViewCell {
 
     private func setupUI() {
         backgroundColor = .clear
-        selectedBackgroundView = {
-            let view = UIView()
-            view.backgroundColor = .systemGray5
-            return view
-        }()
+        accessoryType = .disclosureIndicator
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = fontManager.scaledFont(size: 15, weight: .medium)
+        titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.textColor = .label
         titleLabel.numberOfLines = 2
         contentView.addSubview(titleLabel)
 
         dateLabel.translatesAutoresizingMaskIntoConstraints = false
-        dateLabel.font = fontManager.captionFont
+        dateLabel.font = .preferredFont(forTextStyle: .caption1)
         dateLabel.textColor = .secondaryLabel
         contentView.addSubview(dateLabel)
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
 
             dateLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             dateLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            dateLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            dateLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
             dateLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
         ])
     }
 
     func configure(with conversation: Conversation) {
-        // Update fonts to pick up any scale changes
-        titleLabel.font = fontManager.scaledFont(size: 15, weight: .medium)
-        dateLabel.font = fontManager.captionFont
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        dateLabel.font = .preferredFont(forTextStyle: .caption1)
 
         titleLabel.text = conversation.title
         titleLabel.textColor = .label
+        accessoryType = .disclosureIndicator
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
@@ -235,12 +254,12 @@ private final class ConversationCell: UITableViewCell {
     }
 
     func configureAsCurrentChat() {
-        // Update fonts to pick up any scale changes
-        titleLabel.font = fontManager.scaledFont(size: 15, weight: .medium)
-        dateLabel.font = fontManager.captionFont
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        dateLabel.font = .preferredFont(forTextStyle: .caption1)
 
         titleLabel.text = "Current Chat"
         titleLabel.textColor = .systemBlue
         dateLabel.text = "Active"
+        accessoryType = .none // No chevron for current chat
     }
 }

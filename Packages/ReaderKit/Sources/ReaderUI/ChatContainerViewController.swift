@@ -11,6 +11,7 @@ public final class ChatContainerViewController: UIViewController {
     // Top bar (fixed, never moves)
     private let topBar = UIView()
     private let sidebarButton = UIButton(type: .system)
+    private let titleLabel = UILabel()
     private let debugButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
 
@@ -67,18 +68,33 @@ public final class ChatContainerViewController: UIViewController {
         sidebarButton.addTarget(self, action: #selector(toggleDrawer), for: .touchUpInside)
         topBar.addSubview(sidebarButton)
 
+        // Centered title (book name)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = context.bookTitle
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textAlignment = .center
+        titleLabel.lineBreakMode = .byTruncatingTail
+        topBar.addSubview(titleLabel)
+
         // Close button (right)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.tintColor = .secondaryLabel
+        closeButton.tintColor = .tertiaryLabel
         closeButton.addTarget(self, action: #selector(dismissChat), for: .touchUpInside)
         topBar.addSubview(closeButton)
 
         // Debug button (right, before close)
         debugButton.translatesAutoresizingMaskIntoConstraints = false
-        debugButton.setImage(UIImage(systemName: "doc.text"), for: .normal)
+        debugButton.setImage(UIImage(systemName: "doc.on.clipboard"), for: .normal)
+        debugButton.tintColor = .secondaryLabel
         debugButton.addTarget(self, action: #selector(copyDebugTranscript), for: .touchUpInside)
         topBar.addSubview(debugButton)
+
+        // Separator line (standard iOS nav bar style)
+        let separator = UIView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = .separator
+        topBar.addSubview(separator)
 
         let topBarHeight: CGFloat = 44
 
@@ -88,20 +104,31 @@ public final class ChatContainerViewController: UIViewController {
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             topBar.heightAnchor.constraint(equalToConstant: topBarHeight),
 
-            sidebarButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
+            sidebarButton.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 8),
             sidebarButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
             sidebarButton.widthAnchor.constraint(equalToConstant: 44),
             sidebarButton.heightAnchor.constraint(equalToConstant: 44),
 
-            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
+            // Title centered, with padding from buttons
+            titleLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: sidebarButton.trailingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: debugButton.leadingAnchor, constant: -8),
+
+            closeButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -8),
             closeButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 44),
             closeButton.heightAnchor.constraint(equalToConstant: 44),
 
-            debugButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
+            debugButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
             debugButton.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
             debugButton.widthAnchor.constraint(equalToConstant: 44),
             debugButton.heightAnchor.constraint(equalToConstant: 44),
+
+            separator.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: topBar.bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
         ])
     }
 
