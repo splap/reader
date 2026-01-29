@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Reader Agent Service
 
 /// Agent service that handles LLM conversations with tool calling
-public actor ReaderAgentService {
+public actor ReaderAgentService: AgentServiceProtocol {
     private static let logger = Log.logger(category: "ReaderAgentService")
 
     /// Maximum number of tool-calling rounds to prevent infinite loops

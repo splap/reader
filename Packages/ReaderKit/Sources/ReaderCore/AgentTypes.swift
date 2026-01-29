@@ -1,5 +1,20 @@
 import Foundation
 
+// MARK: - Agent Service Protocol
+
+/// Protocol for agent services that handle LLM conversations
+public protocol AgentServiceProtocol: Sendable {
+    /// Send a chat message and get a response
+    func chat(
+        message: String,
+        context: BookContext,
+        history: [AgentMessage],
+        selectionContext: String?,
+        selectionBlockId: String?,
+        selectionSpineItemId: String?
+    ) async throws -> (response: AgentResponse, updatedHistory: [AgentMessage])
+}
+
 // MARK: - Message Types
 
 /// Role in a conversation

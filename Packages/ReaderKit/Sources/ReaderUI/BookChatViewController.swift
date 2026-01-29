@@ -7,7 +7,7 @@ import UIKit
 public final class BookChatViewController: UIViewController {
     private static let logger = Log.logger(category: "chat")
     private let context: BookContext
-    private let agentService = ReaderAgentService()
+    private let agentService: any AgentServiceProtocol
     private let initialSelection: SelectionPayload?
     private let conversationId: UUID?
     private let fontManager = FontScaleManager.shared
@@ -15,6 +15,15 @@ public final class BookChatViewController: UIViewController {
     private var conversation: Conversation
     private var conversationHistory: [AgentMessage] = []
     private var isLoading = false
+
+    // MARK: - Typewriter Effect Properties
+
+    private var typewriterTimer: Timer?
+    private var typewriterMessageIndex: Int?
+    private var typewriterFullContent: String?
+    private var typewriterWords: [String] = []
+    private var typewriterWordIndex: Int = 0
+    private let typewriterWordDelay: TimeInterval = 0.04
 
     // MARK: - UI Components
 
@@ -45,6 +54,18 @@ public final class BookChatViewController: UIViewController {
         self.context = context
         initialSelection = selection
         self.conversationId = conversationId
+
+        // Conditional stub injection for UI testing
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--uitesting-stub-chat-long") {
+            agentService = StubAgentService(mode: .long)
+        } else if args.contains("--uitesting-stub-chat-short") {
+            agentService = StubAgentService(mode: .short)
+        } else if args.contains("--uitesting-stub-chat-error") {
+            agentService = StubAgentService(mode: .error)
+        } else {
+            agentService = ReaderAgentService()
+        }
 
         // Load existing conversation or create new one
         if let convId = conversationId,
@@ -83,6 +104,7 @@ public final class BookChatViewController: UIViewController {
     override public func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         NotificationCenter.default.removeObserver(self)
+        stopTypewriterEffect()
     }
 
     private func setupFontScaleObserver() {
@@ -508,7 +530,10 @@ public final class BookChatViewController: UIViewController {
                 let result = try await agentService.chat(
                     message: summaryPrompt,
                     context: context,
-                    history: []
+                    history: [],
+                    selectionContext: nil,
+                    selectionBlockId: nil,
+                    selectionSpineItemId: nil
                 )
 
                 await MainActor.run {
@@ -540,6 +565,9 @@ public final class BookChatViewController: UIViewController {
             return
         }
 
+        // Stop any existing typewriter effect
+        stopTypewriterEffect()
+
         // Add user message
         messages.append(ChatMessage(role: .user, content: text))
         tableView.reloadData()
@@ -567,8 +595,9 @@ public final class BookChatViewController: UIViewController {
                     self.conversationHistory = result.updatedHistory
 
                     // Create message with trace if available (collapsed by default)
+                    // Start with empty content for typewriter effect
                     let hasTrace = result.response.executionTrace != nil
-                    let message = ChatMessage(role: .assistant, content: result.response.content, isCollapsed: hasTrace, hasTrace: hasTrace)
+                    let message = ChatMessage(role: .assistant, content: "", isCollapsed: hasTrace, hasTrace: hasTrace)
 
                     // Store trace if available
                     if let trace = result.response.executionTrace {
@@ -581,8 +610,11 @@ public final class BookChatViewController: UIViewController {
                     self.logTranscript()
 
                     tableView.reloadData()
-                    scrollToBottom()
                     setLoading(false)
+
+                    // Start typewriter effect with the full response content
+                    let messageIndex = messages.count - 1
+                    startTypewriterEffect(messageIndex: messageIndex, fullContent: result.response.content)
                 }
             } catch {
                 await MainActor.run {
@@ -591,7 +623,7 @@ public final class BookChatViewController: UIViewController {
                         content: "Error: \(error.localizedDescription)"
                     ))
                     tableView.reloadData()
-                    scrollToBottom()
+                    scrollToResponseTop()
                     setLoading(false)
                 }
             }
@@ -645,6 +677,107 @@ public final class BookChatViewController: UIViewController {
         guard !messages.isEmpty else { return }
         let indexPath = IndexPath(row: messages.count - 1, section: 0)
         tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
+    }
+
+    /// Scrolls to position the new response at the top of the visible area
+    private func scrollToResponseTop() {
+        guard !messages.isEmpty else { return }
+        let indexPath = IndexPath(row: messages.count - 1, section: 0)
+        tableView.scrollToRow(at: indexPath, at: .top, animated: true)
+    }
+
+    // MARK: - Typewriter Effect
+
+    /// Starts the typewriter effect for a message at the given index
+    private func startTypewriterEffect(messageIndex: Int, fullContent: String) {
+        stopTypewriterEffect()
+
+        typewriterMessageIndex = messageIndex
+        typewriterFullContent = fullContent
+        typewriterWords = fullContent.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        typewriterWordIndex = 0
+
+        // Start with empty content
+        messages[messageIndex].content = ""
+        tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+
+        // Scroll to show the response at top
+        scrollToResponseTop()
+
+        // Start timer
+        typewriterTimer = Timer.scheduledTimer(withTimeInterval: typewriterWordDelay, repeats: true) { [weak self] _ in
+            self?.typewriterTick()
+        }
+    }
+
+    /// Called on each timer tick to reveal the next word
+    private func typewriterTick() {
+        guard let messageIndex = typewriterMessageIndex,
+              typewriterWordIndex < typewriterWords.count
+        else {
+            finishTypewriterEffect()
+            return
+        }
+
+        // Check if user has scrolled to "catch up" with the typewriter (near bottom)
+        // If so, we'll anchor to bottom after updating content
+        let shouldAnchorToBottom = isScrolledNearBottom()
+
+        // Add next word
+        typewriterWordIndex += 1
+        let visibleWords = typewriterWords.prefix(typewriterWordIndex)
+        messages[messageIndex].content = visibleWords.joined(separator: " ")
+
+        // Update the cell
+        let indexPath = IndexPath(row: messageIndex, section: 0)
+        tableView.reloadRows(at: [indexPath], with: .none)
+
+        // If user caught up with the typewriter, keep them anchored at the bottom
+        if shouldAnchorToBottom {
+            scrollToBottom()
+        }
+    }
+
+    /// Checks if the table view is scrolled near the bottom of the content
+    /// Used to determine if we should auto-scroll during typewriter effect
+    private func isScrolledNearBottom() -> Bool {
+        let contentHeight = tableView.contentSize.height
+        let visibleHeight = tableView.bounds.height
+        let scrollOffset = tableView.contentOffset.y
+
+        // If content is smaller than visible area, consider it "at bottom"
+        guard contentHeight > visibleHeight else { return true }
+
+        // Consider "near bottom" if within 50 points of the bottom
+        let bottomThreshold: CGFloat = 50
+        let distanceFromBottom = contentHeight - (scrollOffset + visibleHeight)
+        return distanceFromBottom < bottomThreshold
+    }
+
+    /// Completes the typewriter effect immediately
+    private func finishTypewriterEffect() {
+        guard let messageIndex = typewriterMessageIndex,
+              let fullContent = typewriterFullContent
+        else {
+            stopTypewriterEffect()
+            return
+        }
+
+        // Set final content
+        messages[messageIndex].content = fullContent
+        tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+
+        stopTypewriterEffect()
+    }
+
+    /// Stops and cleans up the typewriter effect
+    private func stopTypewriterEffect() {
+        typewriterTimer?.invalidate()
+        typewriterTimer = nil
+        typewriterMessageIndex = nil
+        typewriterFullContent = nil
+        typewriterWords = []
+        typewriterWordIndex = 0
     }
 
     // MARK: - Keyboard
@@ -900,7 +1033,7 @@ private struct ChatMessage {
 
     let id: UUID
     let role: Role
-    let content: String
+    var content: String  // Mutable for typewriter effect
     let title: String? // For collapsed system messages
     var isCollapsed: Bool // For system messages
     let hasTrace: Bool // Whether this message has an execution trace

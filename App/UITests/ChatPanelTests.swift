@@ -559,4 +559,269 @@ final class ChatPanelTests: XCTestCase {
 
         print("Collapse/expand toggle test complete")
     }
+
+    // MARK: - Stub-based Tests (Fast, Reliable)
+
+    func testResponseScrollsToTop() {
+        // Launch with stub that returns a long response
+        let stubApp = launchReaderApp(extraArgs: ["--uitesting-stub-chat-long"])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = stubApp.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // Tap to reveal overlay and open chat
+        webView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        // Wait for chat to appear by checking for the chat table
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5), "Chat table should appear")
+
+        // Send a message
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        XCTAssertTrue(chatInput.waitForExistence(timeout: 5))
+        chatInput.tap()
+        chatInput.typeText("Test question")
+
+        let sendButton = stubApp.buttons["chat-send-button"]
+        sendButton.tap()
+
+        // Wait for response (stub responds in ~100ms + typewriter animation)
+        // For a long response, typewriter takes longer, but we just need to verify scroll position
+        sleep(3)
+
+        // Take a screenshot for verification
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Response-Scroll-Position"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // The response cell should be visible near the top of the table
+        // We verify by checking that the response text is visible
+        let responseText = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "first paragraph")).firstMatch
+        XCTAssertTrue(responseText.waitForExistence(timeout: 5), "Response should be visible")
+
+        // Verify the response cell's top is near the table's top (scrolled to top, not bottom)
+        let tableFrame = chatTable.frame
+        let responseFrame = responseText.frame
+
+        // The response should be in the top half of the visible area
+        let responseTopRelativeToTable = responseFrame.minY - tableFrame.minY
+        let tableVisibleHeight = tableFrame.height
+
+        print("Response top relative to table: \(responseTopRelativeToTable)")
+        print("Table visible height: \(tableVisibleHeight)")
+
+        // Response should be in the top portion of the visible area (within first 60%)
+        XCTAssertLessThan(responseTopRelativeToTable, tableVisibleHeight * 0.6,
+                          "Response should appear near the top of the visible area, not scrolled to bottom")
+    }
+
+    func testTypewriterEffectCompletes() {
+        // Launch with stub that returns a short response
+        let stubApp = launchReaderApp(extraArgs: ["--uitesting-stub-chat-short"])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = stubApp.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // Tap to reveal overlay and open chat
+        webView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        // Wait for chat to appear by checking for the chat table
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5), "Chat table should appear")
+
+        // Send a message
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        XCTAssertTrue(chatInput.waitForExistence(timeout: 5))
+        chatInput.tap()
+        chatInput.typeText("Test question")
+
+        let sendButton = stubApp.buttons["chat-send-button"]
+        sendButton.tap()
+
+        // Wait for typewriter animation to complete
+        // Short response: ~6 words at 40ms = 240ms, plus margin
+        sleep(3)
+
+        // Take a screenshot for verification
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Typewriter-Complete"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // Verify the full response text is visible
+        // The stub's short response is: "This is a short test response."
+        let fullResponse = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "short test response")).firstMatch
+        XCTAssertTrue(fullResponse.waitForExistence(timeout: 3), "Full response should be visible after typewriter completes")
+    }
+
+    func testTypewriterAnchorsToBottomAfterUserScrolls() {
+        // Test the "smart anchor" behavior:
+        // 1. Response starts at TOP
+        // 2. User scrolls down to catch up with typewriter
+        // 3. View should now auto-scroll to keep user at bottom as new words appear
+
+        // Launch with stub that returns a long response (gives time to interact)
+        let stubApp = launchReaderApp(extraArgs: ["--uitesting-stub-chat-long"])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = stubApp.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // Tap to reveal overlay and open chat
+        webView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        // Wait for chat to appear
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5), "Chat table should appear")
+
+        // Send a message
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        XCTAssertTrue(chatInput.waitForExistence(timeout: 5))
+        chatInput.tap()
+        chatInput.typeText("Tell me about this book")
+
+        let sendButton = stubApp.buttons["chat-send-button"]
+        sendButton.tap()
+
+        // Wait for typewriter to start (stub has 100ms delay, then typewriter begins)
+        sleep(1)
+
+        // Take screenshot showing response starts at top
+        let screenshot1 = XCUIScreen.main.screenshot()
+        let attachment1 = XCTAttachment(screenshot: screenshot1)
+        attachment1.name = "1-Response-Starts-At-Top"
+        attachment1.lifetime = .keepAlways
+        add(attachment1)
+
+        // Now scroll down to "catch up" with the typewriter
+        chatTable.swipeUp()
+        sleep(1)
+
+        // Take screenshot after scrolling
+        let screenshot2 = XCUIScreen.main.screenshot()
+        let attachment2 = XCTAttachment(screenshot: screenshot2)
+        attachment2.name = "2-After-Scroll-To-Catch-Up"
+        attachment2.lifetime = .keepAlways
+        add(attachment2)
+
+        // Wait for more typewriter content to be added
+        sleep(2)
+
+        // Take final screenshot - should still be near bottom showing latest content
+        let screenshot3 = XCUIScreen.main.screenshot()
+        let attachment3 = XCTAttachment(screenshot: screenshot3)
+        attachment3.name = "3-Anchored-At-Bottom"
+        attachment3.lifetime = .keepAlways
+        add(attachment3)
+
+        // Verify the last paragraph is visible (since we should be anchored to bottom)
+        // The stub's long response ends with "...sunt in culpa qui officia deserunt mollit anim id est laborum."
+        let lastParagraphText = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "laborum")).firstMatch
+        XCTAssertTrue(lastParagraphText.waitForExistence(timeout: 5),
+                      "Last paragraph should be visible when anchored to bottom after catching up")
+
+        print("Smart anchor test complete - user caught up and stayed at bottom")
+    }
+
+    func testErrorResponseDisplayed() {
+        // Launch with stub that returns an error
+        let stubApp = launchReaderApp(extraArgs: ["--uitesting-stub-chat-error"])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = stubApp.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // Tap to reveal overlay and open chat
+        webView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        // Wait for chat to appear by checking for the chat table
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5), "Chat table should appear")
+
+        // Send a message
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        XCTAssertTrue(chatInput.waitForExistence(timeout: 5))
+        chatInput.tap()
+        chatInput.typeText("Test question")
+
+        let sendButton = stubApp.buttons["chat-send-button"]
+        sendButton.tap()
+
+        // Wait for error response
+        sleep(2)
+
+        // Verify error message is displayed
+        let errorMessage = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Error")).firstMatch
+        XCTAssertTrue(errorMessage.waitForExistence(timeout: 3), "Error message should be displayed")
+
+        // Take a screenshot for verification
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Error-Response"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        print("Error response test complete")
+    }
 }
