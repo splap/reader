@@ -11,7 +11,7 @@ public enum CSSManager {
     ///   - marginSize: Horizontal margin in pixels (default 32)
     /// - Returns: CSS string for house styles
     public static func houseCSS(fontScale: CGFloat, marginSize: CGFloat = 32) -> String {
-        let baseFontSize = Int(16 * fontScale)
+        let baseFontSize = 16 * fontScale
         let margin = Int(marginSize)
         let totalMargin = margin * 2
 
@@ -24,7 +24,7 @@ public enum CSSManager {
 
         body {
             height: 100%;
-            font-size: \(baseFontSize)px;
+            font-size: \(String(format: "%.1f", baseFontSize))px;
 
             /* Pagination container - we own the outer margins */
             margin: 0;
