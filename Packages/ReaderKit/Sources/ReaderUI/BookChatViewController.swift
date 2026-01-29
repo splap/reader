@@ -16,8 +16,6 @@ public final class BookChatViewController: UIViewController {
     private var conversationHistory: [AgentMessage] = []
     private var isLoading = false
 
-    var onToggleDrawer: (() -> Void)?
-
     // MARK: - UI Components
 
     private let tableView = UITableView()
@@ -111,31 +109,6 @@ public final class BookChatViewController: UIViewController {
 
     private func setupUI() {
         view.backgroundColor = .systemBackground
-        title = "Chat"
-
-        // Navigation bar
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "line.3.horizontal"),
-            style: .plain,
-            target: self,
-            action: #selector(toggleDrawer)
-        )
-
-        // Debug transcript button
-        let debugButton = UIBarButtonItem(
-            image: UIImage(systemName: "doc.text"),
-            style: .plain,
-            target: self,
-            action: #selector(copyDebugTranscript)
-        )
-
-        let closeButton = UIBarButtonItem(
-            barButtonSystemItem: .close,
-            target: self,
-            action: #selector(dismissChat)
-        )
-
-        navigationItem.rightBarButtonItems = [closeButton, debugButton]
 
         // Table view for messages
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -374,31 +347,13 @@ public final class BookChatViewController: UIViewController {
 
     // MARK: - Actions
 
-    @objc private func toggleDrawer() {
-        onToggleDrawer?()
-    }
-
-    @objc private func dismissChat() {
-        // Save conversation before dismissing
+    /// Saves the conversation (called by container before dismissing)
+    func saveConversation() {
         saveAndSummarizeConversation()
-        dismiss(animated: true)
     }
 
-    @objc private func copyDebugTranscript() {
-        let transcript = buildDebugTranscript()
-        UIPasteboard.general.string = transcript
-
-        // Show brief confirmation
-        let alert = UIAlertController(
-            title: "Copied",
-            message: "Debug transcript copied to clipboard (\(transcript.count) chars)",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-
-    private func buildDebugTranscript() -> String {
+    /// Builds a debug transcript for copying (called by container)
+    func buildDebugTranscript() -> String {
         var transcript = "=== DEBUG TRANSCRIPT ===\n"
         transcript += "Book: \(context.bookTitle)"
         if let author = context.bookAuthor {
