@@ -54,8 +54,21 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +a
 fi
 
-# Use simulator by default, set USE_SIMULATOR=0 to use physical device
-USE_SIMULATOR="${USE_SIMULATOR:-1}"
+# If --device is specified, use physical device. Otherwise use simulator.
+if [ -n "$TARGET_DEVICE" ]; then
+  USE_SIMULATOR=0
+else
+  USE_SIMULATOR="${USE_SIMULATOR:-1}"
+fi
+
+# Device builds require DEVELOPMENT_TEAM for code signing
+if [ "$USE_SIMULATOR" = "0" ] && [ -z "${DEVELOPMENT_TEAM:-}" ]; then
+  echo "Error: Device builds require DEVELOPMENT_TEAM in .env" >&2
+  echo "  1. Copy .env.example to .env if you haven't" >&2
+  echo "  2. Set DEVELOPMENT_TEAM to your Apple Team ID" >&2
+  echo "  3. Run ./scripts/bootstrap to regenerate the project" >&2
+  exit 1
+fi
 
 if [ "$USE_SIMULATOR" = "1" ]; then
   echo "Running on simulator..."
