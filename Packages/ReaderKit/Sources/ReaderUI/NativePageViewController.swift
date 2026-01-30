@@ -13,10 +13,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     public var fontScale: CGFloat {
         didSet {
             guard fontScale != oldValue else { return }
-            // Save per-chapter position ratio before rebuild
-            let (pageWithinChapter, pagesInChapter, currentSpineIdx) = calculateChapterPageInfo()
-            let positionRatio = pagesInChapter > 1 ? CGFloat(pageWithinChapter) / CGFloat(pagesInChapter - 1) : 0
-            rebuildPagesAsync(restoreSpineIndex: currentSpineIdx, restorePositionRatio: positionRatio)
+            rebuildPagesAsync()
         }
     }
 
@@ -35,9 +32,13 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     private let chapterTitle: String?
 
     private var scrollView: UIScrollView!
-    private var pageViews: [UIView] = []
     private var currentPageIndex: Int = 0
     private var totalPages: Int = 0
+
+    // Lazy view loading: store page data, create views on demand
+    private var pageData: [PageContent] = []
+    private var visibleViews: [Int: UIView] = [:]
+    private let viewBufferSize = 2 // Pages to preload on each side
 
     private var attributedContent: AttributedContent?
     private var pageRanges: [NSRange] = []
@@ -251,6 +252,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             // Update UI on main thread
             await MainActor.run {
                 self.attributedContent = content
+                self.imageCache = imageCache // Store for lazy view creation
 
                 // Build page contents (text pages + image pages interleaved)
                 var allPages: [PageContent] = textPageRanges.enumerated().map { index, range in
@@ -259,12 +261,12 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
                 // Insert image pages at appropriate positions (reverse to maintain indices)
                 for (imagePath, blockId, insertIndex) in content.fullPageImages.reversed() {
-                    let imageContent = PageContent.image(path: imagePath, blockId: blockId, imageCache: imageCache)
+                    let imageContent = PageContent.image(path: imagePath, blockId: blockId)
                     let insertPosition = min(insertIndex, allPages.count)
                     allPages.insert(imageContent, at: insertPosition)
                 }
 
-                // Create views
+                // Create views lazily
                 self.createPageViews(for: allPages, attributedString: content.attributedString)
 
                 // Hide loading overlay
@@ -283,8 +285,11 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
     private enum PageContent {
         case text(range: NSRange, pageIndex: Int)
-        case image(path: String, blockId: String, imageCache: [String: Data])
+        case image(path: String, blockId: String)
     }
+
+    /// Cached image data for lazy view creation
+    private var imageCache: [String: Data] = [:]
 
     private func calculatePageRanges(for attributedString: NSAttributedString, pageSize: CGSize) -> [NSRange] {
         let (ranges, _) = calculatePageRangesWithOffsets(for: attributedString, pageSize: pageSize, attributedContent: nil)
@@ -306,9 +311,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         var pageOffsets: [PageOffset] = []
         var currentStart = 0
         let totalLength = attributedString.length
-
         var pageCount = 0
-        var batchStart = CFAbsoluteTimeGetCurrent()
 
         while currentStart < totalLength {
             // Determine end boundary for this segment (either next section break or end)
@@ -364,19 +367,12 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
                 segmentOffset = NSMaxRange(localCharRange)
                 pageCount += 1
-
-                // Log every 50 pages
-                if pageCount % 50 == 0 {
-                    let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
-                    let msPerPage = (batchTime / 50.0) * 1000
-                    Self.logger.debug("PAGE_TIMING: Pages \(pageCount - 49)-\(pageCount), \(msPerPage)ms/page")
-                    batchStart = CFAbsoluteTimeGetCurrent()
-                }
             }
 
             currentStart = segmentEnd
         }
 
+        Self.logger.info("Calculated \(pageCount) pages for layout")
         return (ranges, pageOffsets)
     }
 
@@ -442,59 +438,115 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     }
 
     private func createPageViews(for pages: [PageContent], attributedString: NSAttributedString) {
-        // Clear existing
-        pageViews.forEach { $0.removeFromSuperview() }
-        pageViews.removeAll()
+        let setupStart = CFAbsoluteTimeGetCurrent()
+
+        // Clear existing views
+        visibleViews.values.forEach { $0.removeFromSuperview() }
+        visibleViews.removeAll()
         pageRanges.removeAll()
         pageBlockIds.removeAll()
         pageSpineIndices.removeAll()
+
+        // Store page data for lazy view creation
+        self.pageData = pages
+
+        let pageWidth = view.bounds.width
+        let pageHeight = view.bounds.height
+
+        // Pre-compute metadata for all pages (this is fast, no view creation)
+        for content in pages {
+            switch content {
+            case let .text(range, _):
+                pageRanges.append(range)
+                let blockIds = findBlockIds(in: range, attributedString: attributedString)
+                pageBlockIds.append(blockIds)
+                let spineIndex = findSpineIndex(for: range, in: attributedString)
+                pageSpineIndices.append(spineIndex)
+
+            case let .image(_, blockId):
+                pageRanges.append(NSRange(location: 0, length: 0)) // Placeholder
+                pageBlockIds.append([blockId])
+                let prevSpineIndex = pageSpineIndices.last ?? 0
+                pageSpineIndices.append(prevSpineIndex)
+            }
+        }
+
+        // Set up scroll view content size
+        scrollView.contentSize = CGSize(width: pageWidth * CGFloat(pages.count), height: pageHeight)
+        totalPages = pages.count
+
+        let setupTime = CFAbsoluteTimeGetCurrent() - setupStart
+        Self.logger.info("LAZY_SETUP: Prepared \(self.totalPages) pages in \(String(format: "%.3f", setupTime))s (no views created yet)")
+
+        // Create only the initially visible views
+        updateVisibleViews()
+    }
+
+    // MARK: - Lazy View Management
+
+    /// Updates which views are currently in the scroll view based on scroll position
+    private func updateVisibleViews() {
+        guard totalPages > 0 else { return }
+
+        let pageWidth = view.bounds.width
+        guard pageWidth > 0 else { return }
+
+        // Calculate visible range
+        let visiblePage = Int(round(scrollView.contentOffset.x / pageWidth))
+        let bufferedStart = max(0, visiblePage - viewBufferSize)
+        let bufferedEnd = min(totalPages - 1, visiblePage + viewBufferSize)
+        let bufferedRange = bufferedStart ... bufferedEnd
+
+        // Remove views outside buffered range
+        let indicesToRemove = visibleViews.keys.filter { !bufferedRange.contains($0) }
+        for index in indicesToRemove {
+            visibleViews[index]?.removeFromSuperview()
+            visibleViews.removeValue(forKey: index)
+        }
+
+        // Create views for buffered range that don't exist yet
+        for index in bufferedRange {
+            if visibleViews[index] == nil {
+                let pageView = createViewForPage(index)
+                visibleViews[index] = pageView
+                scrollView.addSubview(pageView)
+            }
+        }
+    }
+
+    /// Creates a view for a specific page index
+    private func createViewForPage(_ index: Int) -> UIView {
+        guard index < pageData.count else {
+            return UIView() // Safety fallback
+        }
 
         let pageWidth = view.bounds.width
         let pageHeight = view.bounds.height
         let horizontalPadding: CGFloat = 48
         let verticalPadding: CGFloat = 48
 
-        for (index, content) in pages.enumerated() {
-            let pageView: UIView
+        let content = pageData[index]
+        let pageView: UIView
 
-            switch content {
-            case let .text(range, _):
-                let textView = createTextView(for: range, in: attributedString, padding: UIEdgeInsets(
-                    top: verticalPadding,
-                    left: horizontalPadding,
-                    bottom: verticalPadding,
-                    right: horizontalPadding
-                ))
-                pageView = textView
-                pageRanges.append(range)
-
-                // Find block IDs in this range
-                let blockIds = findBlockIds(in: range, attributedString: attributedString)
-                pageBlockIds.append(blockIds)
-
-                // Find spine index for this page
-                let spineIndex = findSpineIndex(for: range, in: attributedString)
-                pageSpineIndices.append(spineIndex)
-
-            case let .image(path, blockId, imageCache):
-                let imageView = createImagePageView(path: path, imageCache: imageCache)
-                pageView = imageView
-                pageRanges.append(NSRange(location: 0, length: 0)) // Placeholder
-                pageBlockIds.append([blockId])
-                // Images inherit spine index from previous page, or 0 if first
-                let prevSpineIndex = pageSpineIndices.last ?? 0
-                pageSpineIndices.append(prevSpineIndex)
+        switch content {
+        case let .text(range, _):
+            guard let attrContent = attributedContent else {
+                pageView = UIView()
+                break
             }
+            pageView = createTextView(for: range, in: attrContent.attributedString, padding: UIEdgeInsets(
+                top: verticalPadding,
+                left: horizontalPadding,
+                bottom: verticalPadding,
+                right: horizontalPadding
+            ))
 
-            pageView.frame = CGRect(x: CGFloat(index) * pageWidth, y: 0, width: pageWidth, height: pageHeight)
-            scrollView.addSubview(pageView)
-            pageViews.append(pageView)
+        case let .image(path, _):
+            pageView = createImagePageView(path: path, imageCache: imageCache)
         }
 
-        scrollView.contentSize = CGSize(width: pageWidth * CGFloat(pages.count), height: pageHeight)
-        totalPages = pages.count
-
-        Self.logger.info("Created \(self.totalPages) page views")
+        pageView.frame = CGRect(x: CGFloat(index) * pageWidth, y: 0, width: pageWidth, height: pageHeight)
+        return pageView
     }
 
     private func createTextView(for range: NSRange, in fullText: NSAttributedString, padding: UIEdgeInsets) -> UITextView {
@@ -507,8 +559,6 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         textView.textContainerInset = padding
         textView.backgroundColor = .systemBackground
         textView.isSelectable = true
-
-        // Add menu for selection
         textView.delegate = self
 
         return textView
@@ -616,22 +666,29 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         return htmlSections.firstIndex { $0.spineItemId == spineItemId } ?? 0
     }
 
-    private func rebuildPagesAsync(restoreSpineIndex: Int? = nil, restorePositionRatio: CGFloat? = nil) {
+    private func rebuildPagesAsync() {
         Self.logger.info("Rebuilding pages with new font scale: \(self.fontScale)")
 
-        // Save current position (blockId as fallback if ratio not provided)
-        let savedBlockId = pageBlockIds.indices.contains(currentPageIndex) ? pageBlockIds[currentPageIndex].first : nil
-        let savedSpineIndex = restoreSpineIndex
-        let savedPositionRatio = restorePositionRatio
+        // Save current position using CFI (spine index + character offset)
+        let savedSpineIndex = pageSpineIndices.indices.contains(currentPageIndex)
+            ? pageSpineIndices[currentPageIndex]
+            : 0
+        var savedCharOffset: Int?
+        if let layout = cachedLayout, currentPageIndex < layout.pageOffsets.count {
+            savedCharOffset = layout.pageOffsets[currentPageIndex].firstBlockCharOffset
+        }
+        Self.logger.info("CFI SAVE: spine \(savedSpineIndex), charOffset \(savedCharOffset ?? -1) before rebuild")
 
         // Show loading overlay
         showLoadingOverlay()
 
         // Clear existing pages
-        pageViews.forEach { $0.removeFromSuperview() }
-        pageViews.removeAll()
+        visibleViews.values.forEach { $0.removeFromSuperview() }
+        visibleViews.removeAll()
+        pageData.removeAll()
         pageRanges.removeAll()
         pageBlockIds.removeAll()
+        pageSpineIndices.removeAll()
         attributedContent = nil
 
         // Rebuild using cache-aware approach with section-based loading
@@ -725,6 +782,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
             // Update UI on main thread
             await MainActor.run {
                 self.attributedContent = content
+                self.imageCache = imageCache // Store for lazy view creation
                 self.hasBuiltPages = true
 
                 // Build page contents
@@ -734,46 +792,67 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 
                 // Insert image pages
                 for (imagePath, blockId, insertIndex) in content.fullPageImages.reversed() {
-                    let imageContent = PageContent.image(path: imagePath, blockId: blockId, imageCache: imageCache)
+                    let imageContent = PageContent.image(path: imagePath, blockId: blockId)
                     let insertPosition = min(insertIndex, allPages.count)
                     allPages.insert(imageContent, at: insertPosition)
                 }
 
-                // Create views
+                // Create views lazily
                 self.createPageViews(for: allPages, attributedString: content.attributedString)
 
                 // Hide loading overlay
                 self.hideLoadingOverlay()
 
-                // Restore position using proportional method if available
-                if let spineIdx = savedSpineIndex, let ratio = savedPositionRatio {
-                    // Find pages belonging to the target spine
-                    var pagesInSpine: [Int] = []
-                    for (pageIndex, pageSpineIdx) in self.pageSpineIndices.enumerated() {
-                        if pageSpineIdx == spineIdx {
-                            pagesInSpine.append(pageIndex)
-                        }
-                    }
-
-                    if !pagesInSpine.isEmpty {
-                        // Calculate target page within spine using ratio
-                        let targetChapterPage = pagesInSpine.count > 1
-                            ? Int(round(ratio * CGFloat(pagesInSpine.count - 1)))
-                            : 0
-                        let clampedIndex = max(0, min(targetChapterPage, pagesInSpine.count - 1))
-                        let globalPage = pagesInSpine[clampedIndex]
-                        Self.logger.info("Position restore: ratio \(ratio) -> chapter page \(targetChapterPage)/\(pagesInSpine.count) -> global page \(globalPage)")
-                        self.navigateToGlobalPage(globalPage, animated: false)
-                    } else if let blockId = savedBlockId {
-                        self.navigateToBlock(blockId, animated: false)
-                    }
-                } else if let blockId = savedBlockId {
-                    self.navigateToBlock(blockId, animated: false)
-                }
+                // Restore position using CFI (spine index + character offset)
+                self.restorePositionAfterRebuild(
+                    spineIndex: savedSpineIndex,
+                    charOffset: savedCharOffset
+                )
 
                 // Report per-chapter page info
                 self.reportPositionChange()
             }
+        }
+    }
+
+    /// Restores position after a rebuild (e.g., font size change) using spine index and character offset
+    private func restorePositionAfterRebuild(spineIndex: Int, charOffset: Int?) {
+        // Find all pages belonging to the target spine item
+        var pagesInTargetSpine: [Int] = []
+        for (pageIndex, spineIdx) in pageSpineIndices.enumerated() {
+            if spineIdx == spineIndex {
+                pagesInTargetSpine.append(pageIndex)
+            }
+        }
+
+        guard !pagesInTargetSpine.isEmpty else {
+            Self.logger.warning("CFI RESTORE (rebuild): spine \(spineIndex) not found")
+            return
+        }
+
+        // If we have a character offset and cached layout, find the best matching page
+        if let charOffset, let layout = cachedLayout {
+            var bestPage = pagesInTargetSpine[0]
+            var bestDiff = Int.max
+
+            for pageIndex in pagesInTargetSpine {
+                if pageIndex < layout.pageOffsets.count {
+                    let pageCharOffset = layout.pageOffsets[pageIndex].firstBlockCharOffset
+                    let diff = abs(pageCharOffset - charOffset)
+                    if diff < bestDiff {
+                        bestDiff = diff
+                        bestPage = pageIndex
+                    }
+                }
+            }
+
+            Self.logger.info("CFI RESTORE (rebuild): found best page \(bestPage) with charOffset diff \(bestDiff)")
+            navigateToGlobalPage(bestPage, animated: false)
+        } else {
+            // No character offset - just go to first page of chapter
+            let targetPage = pagesInTargetSpine[0]
+            Self.logger.info("CFI RESTORE (rebuild): no charOffset, using first page \(targetPage)")
+            navigateToGlobalPage(targetPage, animated: false)
         }
     }
 
@@ -1068,6 +1147,11 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 // MARK: - UIScrollViewDelegate
 
 extension NativePageViewController: UIScrollViewDelegate {
+    public func scrollViewDidScroll(_: UIScrollView) {
+        // Update visible views during scroll for smooth lazy loading
+        updateVisibleViews()
+    }
+
     public func scrollViewDidEndDecelerating(_: UIScrollView) {
         updateCurrentPage()
     }

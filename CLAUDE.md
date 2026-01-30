@@ -43,23 +43,13 @@ when you've made a change, run the app yourself so i see the result:
 
 ## CRITICAL: scripts/run behavior
 
-`scripts/run` NEVER EXITS - it tails logs forever after launching the app
+`scripts/run` tails logs forever. Use ONLY this pattern:
 
-**CORRECT usage:**
 ```bash
-# Use run_in_background parameter - this is the ONLY correct way
 ./scripts/run   # with run_in_background: true
 ```
 
-**WRONG - these will block forever:**
-```bash
-./scripts/run                      # blocks forever
-./scripts/run 2>&1 | head -200     # blocks forever
-./scripts/run &                    # won't capture build errors
-sleep 30 && tail output.txt        # pointless waiting
-```
-
-After running with run_in_background, DO NOT poll the output or wait. The app will launch and you're done. Move on immediately.
+Read the output file afterward. Never pipe it.
 
 **IMPORTANT**: Always use iOS 26 simulator (iPad Pro 11-inch M5).
 

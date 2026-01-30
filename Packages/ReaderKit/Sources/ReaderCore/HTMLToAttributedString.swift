@@ -332,17 +332,19 @@ public final class HTMLToAttributedStringConverter {
         let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
 
         for match in matches {
+            // Convert NSRange to Range<String.Index> for proper Unicode handling
+            guard let matchRange = Range(match.range, in: html) else { continue }
+
             // Append any text before this tag
-            let matchStart = html.index(html.startIndex, offsetBy: match.range.location)
-            if matchStart > currentPosition {
-                let textBefore = String(html[currentPosition ..< matchStart])
+            if matchRange.lowerBound > currentPosition {
+                let textBefore = String(html[currentPosition ..< matchRange.lowerBound])
                 let plainText = stripHTMLTags(decodeHTMLEntities(textBefore))
                 if !plainText.isEmpty {
                     result.append(NSAttributedString(string: plainText, attributes: baseAttributes))
                 }
             }
 
-            let fullMatch = nsHTML.substring(with: match.range)
+            let fullMatch = String(html[matchRange])
 
             // Check if this is an img tag (self-closing, no content group)
             if fullMatch.lowercased().hasPrefix("<img") {
@@ -354,7 +356,7 @@ public final class HTMLToAttributedStringConverter {
                 // It's a formatting tag - extract tag name, attributes, and content
                 // The format is: (<tagPattern>)|(<imgPattern>) so formatting match is in groups 2,3,4
                 guard match.numberOfRanges >= 5 else {
-                    currentPosition = html.index(html.startIndex, offsetBy: match.range.location + match.range.length)
+                    currentPosition = matchRange.upperBound
                     continue
                 }
 
@@ -363,7 +365,7 @@ public final class HTMLToAttributedStringConverter {
                 let contentRange = match.range(at: 4)
 
                 guard tagNameRange.location != NSNotFound else {
-                    currentPosition = html.index(html.startIndex, offsetBy: match.range.location + match.range.length)
+                    currentPosition = matchRange.upperBound
                     continue
                 }
 
@@ -391,7 +393,7 @@ public final class HTMLToAttributedStringConverter {
             }
 
             // Update position
-            currentPosition = html.index(html.startIndex, offsetBy: match.range.location + match.range.length)
+            currentPosition = matchRange.upperBound
         }
 
         // Append any remaining text after the last tag
