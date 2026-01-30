@@ -24,6 +24,31 @@ else
 fi
 EXTRA_BUILD_SETTINGS=""
 
+# Parse arguments
+SANITIZER=""
+TEST_TYPE=""
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --sanitizer=*)
+      SANITIZER="${1#*=}"
+      shift
+      ;;
+    --sanitizer)
+      SANITIZER="$2"
+      shift 2
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Restore positional arguments
+set -- "${POSITIONAL_ARGS[@]:-}"
+
 # Parse test type argument: unit (default), ui, all, or perf
 TEST_TYPE="${1:-unit}"
 
@@ -85,6 +110,22 @@ run_tests() {
     -derivedDataPath "$DERIVED_DATA"
   )
 
+  # Add sanitizer flags if specified
+  case "$SANITIZER" in
+    asan|address)
+      echo "Running with Address Sanitizer enabled"
+      xcodebuild_args+=(-enableAddressSanitizer YES)
+      ;;
+    tsan|thread)
+      echo "Running with Thread Sanitizer enabled"
+      xcodebuild_args+=(-enableThreadSanitizer YES)
+      ;;
+    ubsan|undefined)
+      echo "Running with Undefined Behavior Sanitizer enabled"
+      xcodebuild_args+=(-enableUndefinedBehaviorSanitizer YES)
+      ;;
+  esac
+
   if [ -n "$EXTRA_BUILD_SETTINGS" ]; then
     xcodebuild_args+=("$EXTRA_BUILD_SETTINGS")
   fi
@@ -129,13 +170,24 @@ case "$TEST_TYPE" in
     run_tests "ReaderAppUITests"
     ;;
   help|-h|--help)
-    echo "Usage: $0 [unit|ui|all|--list|<test-pattern>|ui:<test-pattern>]" >&2
+    echo "Usage: $0 [OPTIONS] [unit|ui|all|--list|<test-pattern>|ui:<test-pattern>]" >&2
+    echo "" >&2
+    echo "Test types:" >&2
     echo "  unit (default): Run unit and snapshot tests" >&2
     echo "  ui: Run UI tests only" >&2
     echo "  all: Run all tests" >&2
     echo "  --list: List all available tests" >&2
     echo "  <test-pattern>: Run matching unit test (e.g., testPositionStoreRoundTrip, VectorStoreTests)" >&2
     echo "  ui:<test-pattern>: Run matching UI test (e.g., ui:testScrubberAppearsOnTap)" >&2
+    echo "" >&2
+    echo "Options:" >&2
+    echo "  --sanitizer=asan    Enable Address Sanitizer (memory errors, leaks)" >&2
+    echo "  --sanitizer=tsan    Enable Thread Sanitizer (data races)" >&2
+    echo "  --sanitizer=ubsan   Enable Undefined Behavior Sanitizer" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  $0 --sanitizer=asan ui:testRapidBookOpenClose" >&2
+    echo "  $0 --sanitizer=tsan ui" >&2
     exit 0
     ;;
   --list|list)

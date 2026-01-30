@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Check for memory leaks in the running Reader app
+# Uses the macOS `leaks` command to analyze the simulator process
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+# Parse arguments
+VERBOSE=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -v|--verbose)
+      VERBOSE=true
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: $0 [-v|--verbose]"
+      echo ""
+      echo "Checks for memory leaks in the running Reader app."
+      echo "The app must be running in a simulator."
+      echo ""
+      echo "Options:"
+      echo "  -v, --verbose    Show full leak details"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Get the simulator UDID
+SIMULATOR_UDID=$(cat "$ROOT_DIR/simulator-uuid" 2>/dev/null || true)
+if [ -z "$SIMULATOR_UDID" ]; then
+  echo "Error: No simulator-uuid found" >&2
+  echo "Run ./scripts/run first to start the app" >&2
+  exit 1
+fi
+
+# Verify simulator is booted
+SIM_STATE=$(xcrun simctl list devices | grep "$SIMULATOR_UDID" | grep -o "(Booted)" || true)
+if [ -z "$SIM_STATE" ]; then
+  echo "Error: Simulator $SIMULATOR_UDID is not booted" >&2
+  exit 1
+fi
+
+# Find the Reader app process
+# The app runs inside the simulator, so we need to find it by name
+APP_PID=$(pgrep -f "Reader.app/Reader" | head -1 || true)
+
+if [ -z "$APP_PID" ]; then
+  # Try alternative search
+  APP_PID=$(pgrep -f "com.splap.reader" | head -1 || true)
+fi
+
+if [ -z "$APP_PID" ]; then
+  echo "Error: Reader app not running" >&2
+  echo "Start the app first with ./scripts/run" >&2
+  exit 1
+fi
+
+echo "Analyzing process $APP_PID for memory leaks..."
+echo ""
+
+# Run leaks command
+# Note: This requires the app to be built with MallocStackLogging for full stack traces
+LEAKS_OUTPUT=$(leaks "$APP_PID" 2>&1) || true
+
+if $VERBOSE; then
+  echo "$LEAKS_OUTPUT"
+  echo ""
+fi
+
+# Parse the results
+LEAK_COUNT=$(echo "$LEAKS_OUTPUT" | grep -oE "^[0-9]+ leak" | head -1 | grep -oE "^[0-9]+" || echo "0")
+LEAK_BYTES=$(echo "$LEAKS_OUTPUT" | grep -oE "[0-9]+ bytes" | head -1 || echo "0 bytes")
+
+if [ "$LEAK_COUNT" = "0" ]; then
+  echo "SUCCESS: No leaks detected"
+  exit 0
+else
+  echo "FAILURE: $LEAK_COUNT leak(s) detected ($LEAK_BYTES)"
+
+  if ! $VERBOSE; then
+    echo ""
+    echo "Leak summary:"
+    echo "$LEAKS_OUTPUT" | grep -A 5 "^Leak:" | head -30 || true
+    echo ""
+    echo "Run with -v for full details"
+  fi
+
+  exit 1
+fi

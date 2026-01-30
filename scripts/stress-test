@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Memory Stress Test Suite
+# Runs stress tests with sanitizers enabled to detect memory issues
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+# Parse arguments
+SANITIZER="${1:-asan}"
+TESTS_TO_RUN=""
+
+print_usage() {
+  echo "Usage: $0 [SANITIZER] [TEST_NAME]"
+  echo ""
+  echo "Runs memory stress tests with sanitizers enabled."
+  echo ""
+  echo "Arguments:"
+  echo "  SANITIZER    Sanitizer to use: asan (default), tsan, ubsan"
+  echo "  TEST_NAME    Specific test to run (optional, runs all stress tests if omitted)"
+  echo ""
+  echo "Examples:"
+  echo "  $0                    # Run all stress tests with ASan"
+  echo "  $0 tsan               # Run all stress tests with TSan"
+  echo "  $0 asan testRapidBookOpenClose  # Run specific test with ASan"
+  echo ""
+  echo "Available stress tests:"
+  echo "  testRapidBookOpenClose      - Open/close books rapidly"
+  echo "  testRapidPageNavigation     - Rapid page swiping"
+  echo "  testRapidFontSizeChanges    - Toggle font sizes repeatedly"
+  echo "  testRapidChapterJumping     - Jump between chapters"
+  echo "  testCombinedStress          - Combined stress operations"
+  echo "  testHoldForLeakDetection    - Holds app open for leak analysis"
+}
+
+case "$SANITIZER" in
+  -h|--help|help)
+    print_usage
+    exit 0
+    ;;
+  asan|tsan|ubsan)
+    if [ $# -gt 1 ]; then
+      TESTS_TO_RUN="$2"
+    fi
+    ;;
+  *)
+    # First arg might be a test name if no sanitizer specified
+    if [[ "$SANITIZER" == test* ]]; then
+      TESTS_TO_RUN="$SANITIZER"
+      SANITIZER="asan"
+    else
+      echo "Unknown sanitizer: $SANITIZER" >&2
+      print_usage
+      exit 1
+    fi
+    ;;
+esac
+
+echo "=== Memory Stress Test Suite ==="
+echo "Sanitizer: $SANITIZER"
+echo ""
+
+# Define stress tests
+STRESS_TESTS=(
+  "testRapidBookOpenClose"
+  "testRapidPageNavigation"
+  "testRapidFontSizeChanges"
+  "testRapidChapterJumping"
+  "testCombinedStress"
+)
+
+# If a specific test is requested, only run that one
+if [ -n "$TESTS_TO_RUN" ]; then
+  STRESS_TESTS=("$TESTS_TO_RUN")
+fi
+
+# Track results
+PASSED=0
+FAILED=0
+FAILED_TESTS=()
+
+# Run each stress test
+for test in "${STRESS_TESTS[@]}"; do
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Running: $test"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if ./scripts/test --sanitizer="$SANITIZER" "ui:$test" 2>&1; then
+    echo ""
+    echo "✓ PASS: $test"
+    PASSED=$((PASSED + 1))
+  else
+    echo ""
+    echo "✗ FAIL: $test"
+    FAILED=$((FAILED + 1))
+    FAILED_TESTS+=("$test")
+  fi
+done
+
+# Print summary
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "SUMMARY"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Sanitizer: $SANITIZER"
+echo "Passed: $PASSED"
+echo "Failed: $FAILED"
+
+if [ $FAILED -gt 0 ]; then
+  echo ""
+  echo "Failed tests:"
+  for test in "${FAILED_TESTS[@]}"; do
+    echo "  - $test"
+  done
+  echo ""
+  echo "=== STRESS TESTS FAILED ==="
+  exit 1
+else
+  echo ""
+  echo "=== ALL STRESS TESTS PASSED ==="
+  exit 0
+fi

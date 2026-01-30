@@ -10,6 +10,61 @@ CONFIGURATION="Debug"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
 DESTINATION="generic/platform=iOS Simulator"
 
+# Parse arguments
+SANITIZER=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --sanitizer=*)
+      SANITIZER="${1#*=}"
+      shift
+      ;;
+    --sanitizer)
+      SANITIZER="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--sanitizer=asan|tsan|ubsan]"
+      echo ""
+      echo "Options:"
+      echo "  --sanitizer=asan    Enable Address Sanitizer (memory errors, leaks)"
+      echo "  --sanitizer=tsan    Enable Thread Sanitizer (data races)"
+      echo "  --sanitizer=ubsan   Enable Undefined Behavior Sanitizer"
+      echo ""
+      echo "Note: ASan and TSan cannot be enabled simultaneously."
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Build sanitizer arguments
+SANITIZER_ARGS=()
+case "$SANITIZER" in
+  asan|address)
+    echo "Building with Address Sanitizer enabled"
+    SANITIZER_ARGS+=(-enableAddressSanitizer YES)
+    ;;
+  tsan|thread)
+    echo "Building with Thread Sanitizer enabled"
+    SANITIZER_ARGS+=(-enableThreadSanitizer YES)
+    ;;
+  ubsan|undefined)
+    echo "Building with Undefined Behavior Sanitizer enabled"
+    SANITIZER_ARGS+=(-enableUndefinedBehaviorSanitizer YES)
+    ;;
+  "")
+    # No sanitizer
+    ;;
+  *)
+    echo "Unknown sanitizer: $SANITIZER" >&2
+    echo "Valid options: asan, tsan, ubsan" >&2
+    exit 1
+    ;;
+esac
+
 if [ ! -d "$PROJECT" ]; then
   echo "$PROJECT not found. Run ./scripts/bootstrap first." >&2
   exit 1
@@ -29,4 +84,5 @@ xcodebuild \
   -configuration "$CONFIGURATION" \
   -destination "$DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
+  "${SANITIZER_ARGS[@]}" \
   build
