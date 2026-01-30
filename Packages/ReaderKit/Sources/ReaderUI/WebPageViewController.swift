@@ -45,13 +45,26 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private var webView: SelectableWebView!
     private var currentPage: Int = 0
     private var totalPages: Int = 0
-    private var cssColumnWidth: CGFloat = 0 // Exact column width from CSS - source of truth for alignment
+    private var cssPageWidth: CGFloat = 0 // Exact page width (column + gap) from CSS - source of truth for alignment
     private var hasRestoredPosition = false // Track if we've restored position
     private var urlSchemeHandler: EPUBURLSchemeHandler? // Handler for serving images
     private let hrefToSpineItemId: [String: String] // Map from file href to spineItemId for link resolution
     private var isWaitingForInitialRestore = false // Hide content until restore completes
     private let spineItemIdToSectionIndex: [String: Int]
     private var currentSectionIndex: Int?
+    private var isContentLoaded = false
+
+    private var lastAppliedLayout: PaginationLayout?
+
+    private struct PaginationLayout: Equatable {
+        let viewportWidth: Int
+        let viewportHeight: Int
+        let margin: Int
+
+        var columnWidth: Int { max(0, viewportWidth - (margin * 2)) }
+        var columnGap: Int { max(0, margin * 2) }
+        var pageWidth: Int { columnWidth + columnGap }
+    }
 
     // Spine-scoped rendering state (one spine item at a time)
     private var currentSpineIndex: Int = 0 // Currently loaded spine item index
@@ -177,15 +190,33 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         // Configure animator for UI testing slow animations
         transitionAnimator.configureForTesting(arguments: ProcessInfo.processInfo.arguments)
 
+        webView.scrollView.panGestureRecognizer.addTarget(self, action: #selector(handleScrollPan(_:)))
+
         loadContent()
     }
 
+    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began, .ended, .cancelled, .failed:
+            let scrollView = webView.scrollView
+            let velocity = gesture.velocity(in: webView)
+            Self.logger.debug(
+                "PAN: state=\(String(describing: gesture.state)) " +
+                    "velocity=\(String(format: "%.1f", velocity.x)) " +
+                    "offset=\(Int(scrollView.contentOffset.x))"
+            )
+        default:
+            break
+        }
+    }
+
     @objc private func marginSizeDidChange() {
-        reloadWithNewFontScale() // Reuse the same reload logic
+        reflowAndRestorePosition(reason: "margin-change")
     }
 
     override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        reflowIfNeeded(reason: "layout-change")
     }
 
     private func extractAndSendSelection() {
@@ -315,9 +346,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
         prepareForPositionRestore()
 
-        // Reset CSS column width - will be re-queried after new content loads
+        // Reset CSS page width - will be re-queried after new content loads
         // This prevents using stale width values from the previous spine
-        cssColumnWidth = 0
+        cssPageWidth = 0
+        isContentLoaded = false
+        lastAppliedLayout = nil
 
         // Reset edge scroll tracking state
         dragStartOffset = 0
@@ -383,6 +416,69 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                         e.preventDefault();
                     }, { passive: false });
                 })();
+
+                // Pagination layout helpers (EPUB.js-style explicit sizing)
+                window.getPageWidth = function() {
+                    return window.__pageWidth || window.innerWidth;
+                };
+
+                window.applyPaginationLayout = function(layout) {
+                    if (!layout || !layout.viewportWidth || !layout.viewportHeight) {
+                        return null;
+                    }
+
+                    var viewportWidth = Math.max(0, Math.floor(layout.viewportWidth));
+                    var viewportHeight = Math.max(0, Math.floor(layout.viewportHeight));
+                    var margin = Math.max(0, Math.floor(layout.margin || 0));
+                    var columnWidth = Math.max(0, viewportWidth - (margin * 2));
+                    var columnGap = Math.max(0, margin * 2);
+
+                    var meta = document.querySelector('meta[name="viewport"]');
+                    if (!meta) {
+                        meta = document.createElement('meta');
+                        meta.name = 'viewport';
+                        document.head.appendChild(meta);
+                    }
+                    meta.setAttribute(
+                        'content',
+                        'width=' + viewportWidth +
+                        ', height=' + viewportHeight +
+                        ', initial-scale=1.0' +
+                        ', minimum-scale=1.0' +
+                        ', maximum-scale=1.0' +
+                        ', user-scalable=no'
+                    );
+
+                    var body = document.body;
+                    var docEl = document.documentElement;
+
+                    body.style.width = viewportWidth + 'px';
+                    body.style.height = viewportHeight + 'px';
+                    body.style.margin = '0';
+                    body.style.padding = margin + 'px';
+                    body.style.overflowY = 'hidden';
+                    body.style.overflowX = 'visible';
+                    body.style.boxSizing = 'border-box';
+                    body.style.maxWidth = 'inherit';
+                    body.style.webkitLineBoxContain = 'block glyphs replaced';
+                    body.style.columnFill = 'auto';
+                    body.style.columnWidth = columnWidth + 'px';
+                    body.style.columnGap = columnGap + 'px';
+
+                    docEl.style.width = viewportWidth + 'px';
+                    docEl.style.height = viewportHeight + 'px';
+
+                    window.__pageWidth = columnWidth + columnGap;
+
+                    // Force layout calculation
+                    body.offsetHeight;
+
+                    return {
+                        pageWidth: window.__pageWidth,
+                        columnWidth: columnWidth,
+                        columnGap: columnGap
+                    };
+                };
 
                 // CFI (Canonical Fragment Identifier) functions for position tracking
 
@@ -510,7 +606,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                     var element = window.getElementFromPath(cfiData.domPath);
                     if (!element) return false;
 
-                    var viewportWidth = window.innerWidth;
+                    var pageWidth = window.getPageWidth();
                     var scrollLeft = window.scrollX || document.documentElement.scrollLeft;
                     var charOffset = cfiData.charOffset || 0;
 
@@ -540,8 +636,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                             range.setEnd(targetNode, targetOffset);
                             var rect = range.getBoundingClientRect();
                             var absLeft = rect.left + scrollLeft;
-                            var targetPage = Math.floor(absLeft / viewportWidth);
-                            window.scrollTo(targetPage * viewportWidth, 0);
+                            var targetPage = Math.floor(absLeft / pageWidth);
+                            window.scrollTo(targetPage * pageWidth, 0);
                             return true;
                         }
                         // Fallback: charOffset exceeds text length, scroll to element start
@@ -550,29 +646,29 @@ public final class WebPageViewController: UIViewController, PageRenderer {
                     // charOffset == 0 or fallback: scroll to element
                     var rect = element.getBoundingClientRect();
                     var elementLeft = rect.left + scrollLeft;
-                    var targetPage = Math.floor(elementLeft / viewportWidth);
-                    window.scrollTo(targetPage * viewportWidth, 0);
+                    var targetPage = Math.floor(elementLeft / pageWidth);
+                    window.scrollTo(targetPage * pageWidth, 0);
                     return true;
                 };
 
                 // Scroll to end of document (last page)
                 window.scrollToEnd = function() {
                     var contentWidth = document.documentElement.scrollWidth;
-                    var viewportWidth = window.innerWidth;
-                    var lastPageX = Math.max(0, contentWidth - viewportWidth);
+                    var pageWidth = window.getPageWidth();
+                    var lastPageX = Math.max(0, contentWidth - pageWidth);
                     // Align to page boundary
-                    var targetPage = Math.floor(lastPageX / viewportWidth);
-                    window.scrollTo(targetPage * viewportWidth, 0);
+                    var targetPage = Math.floor(lastPageX / pageWidth);
+                    window.scrollTo(targetPage * pageWidth, 0);
                     return true;
                 };
 
                 // Get current page info for boundary detection
                 window.getPageInfo = function() {
-                    var viewportWidth = window.innerWidth;
+                    var pageWidth = window.getPageWidth();
                     var contentWidth = document.documentElement.scrollWidth;
                     var scrollX = window.scrollX || document.documentElement.scrollLeft;
-                    var currentPage = Math.round(scrollX / viewportWidth);
-                    var totalPages = Math.ceil(contentWidth / viewportWidth);
+                    var currentPage = Math.round(scrollX / pageWidth);
+                    var totalPages = Math.ceil(contentWidth / pageWidth);
                     return {
                         currentPage: currentPage,
                         totalPages: totalPages,
@@ -841,9 +937,116 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         }
     }
 
+    private func currentPaginationLayout() -> PaginationLayout? {
+        view.layoutIfNeeded()
+        let viewportWidth = Int(webView.bounds.width.rounded(.down))
+        let viewportHeight = Int(webView.bounds.height.rounded(.down))
+        guard viewportWidth > 0, viewportHeight > 0 else { return nil }
+        let margin = Int(ReaderPreferences.shared.marginSize.rounded(.down))
+        return PaginationLayout(viewportWidth: viewportWidth, viewportHeight: viewportHeight, margin: margin)
+    }
+
+    private func reflowIfNeeded(reason: String) {
+        guard isContentLoaded, let layout = currentPaginationLayout(), layout != lastAppliedLayout else { return }
+        reflowAndRestorePosition(layout: layout, reason: reason)
+    }
+
+    private func reflowAndRestorePosition(reason: String) {
+        guard let layout = currentPaginationLayout() else { return }
+        reflowAndRestorePosition(layout: layout, reason: reason)
+    }
+
+    private func reflowAndRestorePosition(layout: PaginationLayout, reason: String) {
+        guard isContentLoaded else { return }
+        queryCurrentCFI { [weak self] _, domPath, charOffset, _ in
+            guard let self else { return }
+            self.applyPaginationLayout(layout: layout, reason: reason) { [weak self] in
+                guard let self else { return }
+                guard let domPath else {
+                    self.updateCurrentPage()
+                    return
+                }
+                self.navigateToCFI(domPath: domPath, charOffset: charOffset, animated: false)
+            }
+        }
+    }
+
+    private func applyPaginationLayout(layout: PaginationLayout, reason: String, completion: @escaping () -> Void) {
+        guard isContentLoaded else {
+            completion()
+            return
+        }
+
+        Self.logger.debug("PAGINATION: apply layout reason=\(reason) viewport=\(layout.viewportWidth)x\(layout.viewportHeight) margin=\(layout.margin) pageWidth=\(layout.pageWidth)")
+        cssPageWidth = CGFloat(layout.pageWidth)
+
+        guard let jsonData = try? JSONSerialization.data(
+            withJSONObject: [
+                "viewportWidth": layout.viewportWidth,
+                "viewportHeight": layout.viewportHeight,
+                "margin": layout.margin,
+            ],
+            options: []
+        ),
+            let jsonString = String(data: jsonData, encoding: .utf8)
+        else {
+            Self.logger.error("Failed to serialize pagination layout (\(reason))")
+            completion()
+            return
+        }
+
+        let js = "window.applyPaginationLayout(\(jsonString));"
+        webView.evaluateJavaScript(js) { [weak self] _, error in
+            guard let self else { return }
+            if let error {
+                Self.logger.error("Pagination layout apply failed (\(reason)): \(error.localizedDescription)")
+            }
+            self.lastAppliedLayout = layout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.updatePaginationMetrics(rightInset: CGFloat(layout.margin), completion: completion)
+            }
+        }
+    }
+
+    private func updatePaginationMetrics(rightInset: CGFloat, completion: @escaping () -> Void) {
+        let js = """
+        (function() {
+            var body = document.body;
+            if (!body) return null;
+            var style = window.getComputedStyle(body);
+            var columnWidth = parseFloat(style.columnWidth) || body.clientWidth || window.innerWidth;
+            var columnGap = parseFloat(style.columnGap) || 0;
+            var pageWidth = columnWidth + columnGap;
+            return {
+                pageWidth: pageWidth,
+                columnWidth: columnWidth,
+                columnGap: columnGap
+            };
+        })();
+        """
+        webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let self else { return }
+            if let dict = result as? [String: Any],
+               let pageWidth = dict["pageWidth"] as? Double,
+               pageWidth > 0
+            {
+                self.cssPageWidth = CGFloat(pageWidth)
+                Self.logger.info("CSS page width: \(pageWidth)")
+                if let columnWidth = dict["columnWidth"] as? Double,
+                   let columnGap = dict["columnGap"] as? Double
+                {
+                    Self.logger.debug("CSS columns: width=\(columnWidth) gap=\(columnGap)")
+                }
+            }
+            self.webView.scrollView.contentInset.right = max(0, rightInset)
+            Self.logger.debug("SCROLL: right inset=\(Int(self.webView.scrollView.contentInset.right))")
+            completion()
+        }
+    }
+
     private func currentPageWidth() -> CGFloat {
-        // Use CSS column width if available (precise), otherwise fall back to bounds
-        cssColumnWidth > 0 ? cssColumnWidth : webView.scrollView.bounds.width
+        // Use CSS page width if available (precise), otherwise fall back to bounds
+        cssPageWidth > 0 ? cssPageWidth : webView.scrollView.bounds.width
     }
 
     /// Page-aligned scroll offset for the last page.
@@ -979,34 +1182,6 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         }
     }
 
-    private func queryCSSColumnWidth(completion: @escaping () -> Void) {
-        // Query the exact CSS column width from the browser
-        // This is the source of truth for pagination alignment
-        let js = """
-        (function() {
-            const container = document.getElementById('pagination-container');
-            if (container) {
-                return container.clientWidth;
-            }
-            return document.documentElement.clientWidth;
-        })();
-        """
-        webView.evaluateJavaScript(js) { [weak self] result, _ in
-            if let width = result as? Double, width > 0 {
-                self?.cssColumnWidth = CGFloat(width)
-                Self.logger.info("CSS column width: \(width)")
-            }
-            // WebKit does not include the body's right padding in the scrollable
-            // overflow width of CSS multi-column layouts. This means the last page
-            // of each spine can't scroll to the correct column boundary, causing
-            // text to appear shifted right. Adding a right content inset extends
-            // the scrollable range to compensate.
-            let marginSize = ReaderPreferences.shared.marginSize
-            self?.webView.scrollView.contentInset.right = marginSize
-            completion()
-        }
-    }
-
     // MARK: - Block Position Tracking
 
     /// Query the first visible block ID and spine item ID from the WebView
@@ -1070,11 +1245,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
 
             // Calculate the page that contains this block
-            const viewportWidth = window.innerWidth;
+            const pageWidth = window.getPageWidth ? window.getPageWidth() : window.innerWidth;
             const blockLeft = rect.left + scrollLeft;
-            const targetPage = Math.floor(blockLeft / viewportWidth);
+            const targetPage = Math.floor(blockLeft / pageWidth);
 
-            return targetPage * viewportWidth;
+            return targetPage * pageWidth;
         })();
         """
 
@@ -1256,6 +1431,10 @@ extension WebPageViewController: UIScrollViewDelegate {
         } else {
             dragStartOffset = scrollView.contentOffset.x
         }
+        Self.logger.debug(
+            "SWIPE: begin offset=\(Int(scrollView.contentOffset.x)) " +
+                "pageWidth=\(Int(pageWidth)) contentWidth=\(Int(scrollView.contentSize.width))"
+        )
     }
 
     public func scrollViewWillEndDragging(
@@ -1282,6 +1461,12 @@ extension WebPageViewController: UIScrollViewDelegate {
         )
 
         let action = PageNavigationResolver.resolve(input)
+        Self.logger.debug(
+            "SWIPE: endDrag offset=\(Int(currentOffset)) " +
+                "pageWidth=\(Int(pageWidth)) contentWidth=\(Int(contentWidth)) " +
+                "startPage=\(startPage) currentPage=\(nearestPage) totalPages=\(computedTotalPages) " +
+                "velocity=\(String(format: "%.2f", velocity.x)) action=\(String(describing: action))"
+        )
 
         switch action {
         case let .snapToPage(page):
@@ -1314,11 +1499,13 @@ extension WebPageViewController: UIScrollViewDelegate {
         snapToNearestPage()
         updateCurrentPage()
         logCurrentPosition("decelerate")
+        Self.logger.debug("SWIPE: didEndDecelerating")
     }
 
     public func scrollViewDidEndScrollingAnimation(_: UIScrollView) {
         updateCurrentPage()
         logCurrentPosition("scroll-anim")
+        Self.logger.debug("SWIPE: didEndScrollingAnimation")
     }
 
     public func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1327,6 +1514,7 @@ extension WebPageViewController: UIScrollViewDelegate {
             updateCurrentPage()
             logCurrentPosition("drag-end")
         }
+        Self.logger.debug("SWIPE: didEndDragging decelerate=\(decelerate)")
     }
 
     /// Perform a spine transition (forward or backward).
@@ -1356,6 +1544,8 @@ extension WebPageViewController: UIScrollViewDelegate {
         Self.logger.info("PAGE[\(source)]: spine=\(currentSpineIndex)/\(htmlSections.count - 1), page=\(currentPage)/\(totalPages - 1), offset=\(Int(currentOffset))/\(Int(maxOffset))")
     }
 }
+
+// MARK: - UIGestureRecognizerDelegate
 
 // MARK: - WKNavigationDelegate
 
@@ -1433,11 +1623,11 @@ extension WebPageViewController: WKNavigationDelegate {
 
             var rect = element.getBoundingClientRect();
             var scrollLeft = window.scrollX || document.documentElement.scrollLeft;
-            var viewportWidth = window.innerWidth;
+            var pageWidth = window.getPageWidth ? window.getPageWidth() : window.innerWidth;
             var elementLeft = rect.left + scrollLeft;
-            var targetPage = Math.floor(elementLeft / viewportWidth);
+            var targetPage = Math.floor(elementLeft / pageWidth);
 
-            return targetPage * viewportWidth;
+            return targetPage * pageWidth;
         })();
         """
 
@@ -1468,104 +1658,99 @@ extension WebPageViewController: WKNavigationDelegate {
         }
     }
 
-    public func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
+    public func webView(_: WKWebView, didFinish _: WKNavigation!) {
         let navTime = webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - webViewLoadStartTime : 0
         Self.logger.info("PERF: WebView didFinish navigation in \(String(format: "%.3f", navTime))s")
 
-        // Inject JavaScript to ensure content is scrollable and wait for layout
-        let js = """
-        document.documentElement.style.overflow = 'visible';
-        document.body.style.overflow = 'visible';
-        // Force layout calculation
-        document.body.offsetHeight;
-        """
-        webView.evaluateJavaScript(js) { [weak self] _, error in
+        isContentLoaded = true
+        let handleContentReady: () -> Void = { [weak self] in
             guard let self else { return }
-            if let error {
-                Self.logger.error("JavaScript error: \(error.localizedDescription)")
+            // Ensure scroll view y-offset is 0 to prevent vertical drift
+            // This must happen synchronously before any async navigation
+            let scrollView = self.webView.scrollView
+            if scrollView.contentOffset.y != 0 {
+                scrollView.setContentOffset(
+                    CGPoint(x: scrollView.contentOffset.x, y: 0),
+                    animated: false
+                )
             }
+            Self.logger.debug(
+                "SCROLL: contentSize=\(Int(scrollView.contentSize.width))x\(Int(scrollView.contentSize.height)) " +
+                    "bounds=\(Int(scrollView.bounds.width))x\(Int(scrollView.bounds.height)) " +
+                    "offset=\(Int(scrollView.contentOffset.x)) " +
+                    "scrollEnabled=\(scrollView.isScrollEnabled) " +
+                    "panEnabled=\(scrollView.panGestureRecognizer.isEnabled)"
+            )
 
-            // Wait for CSS columns to finish laying out
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                guard let self else { return }
+            // Restore position BEFORE reporting current page/block
+            // This prevents overwriting saved position with initial values
+            if !self.hasRestoredPosition {
+                self.hasRestoredPosition = true
+                let totalLoadTime = self.webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - self.webViewLoadStartTime : 0
+                Self.logger.info("PERF: Content ready in \(String(format: "%.3f", totalLoadTime))s total")
 
-                // Query exact CSS column width for precise alignment
-                queryCSSColumnWidth {
-                    // Ensure scroll view y-offset is 0 to prevent vertical drift
-                    // This must happen synchronously before any async navigation
-                    let scrollView = self.webView.scrollView
-                    if scrollView.contentOffset.y != 0 {
-                        scrollView.setContentOffset(
-                            CGPoint(x: scrollView.contentOffset.x, y: 0),
-                            animated: false
-                        )
-                    }
-
-                    // Restore position BEFORE reporting current page/block
-                    // This prevents overwriting saved position with initial values
-                    if !self.hasRestoredPosition {
-                        self.hasRestoredPosition = true
-                        let totalLoadTime = self.webViewLoadStartTime > 0 ? CFAbsoluteTimeGetCurrent() - self.webViewLoadStartTime : 0
-                        Self.logger.info("PERF: Content ready in \(String(format: "%.3f", totalLoadTime))s total")
-
-                        // Priority 1: CFI-based restoration (for initial load, cross-session, and font resize)
-                        if let cfiRestore = self.pendingCFIRestore {
-                            Self.logger.info("SPINE: Restoring position via CFI path")
-                            self.pendingCFIRestore = nil
-                            self.navigateToCFI(domPath: cfiRestore.domPath, charOffset: cfiRestore.charOffset, animated: false)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                                self?.updateCurrentPage()
-                                self?.finishPositionRestoreIfNeeded()
-                                self?.notifyTransitionContentReady()
-                                self?.onRenderReady?()
-                            }
-                        }
-                        // Scroll to end (for navigating backward through spine)
-                        else if self.pendingScrollToEnd {
-                            self.pendingScrollToEnd = false
-                            // Use page-aligned offset so the last page lands on a column boundary
-                            let scrollView = self.webView.scrollView
-                            let maxOffset = self.lastPageAlignedOffset()
-                            Self.logger.info("SPINE: Scrolling to end (first load), maxOffset=\(Int(maxOffset))")
-                            scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                                self?.updateCurrentPage()
-                                self?.logCurrentPosition("scroll-to-end")
-                                self?.finishPositionRestoreIfNeeded()
-                                self?.notifyTransitionContentReady()
-                                self?.onRenderReady?()
-                            }
-                        }
-                        // Default: Start at beginning
-                        else {
-                            self.updateCurrentPage()
-                            self.finishPositionRestoreIfNeeded()
-                            self.notifyTransitionContentReady()
-                            self.onRenderReady?()
-                        }
-                    } else {
-                        // Handle scrollToEnd for subsequent spine navigations (not first load)
-                        if self.pendingScrollToEnd {
-                            self.pendingScrollToEnd = false
-                            // Use page-aligned offset so the last page lands on a column boundary
-                            let scrollView = self.webView.scrollView
-                            let maxOffset = self.lastPageAlignedOffset()
-                            Self.logger.info("SPINE: Scrolling to end, maxOffset=\(Int(maxOffset))")
-                            scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                                self?.updateCurrentPage()
-                                self?.logCurrentPosition("scroll-to-end")
-                                self?.finishPositionRestoreIfNeeded()
-                                self?.notifyTransitionContentReady()
-                            }
-                        } else {
-                            self.updateCurrentPage()
-                            self.finishPositionRestoreIfNeeded()
-                            self.notifyTransitionContentReady()
-                        }
+                // Priority 1: CFI-based restoration (for initial load, cross-session, and font resize)
+                if let cfiRestore = self.pendingCFIRestore {
+                    Self.logger.info("SPINE: Restoring position via CFI path")
+                    self.pendingCFIRestore = nil
+                    self.navigateToCFI(domPath: cfiRestore.domPath, charOffset: cfiRestore.charOffset, animated: false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.updateCurrentPage()
+                        self?.finishPositionRestoreIfNeeded()
+                        self?.notifyTransitionContentReady()
+                        self?.onRenderReady?()
                     }
                 }
+                // Scroll to end (for navigating backward through spine)
+                else if self.pendingScrollToEnd {
+                    self.pendingScrollToEnd = false
+                    // Use page-aligned offset so the last page lands on a column boundary
+                    let scrollView = self.webView.scrollView
+                    let maxOffset = self.lastPageAlignedOffset()
+                    Self.logger.info("SPINE: Scrolling to end (first load), maxOffset=\(Int(maxOffset))")
+                    scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.updateCurrentPage()
+                        self?.logCurrentPosition("scroll-to-end")
+                        self?.finishPositionRestoreIfNeeded()
+                        self?.notifyTransitionContentReady()
+                        self?.onRenderReady?()
+                    }
+                }
+                // Default: Start at beginning
+                else {
+                    self.updateCurrentPage()
+                    self.finishPositionRestoreIfNeeded()
+                    self.notifyTransitionContentReady()
+                    self.onRenderReady?()
+                }
+            } else {
+                // Handle scrollToEnd for subsequent spine navigations (not first load)
+                if self.pendingScrollToEnd {
+                    self.pendingScrollToEnd = false
+                    // Use page-aligned offset so the last page lands on a column boundary
+                    let scrollView = self.webView.scrollView
+                    let maxOffset = self.lastPageAlignedOffset()
+                    Self.logger.info("SPINE: Scrolling to end, maxOffset=\(Int(maxOffset))")
+                    scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.updateCurrentPage()
+                        self?.logCurrentPosition("scroll-to-end")
+                        self?.finishPositionRestoreIfNeeded()
+                        self?.notifyTransitionContentReady()
+                    }
+                } else {
+                    self.updateCurrentPage()
+                    self.finishPositionRestoreIfNeeded()
+                    self.notifyTransitionContentReady()
+                }
             }
+        }
+
+        if let layout = currentPaginationLayout() {
+            applyPaginationLayout(layout: layout, reason: "didFinish", completion: handleContentReady)
+        } else {
+            updatePaginationMetrics(rightInset: 0, completion: handleContentReady)
         }
     }
 }

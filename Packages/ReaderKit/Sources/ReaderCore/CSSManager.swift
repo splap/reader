@@ -13,13 +13,17 @@ public enum CSSManager {
     public static func houseCSS(fontScale: CGFloat, marginSize: CGFloat = 32) -> String {
         let baseFontSize = 16 * fontScale
         let margin = Int(marginSize)
-        let totalMargin = margin * 2
 
         return """
         /* House CSS - Minimal overrides for pagination */
 
         html {
             height: 100%;
+            width: 100%;
+        }
+
+        :root {
+            --reader-margin: \(margin)px;
         }
 
         body {
@@ -28,15 +32,15 @@ public enum CSSManager {
 
             /* Pagination container - we own the outer margins */
             margin: 0;
-            padding: \(margin)px; /* Equal padding on all sides */
+            padding: 0;
             box-sizing: border-box;
-            overflow: hidden; /* Prevent content bleeding into margins */
+            overflow-y: hidden; /* Prevent vertical scroll during pagination */
             overflow-x: clip; /* Hard clip horizontal overflow (stronger than hidden) */
+            max-width: inherit;
 
-            /* CSS columns for pagination */
-            column-width: calc(100vw - \(totalMargin)px); /* Account for padding */
-            column-gap: \(totalMargin)px; /* Match total padding for page transitions */
+            /* JS sets column-width and column-gap explicitly in px */
             column-fill: auto;
+            -webkit-line-box-contain: block glyphs replaced;
         }
 
         /* Dark mode support */

@@ -20,8 +20,9 @@ final class EPUBLoaderTests: XCTestCase {
 
         // Verify house CSS contains critical pagination properties
         XCTAssertTrue(css.contains("font-size: 32.0px"), "House CSS should scale font size")
-        // Default margin is 32px, total margin (both sides) is 64px
-        XCTAssertTrue(css.contains("column-width: calc(100vw - 64px)"), "House CSS should set column width for pagination")
+        XCTAssertTrue(css.contains("--reader-margin: 32px"), "House CSS should expose margin as a CSS variable")
+        XCTAssertTrue(css.contains("-webkit-line-box-contain: block glyphs replaced"), "House CSS should include WebKit pagination hints")
+        XCTAssertFalse(css.contains("column-width:"), "House CSS should not hardcode column width")
     }
 
     func testCSSManagerIncludesPublisherCSS() {
@@ -36,7 +37,7 @@ final class EPUBLoaderTests: XCTestCase {
         XCTAssertTrue(combined.contains("text-indent: 1em"), "Publisher CSS should be preserved")
         XCTAssertTrue(combined.contains("text-align: center"), "Publisher alignment should be preserved")
         // House CSS should also be present
-        XCTAssertTrue(combined.contains("column-width: calc(100vw - 64px)"), "House CSS should be included")
+        XCTAssertTrue(combined.contains("-webkit-line-box-contain: block glyphs replaced"), "House CSS should be included")
     }
 
     func testCSSManagerSanitizesPercentageMargins() {
