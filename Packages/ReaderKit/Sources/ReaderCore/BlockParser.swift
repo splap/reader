@@ -4,9 +4,10 @@ import Foundation
 public final class BlockParser {
     /// Tags that represent block-level content
     /// NOTE: div is not included here because it often wraps other block elements
+    /// NOTE: td is included to capture table-based layouts (e.g., TOC tables)
     private static let blockTags: Set<String> = [
         "p", "h1", "h2", "h3", "h4", "h5", "h6",
-        "li", "blockquote", "pre",
+        "li", "blockquote", "pre", "td",
     ]
 
     /// Tags that contain images
@@ -30,7 +31,8 @@ public final class BlockParser {
         // Pattern matches opening tag, content, and closing tag
         // NOTE: div is excluded because it often wraps other block elements (h1-h6, p, etc.)
         // and would incorrectly consume their content. Text-only divs are handled separately.
-        let pattern = #"<(p|h[1-6]|li|blockquote|pre)(\s[^>]*)?>(.+?)</\1>"#
+        // NOTE: td is included to capture table-based layouts (e.g., Frankenstein TOC)
+        let pattern = #"<(p|h[1-6]|li|blockquote|pre|td)(\s[^>]*)?>(.+?)</\1>"#
 
         if let regex = try? NSRegularExpression(
             pattern: pattern,
@@ -120,7 +122,8 @@ public final class BlockParser {
         let nsHTML = html as NSString
 
         // Pattern matches block elements and captures tag name, attributes, and content
-        let pattern = #"<(p|h[1-6]|li|blockquote|pre)(\s[^>]*)?>(.+?)</\1>"#
+        // NOTE: td is included to capture table-based layouts (e.g., Frankenstein TOC)
+        let pattern = #"<(p|h[1-6]|li|blockquote|pre|td)(\s[^>]*)?>(.+?)</\1>"#
 
         if let regex = try? NSRegularExpression(
             pattern: pattern,

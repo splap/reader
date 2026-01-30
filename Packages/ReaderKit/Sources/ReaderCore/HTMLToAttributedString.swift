@@ -330,7 +330,8 @@ public final class HTMLToAttributedStringConverter {
     /// Extracts content between the outer HTML tags
     private func extractInnerHTML(from html: String) -> String {
         // Pattern to extract inner content of block-level elements
-        let pattern = #"<(?:p|h[1-6]|li|blockquote|pre|div|figure)[^>]*>([\s\S]*)</(?:p|h[1-6]|li|blockquote|pre|div|figure)>"#
+        // NOTE: td is included to support table-based layouts (e.g., TOC tables)
+        let pattern = #"<(?:p|h[1-6]|li|blockquote|pre|div|figure|td)[^>]*>([\s\S]*)</(?:p|h[1-6]|li|blockquote|pre|div|figure|td)>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
               let range = Range(match.range(at: 1), in: html)
@@ -351,21 +352,36 @@ public final class HTMLToAttributedStringConverter {
         let nsHTML = html as NSString
 
         // Find all inline formatting tags AND inline images
+        // Use separate patterns and combine matches to avoid backreference issues with alternation
         let tagPattern = #"<(b|strong|i|em|a|span|code|u|s|sub|sup)([^>]*)>([\s\S]*?)</\1>"#
         let imgPattern = #"<img[^>]*/?>"#
 
-        // Combine both patterns to find all elements in order
-        let combinedPattern = "(\(tagPattern))|(\(imgPattern))"
-        guard let regex = try? NSRegularExpression(pattern: combinedPattern, options: [.caseInsensitive]) else {
+        guard let tagRegex = try? NSRegularExpression(pattern: tagPattern, options: [.caseInsensitive]),
+              let imgRegex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive])
+        else {
             // Fallback: just strip tags and return plain text
             let plainText = stripHTMLTags(html)
             result.append(NSAttributedString(string: plainText, attributes: baseAttributes))
             return
         }
 
-        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+        // Get all tag matches and all image matches, then combine and sort by position
+        let tagMatches = tagRegex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+        let imgMatches = imgRegex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
 
-        for match in matches {
+        // Combine all matches and sort by position
+        var allMatches: [(match: NSTextCheckingResult, isTag: Bool)] = []
+        for match in tagMatches {
+            allMatches.append((match, true))
+        }
+        for match in imgMatches {
+            allMatches.append((match, false))
+        }
+        allMatches.sort { $0.match.range.location < $1.match.range.location }
+
+        let matches = allMatches
+
+        for (match, isTag) in matches {
             // Convert NSRange to Range<String.Index> for proper Unicode handling
             guard let matchRange = Range(match.range, in: html) else { continue }
 
@@ -380,23 +396,22 @@ public final class HTMLToAttributedStringConverter {
 
             let fullMatch = String(html[matchRange])
 
-            // Check if this is an img tag (self-closing, no content group)
-            if fullMatch.lowercased().hasPrefix("<img") {
+            if !isTag {
                 // Handle inline image
                 if let imageAttachment = createInlineImageAttachment(from: fullMatch, baseAttributes: baseAttributes) {
                     result.append(imageAttachment)
                 }
             } else {
                 // It's a formatting tag - extract tag name, attributes, and content
-                // The format is: (<tagPattern>)|(<imgPattern>) so formatting match is in groups 2,3,4
-                guard match.numberOfRanges >= 5 else {
+                // Tag pattern groups: 1=tagName, 2=attrs, 3=content
+                guard match.numberOfRanges >= 4 else {
                     currentPosition = matchRange.upperBound
                     continue
                 }
 
-                let tagNameRange = match.range(at: 2)
-                let attrsRange = match.range(at: 3)
-                let contentRange = match.range(at: 4)
+                let tagNameRange = match.range(at: 1)
+                let attrsRange = match.range(at: 2)
+                let contentRange = match.range(at: 3)
 
                 guard tagNameRange.location != NSNotFound else {
                     currentPosition = matchRange.upperBound
@@ -559,6 +574,7 @@ public final class HTMLToAttributedStringConverter {
     }
 
     /// Extracts href URL from tag attributes
+    /// For internal EPUB links (relative paths), creates a custom epub:// URL scheme
     private func extractHref(from attributes: String) -> URL? {
         let pattern = #"href\s*=\s*["']([^"']+)["']"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
@@ -568,7 +584,29 @@ public final class HTMLToAttributedStringConverter {
             return nil
         }
         let urlString = String(attributes[range])
-        return URL(string: urlString)
+
+        // Try to create a URL directly (works for absolute URLs like https://)
+        if let url = URL(string: urlString), url.scheme != nil {
+            return url
+        }
+
+        // For relative paths (internal EPUB links), use a custom scheme
+        // Split on # to preserve fragment identifier, then encode only the path part
+        let components = urlString.components(separatedBy: "#")
+        let pathPart = components[0]
+        let fragmentPart = components.count > 1 ? components[1] : nil
+
+        // Encode only the path portion (not the fragment)
+        guard let encodedPath = pathPart.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+
+        var urlStr = "epub://internal/\(encodedPath)"
+        if let fragment = fragmentPart {
+            urlStr += "#\(fragment)"
+        }
+
+        return URL(string: urlStr)
     }
 
     /// Extracts class attribute value from tag attributes

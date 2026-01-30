@@ -30,6 +30,7 @@ public enum BlockType: String, Codable, Equatable {
         case "blockquote": .blockquote
         case "pre": .preformatted
         case "img": .image
+        case "td": .listItem // Table cells treated as list items for compact rendering (e.g., TOC tables)
         // Note: div is not matched as a block since it often wraps other block elements
         default: .unknown
         }

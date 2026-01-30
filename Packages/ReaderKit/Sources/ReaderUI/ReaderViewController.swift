@@ -141,7 +141,8 @@ public final class ReaderViewController: UIViewController {
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
                 fontScale: viewModel.fontScale,
-                initialCFI: viewModel.initialCFI
+                initialCFI: viewModel.initialCFI,
+                hrefToSpineItemId: chapter.hrefToSpineItemId
             )
 
         case .webView:
@@ -184,6 +185,14 @@ public final class ReaderViewController: UIViewController {
         if let webRenderer = renderer as? WebPageViewController {
             webRenderer.onLoadingProgress = { [weak self] loaded, total in
                 self?.updateLoadingProgress(loaded: loaded, total: total)
+            }
+        }
+
+        // Hook up internal link navigation callback (native renderer only)
+        if let nativeRenderer = renderer as? NativePageViewController {
+            nativeRenderer.onInternalLinkTapped = { [weak self] spineItemId, _ in
+                // Navigate to the target spine item
+                self?.pageRenderer?.navigateToSpineItem(spineItemId, animated: false)
             }
         }
 
@@ -666,7 +675,8 @@ public final class ReaderViewController: UIViewController {
                 bookAuthor: bookAuthor,
                 chapterTitle: chapter.title,
                 fontScale: viewModel.fontScale,
-                initialCFI: viewModel.currentCFI
+                initialCFI: viewModel.currentCFI,
+                hrefToSpineItemId: chapter.hrefToSpineItemId
             )
 
         case .webView:
@@ -714,6 +724,14 @@ public final class ReaderViewController: UIViewController {
         if let webRenderer = renderer as? WebPageViewController {
             webRenderer.onLoadingProgress = { [weak self] loaded, total in
                 self?.updateLoadingProgress(loaded: loaded, total: total)
+            }
+        }
+
+        // Hook up internal link navigation callback (native renderer only)
+        if let nativeRenderer = renderer as? NativePageViewController {
+            nativeRenderer.onInternalLinkTapped = { [weak self] spineItemId, _ in
+                // Navigate to the target spine item
+                self?.pageRenderer?.navigateToSpineItem(spineItemId, animated: false)
             }
         }
 

@@ -23,6 +23,9 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     public var onRenderReady: (() -> Void)?
     public var onCFIPositionChanged: ((String, Int) -> Void)?
 
+    /// Callback when an internal link is tapped (spineItemId, optional fragment/anchor)
+    public var onInternalLinkTapped: ((_ spineItemId: String, _ fragment: String?) -> Void)?
+
     // MARK: - Private Properties
 
     private let htmlSections: [HTMLSection]
@@ -30,6 +33,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     private let bookTitle: String?
     private let bookAuthor: String?
     private let chapterTitle: String?
+    private let hrefToSpineItemId: [String: String]
 
     private var scrollView: UIScrollView!
     private var currentPageIndex: Int = 0
@@ -67,7 +71,8 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         bookAuthor: String? = nil,
         chapterTitle: String? = nil,
         fontScale: CGFloat = 1.4,
-        initialCFI: String? = nil
+        initialCFI: String? = nil,
+        hrefToSpineItemId: [String: String] = [:]
     ) {
         self.htmlSections = htmlSections
         self.bookId = bookId
@@ -76,6 +81,7 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         self.chapterTitle = chapterTitle
         self.fontScale = fontScale
         self.initialCFI = initialCFI
+        self.hrefToSpineItemId = hrefToSpineItemId
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -1175,6 +1181,52 @@ extension NativePageViewController: UIScrollViewDelegate {
 // MARK: - UITextViewDelegate
 
 extension NativePageViewController: UITextViewDelegate {
+    public func textView(_: UITextView, shouldInteractWith url: URL, in _: NSRange, interaction: UITextItemInteraction) -> Bool {
+        // Only handle tap interactions
+        guard interaction == .invokeDefaultAction else { return true }
+
+        Self.logger.info("Link tapped: \(url.absoluteString)")
+
+        // Handle our custom epub:// scheme for internal links
+        if url.scheme == "epub", url.host == "internal" {
+            // Extract the path which contains the file reference
+            // Format: epub://internal/filename.html%23fragment
+            let path = url.path.dropFirst() // Remove leading /
+
+            // Decode percent-encoded characters
+            guard let decodedPath = String(path).removingPercentEncoding else {
+                Self.logger.warning("Failed to decode internal link path: \(path)")
+                return false
+            }
+
+            // Split into filename and fragment
+            let components = decodedPath.components(separatedBy: "#")
+            let filename = components[0]
+            let fragment = components.count > 1 ? components[1] : nil
+
+            Self.logger.debug("Internal link - filename: \(filename), fragment: \(fragment ?? "none")")
+
+            // Look up spine item ID from filename
+            if let spineItemId = hrefToSpineItemId[filename] ?? hrefToSpineItemId[(filename as NSString).lastPathComponent] {
+                Self.logger.info("Navigating to spine item: \(spineItemId)")
+                onInternalLinkTapped?(spineItemId, fragment)
+            } else {
+                Self.logger.warning("Could not resolve internal link: \(filename)")
+            }
+
+            return false // We handled it
+        }
+
+        // Handle external URLs (http/https)
+        if url.scheme == "http" || url.scheme == "https" {
+            UIApplication.shared.open(url)
+            return false
+        }
+
+        // Let the system handle other URLs
+        return true
+    }
+
     public func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard range.length > 0 else { return nil }
 
