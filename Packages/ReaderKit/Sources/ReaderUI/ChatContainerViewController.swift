@@ -50,6 +50,7 @@ public final class ChatContainerViewController: UIViewController {
         super.viewDidLoad()
 
         view.backgroundColor = .systemBackground
+        view.accessibilityIdentifier = "chat-container-view"
 
         setupTopBar()
         setupContentContainer()

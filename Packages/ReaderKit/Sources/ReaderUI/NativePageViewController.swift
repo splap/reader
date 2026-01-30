@@ -13,7 +13,10 @@ public final class NativePageViewController: UIViewController, PageRenderer {
     public var fontScale: CGFloat {
         didSet {
             guard fontScale != oldValue else { return }
-            rebuildPagesAsync()
+            // Save per-chapter position ratio before rebuild
+            let (pageWithinChapter, pagesInChapter, currentSpineIdx) = calculateChapterPageInfo()
+            let positionRatio = pagesInChapter > 1 ? CGFloat(pageWithinChapter) / CGFloat(pagesInChapter - 1) : 0
+            rebuildPagesAsync(restoreSpineIndex: currentSpineIdx, restorePositionRatio: positionRatio)
         }
     }
 
@@ -613,11 +616,13 @@ public final class NativePageViewController: UIViewController, PageRenderer {
         return htmlSections.firstIndex { $0.spineItemId == spineItemId } ?? 0
     }
 
-    private func rebuildPagesAsync() {
+    private func rebuildPagesAsync(restoreSpineIndex: Int? = nil, restorePositionRatio: CGFloat? = nil) {
         Self.logger.info("Rebuilding pages with new font scale: \(self.fontScale)")
 
-        // Save current position
+        // Save current position (blockId as fallback if ratio not provided)
         let savedBlockId = pageBlockIds.indices.contains(currentPageIndex) ? pageBlockIds[currentPageIndex].first : nil
+        let savedSpineIndex = restoreSpineIndex
+        let savedPositionRatio = restorePositionRatio
 
         // Show loading overlay
         showLoadingOverlay()
@@ -740,8 +745,29 @@ public final class NativePageViewController: UIViewController, PageRenderer {
                 // Hide loading overlay
                 self.hideLoadingOverlay()
 
-                // Restore position
-                if let blockId = savedBlockId {
+                // Restore position using proportional method if available
+                if let spineIdx = savedSpineIndex, let ratio = savedPositionRatio {
+                    // Find pages belonging to the target spine
+                    var pagesInSpine: [Int] = []
+                    for (pageIndex, pageSpineIdx) in self.pageSpineIndices.enumerated() {
+                        if pageSpineIdx == spineIdx {
+                            pagesInSpine.append(pageIndex)
+                        }
+                    }
+
+                    if !pagesInSpine.isEmpty {
+                        // Calculate target page within spine using ratio
+                        let targetChapterPage = pagesInSpine.count > 1
+                            ? Int(round(ratio * CGFloat(pagesInSpine.count - 1)))
+                            : 0
+                        let clampedIndex = max(0, min(targetChapterPage, pagesInSpine.count - 1))
+                        let globalPage = pagesInSpine[clampedIndex]
+                        Self.logger.info("Position restore: ratio \(ratio) -> chapter page \(targetChapterPage)/\(pagesInSpine.count) -> global page \(globalPage)")
+                        self.navigateToGlobalPage(globalPage, animated: false)
+                    } else if let blockId = savedBlockId {
+                        self.navigateToBlock(blockId, animated: false)
+                    }
+                } else if let blockId = savedBlockId {
                     self.navigateToBlock(blockId, animated: false)
                 }
 

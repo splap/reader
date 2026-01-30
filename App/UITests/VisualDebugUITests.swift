@@ -48,7 +48,8 @@ final class VisualDebugUITests: XCTestCase {
     }
 
     /// Opens a book specified by BOOK_KEYWORD at BOOK_CFI and captures a screenshot.
-    func testVisualDebugBookAtLocation() {
+    /// Skips automatically when run without the required environment variables.
+    func testVisualDebugBookAtLocation() throws {
         let config = TestConfig.load()
         let bookKeyword = config.bookKeyword
         let bookCFI = config.bookCFI
@@ -59,15 +60,10 @@ final class VisualDebugUITests: XCTestCase {
         print("BOOK_CFI: '\(bookCFI)'")
         print("BOOK_PAGE_OFFSET: \(pageOffset)")
 
-        guard !bookKeyword.isEmpty else {
-            XCTFail("BOOK_KEYWORD environment variable is required.")
-            return
-        }
-
-        guard !bookCFI.isEmpty else {
-            XCTFail("BOOK_CFI environment variable is required.")
-            return
-        }
+        // Skip test if required environment variables are not provided
+        // This test is meant to be run manually with specific parameters
+        try XCTSkipIf(bookKeyword.isEmpty, "Skipping: BOOK_KEYWORD not provided (manual test)")
+        try XCTSkipIf(bookCFI.isEmpty, "Skipping: BOOK_CFI not provided (manual test)")
 
         // Launch app directly to the book and chapter via CFI
         let extraArgs = [

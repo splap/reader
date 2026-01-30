@@ -491,11 +491,11 @@ public final class ReaderViewController: UIViewController {
         guard viewModel.totalPages > 1 else { return }
 
         let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
-        viewModel.navigateToPage(targetPage)
+        // Navigate the renderer to sync the WebView scroll position.
+        // This is needed for XCTest automation which fires valueChanged but not touchUp events.
+        pageRenderer.navigateToPage(targetPage, animated: false)
         viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
         updateScrubber()
-
-        // Note: updateScrubber() already updates the label with chapter info
     }
 
     @objc private func scrubberTouchEnded(_ sender: UISlider) {

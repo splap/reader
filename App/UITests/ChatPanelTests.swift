@@ -47,8 +47,8 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(chatButton.waitForExistence(timeout: 5), "Chat button should exist")
         chatButton.tap()
 
-        let chatNavBar = app.navigationBars["Chat"]
-        XCTAssertTrue(chatNavBar.waitForExistence(timeout: 5), "Chat navigation bar should appear")
+        let chatContainer = app.otherElements["chat-container-view"]
+        XCTAssertTrue(chatContainer.waitForExistence(timeout: 5), "Chat container should appear")
         print("Chat view opened")
 
         // Dismiss keyboard by tapping elsewhere first
@@ -198,8 +198,8 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
         chatButton.tap()
 
-        let chatNavBar = app.navigationBars["Chat"]
-        XCTAssertTrue(chatNavBar.waitForExistence(timeout: 5))
+        let chatContainer = app.otherElements["chat-container-view"]
+        XCTAssertTrue(chatContainer.waitForExistence(timeout: 5))
         print("Chat opened")
 
         let chatInput = app.textViews["chat-input-textview"]
@@ -353,8 +353,8 @@ final class ChatPanelTests: XCTestCase {
         chatButton.tap()
 
         // Wait for chat view to appear
-        let chatNavBar = app.navigationBars["Chat"]
-        XCTAssertTrue(chatNavBar.waitForExistence(timeout: 5), "Chat navigation bar should appear")
+        let chatContainer = app.otherElements["chat-container-view"]
+        XCTAssertTrue(chatContainer.waitForExistence(timeout: 5), "Chat container should appear")
         print("Chat view opened")
 
         // Find the chat input text view
@@ -492,8 +492,8 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(chatButton.waitForExistence(timeout: 5), "Chat button should exist")
         chatButton.tap()
 
-        let chatNavBar = app.navigationBars["Chat"]
-        XCTAssertTrue(chatNavBar.waitForExistence(timeout: 5), "Chat should open")
+        let chatContainer = app.otherElements["chat-container-view"]
+        XCTAssertTrue(chatContainer.waitForExistence(timeout: 5), "Chat should open")
         print("Chat opened")
 
         // Send a question

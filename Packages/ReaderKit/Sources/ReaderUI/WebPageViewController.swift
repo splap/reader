@@ -1158,9 +1158,12 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         scrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: animated)
 
         // For non-animated navigation (e.g., scrubber), manually update position
-        // since scroll delegate callbacks won't fire
+        // since scroll delegate callbacks won't fire.
+        // Use asyncAfter to allow the WebView's layout to settle before querying
+        // the CFI position via JavaScript. Without this delay, caretRangeFromPoint
+        // may return content from the old scroll position, resulting in an empty DOM path.
         if !animated {
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                 self?.updateCurrentPage()
                 self?.logCurrentPosition("slider")
             }
