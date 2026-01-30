@@ -62,6 +62,13 @@ public actor EmbeddingService {
 
             model = try await MLModel.load(contentsOf: loadURL, configuration: modelConfig)
             Self.logger.info("Loaded embedding model from \(loadURL.path)")
+
+            // CRITICAL: Warm up the model with a single prediction to prime CoreML's cache.
+            // Without this, concurrent predictions (via TaskGroup in embedBatch) can trigger
+            // parallel compilations, each creating a 128MB e5bundlecache entry.
+            // One warmup prediction pins the execution program before concurrency begins.
+            try await warmupModel()
+
             return true
         } catch {
             Self.logger.error("Failed to load embedding model: \(error.localizedDescription)")
@@ -119,6 +126,37 @@ public actor EmbeddingService {
     public func reset() {
         model = nil
         modelLoadFailed = false
+    }
+
+    /// Warms up the model by running a single prediction.
+    /// This primes CoreML's e5bundlecache BEFORE any concurrent predictions,
+    /// preventing the race condition where parallel predictions each compile
+    /// their own 128MB execution program.
+    private func warmupModel() async throws {
+        guard let model else { return }
+
+        // Create minimal input (single token, padded to 512)
+        let seqLen = Self.maxTokens
+        let inputIds = try MLMultiArray(shape: [1, NSNumber(value: seqLen)], dataType: .int32)
+        let attentionMask = try MLMultiArray(shape: [1, NSNumber(value: seqLen)], dataType: .int32)
+
+        // [CLS] token at position 0, rest are padding
+        inputIds[0] = 101
+        attentionMask[0] = 1
+        for i in 1 ..< seqLen {
+            inputIds[i] = 0
+            attentionMask[i] = 0
+        }
+
+        let features: [String: MLFeatureValue] = [
+            "input_ids": MLFeatureValue(multiArray: inputIds),
+            "attention_mask": MLFeatureValue(multiArray: attentionMask),
+        ]
+        let input = try MLDictionaryFeatureProvider(dictionary: features)
+
+        // This single synchronous prediction compiles the execution program once
+        _ = try await model.prediction(from: input)
+        Self.logger.info("Model warmup complete - e5bundlecache primed")
     }
 
     /// Checks if the embedding model is available (must be called from actor context)
