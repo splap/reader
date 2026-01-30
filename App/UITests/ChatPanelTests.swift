@@ -187,11 +187,11 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
         bookCell.tap()
 
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        let readerView = getReaderView(in: app)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
         sleep(2)
 
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let chatButton = app.buttons["Chat"]
@@ -575,12 +575,12 @@ final class ChatPanelTests: XCTestCase {
         bookCell.tap()
 
         // Wait for book to load
-        let webView = stubApp.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        let readerView = getReaderView(in: stubApp)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
         sleep(2)
 
         // Tap to reveal overlay and open chat
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let chatButton = stubApp.buttons["Chat"]
@@ -645,12 +645,12 @@ final class ChatPanelTests: XCTestCase {
         bookCell.tap()
 
         // Wait for book to load
-        let webView = stubApp.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        let readerView = getReaderView(in: stubApp)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
         sleep(2)
 
         // Tap to reveal overlay and open chat
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let chatButton = stubApp.buttons["Chat"]
@@ -705,12 +705,12 @@ final class ChatPanelTests: XCTestCase {
         bookCell.tap()
 
         // Wait for book to load
-        let webView = stubApp.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        let readerView = getReaderView(in: stubApp)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
         sleep(2)
 
         // Tap to reveal overlay and open chat
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let chatButton = stubApp.buttons["Chat"]
@@ -783,12 +783,12 @@ final class ChatPanelTests: XCTestCase {
         bookCell.tap()
 
         // Wait for book to load
-        let webView = stubApp.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        let readerView = getReaderView(in: stubApp)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
         sleep(2)
 
         // Tap to reveal overlay and open chat
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let chatButton = stubApp.buttons["Chat"]
@@ -847,12 +847,12 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
         bookCell.tap()
 
-        let webView = stubApp.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        let readerView = getReaderView(in: stubApp)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
         sleep(2)
 
         // === Create first saved conversation ===
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let chatButton = stubApp.buttons["Chat"]
@@ -878,7 +878,7 @@ final class ChatPanelTests: XCTestCase {
         sleep(1)
 
         // === Create second saved conversation ===
-        webView.tap()
+        readerView.tap()
         sleep(1)
         chatButton.tap()
         XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
@@ -893,7 +893,7 @@ final class ChatPanelTests: XCTestCase {
         sleep(1)
 
         // === Open new chat (this will be our "origin") ===
-        webView.tap()
+        readerView.tap()
         sleep(1)
         chatButton.tap()
         XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
