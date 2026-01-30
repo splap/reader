@@ -4,6 +4,7 @@
 4.	git rebase origin/main
 	•	If conflicts: resolve, ensure build/tests pass, then git rebase --continue. If you cannot resolve confidently, stop and ask.
 5.	Examine uncommitted changes. Remove temp debugging, throwaway logs, and accidental files. Keep the diff minimal and intentional.
+	•	**Never stage plan.md** - it's a working document, not part of the codebase.
 6.	Run ./scripts/lint to auto-format code. This prevents style thrash across commits.
 7.	If the code or approach looks janky/unsafe/unclear, stop and ask for clarification.
 8.	Stage changes and create a commit with a precise message.
@@ -15,3 +16,4 @@ Rules:
 	•	Never work directly on main; use your agent branch for isolation.
 	•	Never merge main into the agent branch; rebase only.
 	•	Never force-push main.
+	•	Never commit plan.md.
