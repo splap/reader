@@ -140,6 +140,13 @@ public final class HTMLToAttributedStringConverter {
         // Apply block-specific paragraph style
         let mutable = NSMutableAttributedString(attributedString: attributed)
         let paragraphStyle = paragraphStyleForBlockType(block.type)
+
+        // Check for alignment classes on the block element
+        let blockClasses = extractBlockClasses(from: block.htmlContent)
+        if let alignment = alignmentFromClasses(blockClasses) {
+            paragraphStyle.alignment = alignment
+        }
+
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
 
@@ -153,8 +160,10 @@ public final class HTMLToAttributedStringConverter {
 
         switch type {
         case .heading1, .heading2, .heading3, .heading4, .heading5, .heading6:
-            // Headers get spacing after them
+            // Headers: centered with vertical spacing for visual hierarchy
+            style.paragraphSpacingBefore = 24
             style.paragraphSpacing = 16
+            style.alignment = .center
         case .paragraph:
             // Paragraphs get first-line indent for book-like appearance
             style.firstLineHeadIndent = 20
@@ -239,6 +248,31 @@ public final class HTMLToAttributedStringConverter {
                 attributes[.font] = addBoldTrait(to: font)
             }
         }
+    }
+
+    /// Detects text alignment from CSS class names
+    /// Common patterns: "center", "centered", "centred", "right", "text-center", "align-right"
+    /// Also handles EPUB-specific patterns like "letter2" (often used for centered salutations)
+    private func alignmentFromClasses(_ classes: String) -> NSTextAlignment? {
+        guard !classes.isEmpty else { return nil }
+
+        let classLower = classes.lowercased()
+
+        // Check for center alignment patterns
+        // Include "letter" prefix classes (letter1, letter2, etc.) which EPUBs commonly use
+        // for centered salutations and addresses
+        if classLower.contains("center") || classLower.contains("centred") ||
+            classLower.hasPrefix("letter")
+        {
+            return .center
+        }
+
+        // Check for right alignment patterns
+        if classLower.contains("right") {
+            return .right
+        }
+
+        return nil
     }
 
     /// Checks if text content looks like a section label (e.g., "Foreword:", "Prologue:")

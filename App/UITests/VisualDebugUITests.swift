@@ -73,18 +73,18 @@ final class VisualDebugUITests: XCTestCase {
 
         app = launchReaderApp(extraArgs: extraArgs)
 
-        // Wait for reader to load
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 15), "WebView should load")
+        // Wait for reader to load (works for both native and WebView renderers)
+        let readerView = getReaderView(in: app)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 15), "Reader view should load")
         sleep(3) // Let content render
 
-        print("Opened book directly via CFI")
+        print("Opened book directly via CFI (renderer: \(isNativeRenderer ? "native" : "html"))")
 
         // Swipe forward if page offset specified
         if pageOffset > 0 {
             print("Swiping forward \(pageOffset) pages...")
             for i in 1 ... pageOffset {
-                webView.swipeLeft()
+                readerView.swipeLeft()
                 sleep(1)
                 print("  Swiped to page +\(i)")
             }
@@ -114,7 +114,7 @@ final class VisualDebugUITests: XCTestCase {
         add(attachment)
 
         // Log current position
-        webView.tap()
+        readerView.tap()
         sleep(1)
 
         let pageLabel = app.staticTexts["scrubber-page-label"]

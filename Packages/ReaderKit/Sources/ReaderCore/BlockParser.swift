@@ -3,9 +3,10 @@ import Foundation
 /// Parses HTML content into an array of Block objects
 public final class BlockParser {
     /// Tags that represent block-level content
+    /// NOTE: div is not included here because it often wraps other block elements
     private static let blockTags: Set<String> = [
         "p", "h1", "h2", "h3", "h4", "h5", "h6",
-        "li", "blockquote", "pre", "div",
+        "li", "blockquote", "pre",
     ]
 
     /// Tags that contain images
@@ -19,68 +20,86 @@ public final class BlockParser {
     ///   - spineItemId: The identifier for the spine item (chapter/file)
     /// - Returns: Array of Block objects extracted from the HTML
     public func parse(html: String, spineItemId: String) -> [Block] {
-        var blocks: [Block] = []
-        var ordinal = 0
-        var textBlockRanges: [NSRange] = []
+        // Track blocks with their HTML range for proper DOM ordering
+        var blockEntries: [(block: Block, range: NSRange)] = []
+        var coveredRanges: [NSRange] = []
+
+        let nsHTML = html as NSString
 
         // Use regex to find block-level elements
         // Pattern matches opening tag, content, and closing tag
-        // Include div for TOC entries and other block-level content
-        let pattern = #"<(p|h[1-6]|li|blockquote|pre|div)(\s[^>]*)?>(.+?)</\1>"#
+        // NOTE: div is excluded because it often wraps other block elements (h1-h6, p, etc.)
+        // and would incorrectly consume their content. Text-only divs are handled separately.
+        let pattern = #"<(p|h[1-6]|li|blockquote|pre)(\s[^>]*)?>(.+?)</\1>"#
 
-        guard let regex = try? NSRegularExpression(
+        if let regex = try? NSRegularExpression(
             pattern: pattern,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) else {
-            // Still try to find image blocks even if text pattern fails
-            let imageBlocks = findImageBlocks(in: html, spineItemId: spineItemId, existingRanges: [], startingOrdinal: 0)
-            return imageBlocks
+        ) {
+            let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+
+            for match in matches {
+                guard match.numberOfRanges >= 4 else { continue }
+
+                let tagRange = match.range(at: 1)
+                let contentRange = match.range(at: 3)
+                let fullRange = match.range(at: 0)
+
+                let tagName = nsHTML.substring(with: tagRange)
+                let innerHTML = nsHTML.substring(with: contentRange)
+                let fullHTML = nsHTML.substring(with: fullRange)
+
+                // Extract plain text from inner HTML
+                let textContent = stripHTML(innerHTML).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Skip empty blocks
+                guard !textContent.isEmpty else { continue }
+
+                let blockType = BlockType.from(tagName: tagName)
+                let block = Block(
+                    spineItemId: spineItemId,
+                    type: blockType,
+                    textContent: textContent,
+                    htmlContent: fullHTML,
+                    ordinal: 0 // Will be assigned after sorting
+                )
+
+                blockEntries.append((block, fullRange))
+                coveredRanges.append(fullRange)
+            }
         }
 
-        let nsHTML = html as NSString
-        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
-
-        for match in matches {
-            guard match.numberOfRanges >= 4 else { continue }
-
-            let tagRange = match.range(at: 1)
-            let contentRange = match.range(at: 3)
-            let fullRange = match.range(at: 0)
-
-            let tagName = nsHTML.substring(with: tagRange)
-            let innerHTML = nsHTML.substring(with: contentRange)
-            let fullHTML = nsHTML.substring(with: fullRange)
-
-            // Extract plain text from inner HTML
-            let textContent = stripHTML(innerHTML).trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Skip empty blocks
-            guard !textContent.isEmpty else { continue }
-
-            let blockType = BlockType.from(tagName: tagName)
-            let block = Block(
-                spineItemId: spineItemId,
-                type: blockType,
-                textContent: textContent,
-                htmlContent: fullHTML,
-                ordinal: ordinal
-            )
-
-            blocks.append(block)
-            textBlockRanges.append(fullRange)
-            ordinal += 1
+        // Find text-only divs (divs with no nested block elements)
+        let textDivEntries = findTextOnlyDivsWithRanges(
+            in: html,
+            spineItemId: spineItemId,
+            existingRanges: coveredRanges
+        )
+        blockEntries.append(contentsOf: textDivEntries)
+        for entry in textDivEntries {
+            coveredRanges.append(entry.range)
         }
 
         // Find image blocks that aren't inside text blocks
-        let imageBlocks = findImageBlocks(
+        let imageEntries = findImageBlocksWithRanges(
             in: html,
             spineItemId: spineItemId,
-            existingRanges: textBlockRanges,
-            startingOrdinal: ordinal
+            existingRanges: coveredRanges
         )
-        blocks.append(contentsOf: imageBlocks)
+        blockEntries.append(contentsOf: imageEntries)
 
-        return blocks
+        // Sort by DOM position (range location) and assign ordinals
+        blockEntries.sort { $0.range.location < $1.range.location }
+
+        return blockEntries.enumerated().map { index, entry in
+            Block(
+                spineItemId: entry.block.spineItemId,
+                type: entry.block.type,
+                textContent: entry.block.textContent,
+                htmlContent: entry.block.htmlContent,
+                ordinal: index
+            )
+        }
     }
 
     /// Parses HTML and returns both blocks and HTML with data-block-id attributes injected
@@ -89,89 +108,99 @@ public final class BlockParser {
     ///   - spineItemId: The identifier for the spine item
     /// - Returns: Tuple of (blocks array, modified HTML with block IDs)
     public func parseWithAnnotatedHTML(html: String, spineItemId: String) -> (blocks: [Block], annotatedHTML: String) {
-        var blocks: [Block] = []
         var annotatedHTML = html
-        var ordinal = 0
-        var textBlockRanges: [NSRange] = []
+        var coveredRanges: [NSRange] = []
 
-        // Pattern matches block elements and captures tag name, attributes, and content
-        // Include div for TOC entries and other block-level content
-        let pattern = #"<(p|h[1-6]|li|blockquote|pre|div)(\s[^>]*)?>(.+?)</\1>"#
+        // Track blocks with their ranges for proper DOM ordering
+        var blockEntries: [(block: Block, range: NSRange)] = []
 
-        guard let regex = try? NSRegularExpression(
-            pattern: pattern,
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) else {
-            // Still try to find image blocks even if text pattern fails
-            let imageBlocks = findImageBlocks(in: html, spineItemId: spineItemId, existingRanges: [], startingOrdinal: 0)
-            return (imageBlocks, html)
-        }
+        // Also track replacements for annotated HTML (only for p/h/li/etc, not divs)
+        var replacements: [(range: NSRange, replacement: String)] = []
 
         let nsHTML = html as NSString
-        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
 
-        var replacements: [(range: NSRange, replacement: String, block: Block)] = []
+        // Pattern matches block elements and captures tag name, attributes, and content
+        let pattern = #"<(p|h[1-6]|li|blockquote|pre)(\s[^>]*)?>(.+?)</\1>"#
 
-        for match in matches {
-            guard match.numberOfRanges >= 4 else { continue }
+        if let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) {
+            let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
 
-            let tagRange = match.range(at: 1)
-            let attrsRange = match.range(at: 2)
-            let contentRange = match.range(at: 3)
-            let fullRange = match.range(at: 0)
+            for match in matches {
+                guard match.numberOfRanges >= 4 else { continue }
 
-            let tagName = nsHTML.substring(with: tagRange)
-            let innerHTML = nsHTML.substring(with: contentRange)
-            let existingAttrs = attrsRange.location != NSNotFound ? nsHTML.substring(with: attrsRange) : ""
+                let tagRange = match.range(at: 1)
+                let attrsRange = match.range(at: 2)
+                let contentRange = match.range(at: 3)
+                let fullRange = match.range(at: 0)
 
-            let textContent = stripHTML(innerHTML).trimmingCharacters(in: .whitespacesAndNewlines)
+                let tagName = nsHTML.substring(with: tagRange)
+                let innerHTML = nsHTML.substring(with: contentRange)
+                let existingAttrs = attrsRange.location != NSNotFound ? nsHTML.substring(with: attrsRange) : ""
 
-            guard !textContent.isEmpty else { continue }
+                let textContent = stripHTML(innerHTML).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !textContent.isEmpty else { continue }
 
-            let blockType = BlockType.from(tagName: tagName)
+                let blockType = BlockType.from(tagName: tagName)
+                let block = Block(
+                    spineItemId: spineItemId,
+                    type: blockType,
+                    textContent: textContent,
+                    htmlContent: nsHTML.substring(with: fullRange),
+                    ordinal: 0 // Will be assigned after sorting
+                )
 
-            // Create the block first to get its ID
-            let block = Block(
-                spineItemId: spineItemId,
-                type: blockType,
-                textContent: textContent,
-                htmlContent: nsHTML.substring(with: fullRange),
-                ordinal: ordinal
-            )
+                blockEntries.append((block, fullRange))
+                coveredRanges.append(fullRange)
 
-            blocks.append(block)
-            textBlockRanges.append(fullRange)
-
-            // Build new tag with data-block-id and data-spine-item-id attributes
-            let newAttrs: String
-            let blockAttrs = " data-block-id=\"\(block.id)\" data-spine-item-id=\"\(spineItemId)\""
-            if existingAttrs.isEmpty {
-                newAttrs = blockAttrs
-            } else {
-                newAttrs = "\(existingAttrs)\(blockAttrs)"
+                // Build replacement for annotated HTML
+                let blockAttrs = " data-block-id=\"\(block.id)\" data-spine-item-id=\"\(spineItemId)\""
+                let newAttrs = existingAttrs.isEmpty ? blockAttrs : "\(existingAttrs)\(blockAttrs)"
+                let replacement = "<\(tagName)\(newAttrs)>\(innerHTML)</\(tagName)>"
+                replacements.append((fullRange, replacement))
             }
-
-            let replacement = "<\(tagName)\(newAttrs)>\(innerHTML)</\(tagName)>"
-            replacements.append((fullRange, replacement, block))
-
-            ordinal += 1
         }
 
-        // Apply replacements in reverse order
-        for (range, replacement, _) in replacements.reversed() {
+        // Apply replacements in reverse order for annotated HTML
+        for (range, replacement) in replacements.sorted(by: { $0.range.location > $1.range.location }) {
             annotatedHTML = (annotatedHTML as NSString).replacingCharacters(in: range, with: replacement)
         }
 
-        // Find image blocks that aren't inside text blocks
-        let imageBlocks = findImageBlocks(
+        // Find text-only divs
+        let textDivEntries = findTextOnlyDivsWithRanges(
             in: html,
             spineItemId: spineItemId,
-            existingRanges: textBlockRanges,
-            startingOrdinal: ordinal
+            existingRanges: coveredRanges
         )
-        blocks.append(contentsOf: imageBlocks)
+        blockEntries.append(contentsOf: textDivEntries)
+        for entry in textDivEntries {
+            coveredRanges.append(entry.range)
+        }
 
-        return (blocks, annotatedHTML)
+        // Find image blocks
+        let imageEntries = findImageBlocksWithRanges(
+            in: html,
+            spineItemId: spineItemId,
+            existingRanges: coveredRanges
+        )
+        blockEntries.append(contentsOf: imageEntries)
+
+        // Sort by DOM position (range location) and assign ordinals
+        blockEntries.sort { $0.range.location < $1.range.location }
+
+        let sortedBlocks = blockEntries.enumerated().map { index, entry in
+            Block(
+                spineItemId: entry.block.spineItemId,
+                type: entry.block.type,
+                textContent: entry.block.textContent,
+                htmlContent: entry.block.htmlContent,
+                ordinal: index
+            )
+        }
+
+        return (sortedBlocks, annotatedHTML)
     }
 
     /// Strips HTML tags from a string, leaving only text content
@@ -205,22 +234,33 @@ public final class BlockParser {
 
     // MARK: - Image Block Detection
 
-    /// Finds image blocks in HTML content (standalone images, SVGs, divs containing images)
-    /// - Parameters:
-    ///   - html: The HTML content to search
-    ///   - spineItemId: The spine item identifier
-    ///   - existingRanges: Ranges already covered by text blocks (to avoid duplicates)
-    ///   - startingOrdinal: The ordinal to start from
-    /// - Returns: Array of image blocks found
+    /// Legacy wrapper for backward compatibility with parseWithAnnotatedHTML
     private func findImageBlocks(
         in html: String,
         spineItemId: String,
         existingRanges: [NSRange],
         startingOrdinal: Int
     ) -> [Block] {
-        var blocks: [Block] = []
-        var ordinal = startingOrdinal
-        var matchedRanges = existingRanges // Track all matched ranges to avoid duplicates
+        let entries = findImageBlocksWithRanges(in: html, spineItemId: spineItemId, existingRanges: existingRanges)
+        return entries.enumerated().map { index, entry in
+            Block(
+                spineItemId: entry.block.spineItemId,
+                type: entry.block.type,
+                textContent: entry.block.textContent,
+                htmlContent: entry.block.htmlContent,
+                ordinal: startingOrdinal + index
+            )
+        }
+    }
+
+    /// Finds image blocks with their ranges for proper DOM ordering
+    private func findImageBlocksWithRanges(
+        in html: String,
+        spineItemId: String,
+        existingRanges: [NSRange]
+    ) -> [(block: Block, range: NSRange)] {
+        var entries: [(Block, NSRange)] = []
+        var matchedRanges = existingRanges
         let nsHTML = html as NSString
 
         // Pattern for <div> containing only image content (img or svg) - most specific
@@ -235,14 +275,7 @@ public final class BlockParser {
         // Pattern for standalone <img> tags - least specific, check last
         let imgPattern = #"<img[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?\s*>"#
 
-        // Process patterns in order of specificity (most specific first)
-        // This ensures div/figure patterns match before their inner img/svg
-        let patterns = [
-            divImagePattern,
-            figurePattern,
-            svgPattern,
-            imgPattern,
-        ]
+        let patterns = [divImagePattern, figurePattern, svgPattern, imgPattern]
 
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(
@@ -255,32 +288,28 @@ public final class BlockParser {
             for match in matches {
                 let matchRange = match.range(at: 0)
 
-                // Skip if this range overlaps with any already-matched range
                 let overlaps = matchedRanges.contains { existingRange in
                     NSIntersectionRange(existingRange, matchRange).length > 0
                 }
                 if overlaps { continue }
 
                 let matchedHTML = nsHTML.substring(with: matchRange)
-
-                // Extract image path for textContent (used for block ID generation)
-                let imagePath = extractImagePathForBlock(from: matchedHTML) ?? "image-\(ordinal)"
+                let imagePath = extractImagePathForBlock(from: matchedHTML) ?? "image"
 
                 let block = Block(
                     spineItemId: spineItemId,
                     type: .image,
                     textContent: imagePath,
                     htmlContent: matchedHTML,
-                    ordinal: ordinal
+                    ordinal: 0
                 )
 
-                blocks.append(block)
-                matchedRanges.append(matchRange) // Track this range to prevent duplicates
-                ordinal += 1
+                entries.append((block, matchRange))
+                matchedRanges.append(matchRange)
             }
         }
 
-        return blocks
+        return entries
     }
 
     /// Extracts image path from HTML for use in block identification
@@ -313,5 +342,91 @@ public final class BlockParser {
         }
 
         return nil
+    }
+
+    // MARK: - Text-Only Div Detection
+
+    /// Legacy wrapper for backward compatibility with parseWithAnnotatedHTML
+    private func findTextOnlyDivs(
+        in html: String,
+        spineItemId: String,
+        existingRanges: [NSRange],
+        startingOrdinal: Int
+    ) -> [Block] {
+        let entries = findTextOnlyDivsWithRanges(in: html, spineItemId: spineItemId, existingRanges: existingRanges)
+        return entries.enumerated().map { index, entry in
+            Block(
+                spineItemId: entry.block.spineItemId,
+                type: entry.block.type,
+                textContent: entry.block.textContent,
+                htmlContent: entry.block.htmlContent,
+                ordinal: startingOrdinal + index
+            )
+        }
+    }
+
+    /// Finds div elements with their ranges for proper DOM ordering
+    private func findTextOnlyDivsWithRanges(
+        in html: String,
+        spineItemId: String,
+        existingRanges: [NSRange]
+    ) -> [(block: Block, range: NSRange)] {
+        var entries: [(Block, NSRange)] = []
+        let nsHTML = html as NSString
+
+        // Pattern matches div elements that don't contain nested divs.
+        // Uses negative lookahead (?!<div) to avoid matching outer divs that
+        // contain inner divs (which would incorrectly consume the inner div's closing tag).
+        let divPattern = #"<div(\s[^>]*)?>((?:(?!<div).)+?)</div>"#
+
+        guard let regex = try? NSRegularExpression(
+            pattern: divPattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else { return entries }
+
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+
+        // Block tags that indicate this div contains nested structure
+        let nestedBlockPattern = #"<(p|h[1-6]|li|blockquote|pre|div|table|ul|ol)\s*[^>]*>"#
+        let nestedBlockRegex = try? NSRegularExpression(pattern: nestedBlockPattern, options: .caseInsensitive)
+
+        for match in matches {
+            let fullRange = match.range(at: 0)
+            let contentRange = match.range(at: 2)
+
+            // Skip if this range overlaps with existing blocks
+            let overlaps = existingRanges.contains { existing in
+                NSIntersectionRange(existing, fullRange).length > 0
+            }
+            if overlaps { continue }
+
+            let innerHTML = nsHTML.substring(with: contentRange)
+
+            // Skip if div contains nested block elements
+            if let nestedBlockRegex,
+               nestedBlockRegex.firstMatch(in: innerHTML, range: NSRange(location: 0, length: (innerHTML as NSString).length)) != nil
+            {
+                continue
+            }
+
+            // Extract text content
+            let textContent = stripHTML(innerHTML).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Skip empty divs
+            guard !textContent.isEmpty else { continue }
+
+            let fullHTML = nsHTML.substring(with: fullRange)
+            let block = Block(
+                spineItemId: spineItemId,
+                type: .paragraph, // Text-only divs are treated as paragraphs
+                textContent: textContent,
+                htmlContent: fullHTML,
+                ordinal: 0
+            )
+
+            entries.append((block, fullRange))
+        }
+
+        return entries
     }
 }

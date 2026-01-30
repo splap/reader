@@ -84,5 +84,5 @@ xcodebuild \
   -configuration "$CONFIGURATION" \
   -destination "$DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
-  "${SANITIZER_ARGS[@]}" \
+  ${SANITIZER_ARGS[@]+"${SANITIZER_ARGS[@]}"} \
   build
