@@ -47,6 +47,12 @@ public final class ReaderViewController: UIViewController {
     // Standalone mode top bar (only used when no container)
     private var standaloneTopBar: UIView?
 
+    // Track the layout key used for current page counting
+    private var countingLayoutKey: LayoutKey?
+
+    // Suppress scrubber updates during cross-spine navigation to prevent jitter
+    private var isScrubberNavigating: Bool = false
+
     public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, initialSpineItemIndex: Int? = nil) {
         viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
         self.chapter = chapter
@@ -151,6 +157,7 @@ public final class ReaderViewController: UIViewController {
             self?.updateScrubber()
             self?.maybePerformUITestJump(totalPages: totalPages)
             self?.maybeNavigateToInitialSpineItem()
+            self?.checkLayoutForPageCounting()
         }
         renderer.onSpineChanged = { [weak self] spineIndex, totalSpines in
             self?.currentSpineIndex = spineIndex
@@ -315,19 +322,36 @@ public final class ReaderViewController: UIViewController {
     private func updateScrubber() {
         guard viewModel.totalPages > 0 else { return }
 
+        // Skip updates during cross-spine scrubber navigation to prevent jitter
+        // The slider and label are already set to the target position
+        guard !isScrubberNavigating else { return }
+
         let totalPages = viewModel.totalPages
         let currentPage = viewModel.currentPageIndex
 
-        // Update slider position
-        let sliderValue = Float(currentPage) / Float(max(1, totalPages - 1))
-        scrubberSlider.value = sliderValue
+        // Build page label text and slider position
+        let pageText: String
+        let sliderValue: Float
 
-        // Update page label with chapter progress
-        let pageText = if totalSpineItems > 1 {
-            "Page \(currentPage + 1) of \(totalPages) · Ch. \(currentSpineIndex + 1) of \(totalSpineItems)"
+        // If global page counts are available, use global position
+        if case let .complete(pageCounts) = viewModel.globalPageCountStatus, totalSpineItems > 1 {
+            let globalPage = pageCounts.globalPage(
+                spineIndex: currentSpineIndex,
+                localPage: currentPage
+            )
+            sliderValue = Float(globalPage - 1) / Float(max(1, pageCounts.totalPages - 1))
+            pageText = "Page \(globalPage) of \(pageCounts.totalPages)"
+        } else if totalSpineItems > 1 {
+            // Show chapter-level info while counting
+            sliderValue = Float(currentPage) / Float(max(1, totalPages - 1))
+            pageText = "Page \(currentPage + 1) of \(totalPages) · Ch. \(currentSpineIndex + 1) of \(totalSpineItems)"
         } else {
-            "Page \(currentPage + 1) of \(totalPages)"
+            // Single-chapter book
+            sliderValue = Float(currentPage) / Float(max(1, totalPages - 1))
+            pageText = "Page \(currentPage + 1) of \(totalPages)"
         }
+
+        scrubberSlider.value = sliderValue
         pageLabel.text = pageText
 
         // Hide read extent indicator (CFI-based tracking doesn't use max page)
@@ -375,21 +399,60 @@ public final class ReaderViewController: UIViewController {
     @objc private func scrubberValueChanged(_ sender: UISlider) {
         guard viewModel.totalPages > 1 else { return }
 
-        let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
-        // Navigate the renderer to sync the WebView scroll position.
-        // This is needed for XCTest automation which fires valueChanged but not touchUp events.
-        pageRenderer.navigateToPage(targetPage, animated: false)
-        viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
-        updateScrubber()
+        // When global page counts are available, use global navigation
+        if case let .complete(pageCounts) = viewModel.globalPageCountStatus, totalSpineItems > 1 {
+            let targetGlobalPage = Int(round(sender.value * Float(pageCounts.totalPages - 1))) + 1
+            let (targetSpine, targetLocalPage) = pageCounts.localPosition(forGlobalPage: targetGlobalPage)
+
+            // During drag, only navigate within the same spine (for responsiveness)
+            // Cross-spine navigation happens on touch end to avoid loading multiple spines
+            if targetSpine == currentSpineIndex {
+                pageRenderer.navigateToPage(targetLocalPage, animated: false)
+                viewModel.updateCurrentPage(targetLocalPage, totalPages: viewModel.totalPages)
+            }
+            // Always update the label to show target position (preview)
+            updateScrubberLabel(globalPage: targetGlobalPage, totalPages: pageCounts.totalPages)
+        } else {
+            // Local-only navigation (no global counts yet)
+            let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
+            pageRenderer.navigateToPage(targetPage, animated: false)
+            viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
+            updateScrubber()
+        }
     }
 
     @objc private func scrubberTouchEnded(_ sender: UISlider) {
         guard viewModel.totalPages > 1 else { return }
 
-        let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
-        pageRenderer.navigateToPage(targetPage, animated: false)
-        viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
-        updateScrubber()
+        // When global page counts are available, use global navigation
+        if case let .complete(pageCounts) = viewModel.globalPageCountStatus, totalSpineItems > 1 {
+            let targetGlobalPage = Int(round(sender.value * Float(pageCounts.totalPages - 1))) + 1
+            let (targetSpine, targetLocalPage) = pageCounts.localPosition(forGlobalPage: targetGlobalPage)
+
+            // If crossing spine boundaries, suppress scrubber updates until navigation completes
+            if targetSpine != currentSpineIndex {
+                isScrubberNavigating = true
+                // Clear after spine load + page navigation completes (200ms covers the 100ms delay in WebPageViewController)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.isScrubberNavigating = false
+                    self?.updateScrubber()
+                }
+            }
+
+            // Commit navigation (may cross spine boundaries)
+            pageRenderer.navigateToSpineIndex(targetSpine, atPage: targetLocalPage)
+        } else {
+            // Local-only navigation
+            let targetPage = Int(round(sender.value * Float(viewModel.totalPages - 1)))
+            pageRenderer.navigateToPage(targetPage, animated: false)
+            viewModel.updateCurrentPage(targetPage, totalPages: viewModel.totalPages)
+            updateScrubber()
+        }
+    }
+
+    /// Update only the scrubber label (used during drag preview)
+    private func updateScrubberLabel(globalPage: Int, totalPages: Int) {
+        pageLabel.text = "Page \(globalPage) of \(totalPages)"
     }
 
     private func setupKeyCommands() {
@@ -422,6 +485,14 @@ public final class ReaderViewController: UIViewController {
             .sink { [weak self] _ in
                 self?.showSettings()
                 self?.viewModel.settingsPresented = false
+            }
+            .store(in: &cancellables)
+
+        // Observe global page count status changes
+        viewModel.$globalPageCountStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateScrubber()
             }
             .store(in: &cancellables)
     }
@@ -578,6 +649,42 @@ public final class ReaderViewController: UIViewController {
             overlay.removeFromSuperview()
             self.loadingOverlay = nil
         })
+    }
+
+    // MARK: - Global Page Counting
+
+    /// Get the current layout key based on renderer state
+    private func currentLayoutKey() -> LayoutKey? {
+        guard let webVC = pageRenderer as? WebPageViewController else { return nil }
+
+        let viewportWidth = Int(webVC.view.bounds.width)
+        let viewportHeight = Int(webVC.view.bounds.height)
+
+        guard viewportWidth > 0, viewportHeight > 0 else { return nil }
+
+        return LayoutKey(
+            fontScale: Double(viewModel.fontScale),
+            marginSize: Int(ReaderPreferences.shared.marginSize),
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight
+        )
+    }
+
+    /// Check if layout has changed and restart page counting if needed
+    /// Called after every page change (which happens after any reflow)
+    private func checkLayoutForPageCounting() {
+        // Only count for multi-chapter books
+        guard chapter.htmlSections.count > 1 else { return }
+
+        guard let currentKey = currentLayoutKey() else { return }
+
+        // If layout hasn't changed, nothing to do
+        if currentKey == countingLayoutKey { return }
+
+        // Layout changed - start or restart counting
+        Self.logger.info("Layout changed, starting page count with: \(currentKey.hashString)")
+        countingLayoutKey = currentKey
+        viewModel.startGlobalPageCounting(htmlSections: chapter.htmlSections, layoutKey: currentKey)
     }
 }
 

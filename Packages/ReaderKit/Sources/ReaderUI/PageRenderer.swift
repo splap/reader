@@ -25,6 +25,9 @@ public protocol PageRenderer: AnyObject {
     /// Navigate to the first page of a specific spine item (chapter)
     func navigateToSpineItem(_ spineItemId: String, animated: Bool)
 
+    /// Navigate to a specific spine item by index and optionally to a specific page within it
+    func navigateToSpineIndex(_ spineIndex: Int, atPage page: Int?)
+
     /// Query the first visible block ID and spine item ID
     func queryFirstVisibleBlock(completion: @escaping (_ blockId: String?, _ spineItemId: String?) -> Void)
 

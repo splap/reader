@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import OSLog
 import ReaderCore
@@ -32,12 +33,19 @@ final class ReaderViewModel: ObservableObject {
     @Published var currentCFI: String?
     @Published var currentSpineIndex: Int = 0
 
+    // Global page count tracking
+    @Published var globalPageCountStatus: BackgroundPageCounter.Status = .idle
+    private var pageCounterCancellable: AnyCancellable?
+
     private let cfiPositionStore: CFIPositionStoring
     let chapterId: String
     let bookId: String
 
     // Initial CFI to navigate to after content loads
     private(set) var initialCFI: String?
+
+    // Background page counter (initialized when counting starts)
+    private(set) var pageCounter: BackgroundPageCounter?
 
     init(
         chapter: Chapter,
@@ -48,12 +56,12 @@ final class ReaderViewModel: ObservableObject {
         chapterId = chapter.id
         self.bookId = bookId ?? chapter.id
 
-        Self.debugLog("📍 ReaderViewModel init for bookId: \(self.bookId)")
+        Self.debugLog("ReaderViewModel init for bookId: \(self.bookId)")
 
         // Load CFI position
         if let cfiPosition = cfiPositionStore.load(bookId: self.bookId) {
             Self.logger.info("CFI LOAD: found position \(cfiPosition.cfi)")
-            Self.debugLog("📍 Loaded CFI position: \(cfiPosition.cfi)")
+            Self.debugLog("Loaded CFI position: \(cfiPosition.cfi)")
             initialCFI = cfiPosition.cfi
             currentCFI = cfiPosition.cfi
             if let parsed = CFIParser.parseFullCFI(cfiPosition.cfi) {
@@ -61,7 +69,7 @@ final class ReaderViewModel: ObservableObject {
             }
         } else {
             Self.logger.info("CFI LOAD: no saved position for bookId=\(self.bookId)")
-            Self.debugLog("📍 No saved position, starting at beginning")
+            Self.debugLog("No saved position, starting at beginning")
         }
     }
 
@@ -101,5 +109,66 @@ final class ReaderViewModel: ObservableObject {
     /// Update spine index when navigating between spine items
     func setCurrentSpineIndex(_ index: Int) {
         currentSpineIndex = index
+    }
+
+    // MARK: - Global Page Count
+
+    /// Start background page counting for the book
+    /// - Parameters:
+    ///   - htmlSections: The HTML sections (spine items) to count
+    ///   - layoutKey: Current layout configuration
+    @MainActor
+    func startGlobalPageCounting(htmlSections: [HTMLSection], layoutKey: LayoutKey) {
+        let counter = BackgroundPageCounter()
+        pageCounter = counter
+
+        // Subscribe to status updates
+        pageCounterCancellable = counter.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.globalPageCountStatus = status
+            }
+
+        counter.startCounting(
+            htmlSections: htmlSections,
+            bookId: bookId,
+            layoutKey: layoutKey
+        )
+
+        Self.logger.info("Started global page counting for \(htmlSections.count) spine items")
+    }
+
+    /// Cancel any in-progress page counting
+    @MainActor
+    func cancelGlobalPageCounting() {
+        pageCounter?.cancel()
+        pageCounter = nil
+        pageCounterCancellable = nil
+    }
+
+    /// Get the global page number (1-indexed) for the current position
+    /// Returns nil if counting is not complete
+    var globalCurrentPage: Int? {
+        guard case let .complete(pageCounts) = globalPageCountStatus else {
+            return nil
+        }
+        return pageCounts.globalPage(spineIndex: currentSpineIndex, localPage: currentPageIndex)
+    }
+
+    /// Get the total number of pages in the book
+    /// Returns nil if counting is not complete
+    var globalTotalPages: Int? {
+        guard case let .complete(pageCounts) = globalPageCountStatus else {
+            return nil
+        }
+        return pageCounts.totalPages
+    }
+
+    /// Check if page counting is in progress
+    var isCountingPages: Bool {
+        if case .counting = globalPageCountStatus {
+            return true
+        }
+        return false
     }
 }

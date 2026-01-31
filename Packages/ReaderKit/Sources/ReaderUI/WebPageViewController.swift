@@ -332,7 +332,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     ///   - index: The spine item index to load
     ///   - restoreCFI: Optional CFI to scroll to after loading (domPath and charOffset)
     ///   - atEnd: If true, scroll to the last page instead of the first
-    public func loadSpineItem(at index: Int, restoreCFI: (domPath: [Int], charOffset: Int?)? = nil, atEnd: Bool = false) {
+    ///   - atPage: If set, scroll to this specific page (0-indexed) after loading
+    public func loadSpineItem(at index: Int, restoreCFI: (domPath: [Int], charOffset: Int?)? = nil, atEnd: Bool = false, atPage: Int? = nil) {
         let loadStart = CFAbsoluteTimeGetCurrent()
 
         guard index >= 0, index < htmlSections.count else {
@@ -343,6 +344,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         // Store restore parameters BEFORE prepareForPositionRestore so hiding logic can see them
         pendingCFIRestore = restoreCFI
         pendingScrollToEnd = atEnd
+        pendingPageRestore = atPage
 
         prepareForPositionRestore()
 
@@ -700,6 +702,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     // Pending restore state (used after WebView finishes loading)
     private var pendingCFIRestore: (domPath: [Int], charOffset: Int?)?
     private var pendingScrollToEnd: Bool = false
+    private var pendingPageRestore: Int?
 
     private var webViewLoadStartTime: CFAbsoluteTime = 0
 
@@ -1299,6 +1302,26 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         loadSpineItem(at: spineIndex)
     }
 
+    public func navigateToSpineIndex(_ spineIndex: Int, atPage page: Int?) {
+        guard spineIndex >= 0, spineIndex < htmlSections.count else {
+            Self.logger.error("SPINE: Invalid spine index \(spineIndex)")
+            return
+        }
+
+        // If already on this spine, just navigate to the page
+        if spineIndex == currentSpineIndex {
+            if let page {
+                Self.logger.info("SPINE: Same spine, navigating to page \(page)")
+                navigateToPage(page, animated: false)
+            }
+            return
+        }
+
+        // Load the new spine item with optional target page
+        Self.logger.info("SPINE: Loading spine \(spineIndex) at page \(page ?? 0)")
+        loadSpineItem(at: spineIndex, atPage: page)
+    }
+
     // MARK: - CFI Position Tracking
 
     /// Callback when CFI position changes (cfi string, spineIndex)
@@ -1397,7 +1420,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         guard !transitionAnimator.isAnimating else { return }
         let shouldHide = PositionRestorePolicy.shouldHideUntilRestore(
             initialCFI: initialCFI,
-            pendingCFI: pendingCFIRestore != nil
+            pendingCFI: pendingCFIRestore != nil,
+            pendingPage: pendingPageRestore != nil
         )
         isWaitingForInitialRestore = shouldHide
         webView.isHidden = shouldHide
@@ -1720,6 +1744,19 @@ extension WebPageViewController: WKNavigationDelegate {
                         self?.onRenderReady?()
                     }
                 }
+                // Navigate to specific page (for scrubber cross-spine navigation)
+                else if let targetPage = self.pendingPageRestore {
+                    self.pendingPageRestore = nil
+                    Self.logger.info("SPINE: Navigating to page \(targetPage) (first load)")
+                    self.navigateToPage(targetPage, animated: false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.updateCurrentPage()
+                        self?.logCurrentPosition("page-restore")
+                        self?.finishPositionRestoreIfNeeded()
+                        self?.notifyTransitionContentReady()
+                        self?.onRenderReady?()
+                    }
+                }
                 // Default: Start at beginning
                 else {
                     self.updateCurrentPage()
@@ -1739,6 +1776,18 @@ extension WebPageViewController: WKNavigationDelegate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                         self?.updateCurrentPage()
                         self?.logCurrentPosition("scroll-to-end")
+                        self?.finishPositionRestoreIfNeeded()
+                        self?.notifyTransitionContentReady()
+                    }
+                }
+                // Handle page restore for subsequent spine navigations (scrubber)
+                else if let targetPage = self.pendingPageRestore {
+                    self.pendingPageRestore = nil
+                    Self.logger.info("SPINE: Navigating to page \(targetPage)")
+                    self.navigateToPage(targetPage, animated: false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.updateCurrentPage()
+                        self?.logCurrentPosition("page-restore")
                         self?.finishPositionRestoreIfNeeded()
                         self?.notifyTransitionContentReady()
                     }
