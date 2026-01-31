@@ -683,8 +683,9 @@ final class ChatPanelTests: XCTestCase {
 
         // Verify the full response text is visible
         // The stub's short response is: "This is a short test response."
-        let fullResponse = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "short test response")).firstMatch
-        XCTAssertTrue(fullResponse.waitForExistence(timeout: 3), "Full response should be visible after typewriter completes")
+        // UITextView shows up as textViews in XCUITest, not staticTexts
+        let fullResponse = stubApp.textViews.containing(NSPredicate(format: "value CONTAINS %@", "short test response")).firstMatch
+        XCTAssertTrue(fullResponse.waitForExistence(timeout: 5), "Full response should be visible after typewriter completes")
     }
 
     func testTypewriterAnchorsToBottomAfterUserScrolls() {
@@ -763,8 +764,9 @@ final class ChatPanelTests: XCTestCase {
 
         // Verify the last paragraph is visible (since we should be anchored to bottom)
         // The stub's long response ends with "...sunt in culpa qui officia deserunt mollit anim id est laborum."
-        let lastParagraphText = stubApp.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "laborum")).firstMatch
-        XCTAssertTrue(lastParagraphText.waitForExistence(timeout: 5),
+        // UITextView shows up as textViews in XCUITest, not staticTexts
+        let lastParagraphText = stubApp.textViews.containing(NSPredicate(format: "value CONTAINS %@", "laborum")).firstMatch
+        XCTAssertTrue(lastParagraphText.waitForExistence(timeout: 15),
                       "Last paragraph should be visible when anchored to bottom after catching up")
 
         print("Smart anchor test complete - user caught up and stayed at bottom")
@@ -823,6 +825,177 @@ final class ChatPanelTests: XCTestCase {
         add(attachment)
 
         print("Error response test complete")
+    }
+
+    // MARK: - Typewriter Scroll Behavior Tests
+
+    func testTypewriterScrollBehavior() {
+        // Test the typewriter scroll behavior by capturing rapid screenshots
+        // to observe the typewriter in progress and scroll behavior.
+        //
+        // Key behaviors to verify:
+        // 1. Auto-scroll keeps latest content visible during typewriter
+        // 2. User scroll up interrupts auto-scroll (view should NOT fight back)
+        // 3. User scroll down resumes following
+        // 4. Final state is stable
+
+        let screenshotDir = "/tmp/reader-tests/typewriter-scroll"
+        try? FileManager.default.createDirectory(atPath: screenshotDir, withIntermediateDirectories: true)
+
+        // Launch with extra-long stub AND slow typewriter for observation
+        let stubApp = launchReaderApp(extraArgs: [
+            "--uitesting-stub-chat-extralong",
+            "--uitesting-slow-typewriter",
+        ])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        // Wait for book to load
+        let webView = stubApp.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // Tap to reveal overlay and open chat
+        webView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        // Wait for chat to appear
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5), "Chat table should appear")
+
+        // Send a message to trigger typewriter
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        XCTAssertTrue(chatInput.waitForExistence(timeout: 5))
+        chatInput.tap()
+        chatInput.typeText("Tell me about scrolling")
+
+        let sendButton = stubApp.buttons["chat-send-button"]
+        sendButton.tap()
+
+        print("=== TYPEWRITER SCROLL TEST ===")
+        print("Message sent, capturing rapid screenshots...")
+
+        // Capture rapid screenshots to catch typewriter in progress
+        // UI test overhead means each screenshot takes ~0.1-0.2s
+        for i in 1 ... 5 {
+            let screenshot = XCUIScreen.main.screenshot()
+            try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/rapid-\(i).png"))
+            let attach = XCTAttachment(screenshot: screenshot)
+            attach.name = "Rapid-\(i)"
+            attach.lifetime = .keepAlways
+            add(attach)
+            print("Rapid screenshot \(i) captured")
+        }
+
+        // Wait a bit for more typewriter progress
+        sleep(3)
+
+        // Take screenshot to see current state
+        let midScreenshot = XCUIScreen.main.screenshot()
+        try? midScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/mid-typewriter.png"))
+        let midAttach = XCTAttachment(screenshot: midScreenshot)
+        midAttach.name = "Mid-Typewriter"
+        midAttach.lifetime = .keepAlways
+        add(midAttach)
+        print("Mid-typewriter screenshot captured")
+
+        // === USER SCROLLS UP - should interrupt auto-scroll ===
+        print("User scrolling UP (should stop auto-scroll)...")
+        chatTable.swipeDown() // Swipe down = scroll content up = see earlier content
+        chatTable.swipeDown()
+
+        let afterScrollUpScreenshot = XCUIScreen.main.screenshot()
+        try? afterScrollUpScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/after-scroll-up.png"))
+        let scrollUpAttach = XCTAttachment(screenshot: afterScrollUpScreenshot)
+        scrollUpAttach.name = "After-Scroll-Up"
+        scrollUpAttach.lifetime = .keepAlways
+        add(scrollUpAttach)
+        print("After scroll up screenshot captured")
+
+        // Record the scroll position
+        let scrollPositionAfterUp = chatTable.frame
+
+        // Wait and check if view fights with user
+        sleep(2)
+
+        let preservedScreenshot = XCUIScreen.main.screenshot()
+        try? preservedScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/position-preserved.png"))
+        let preservedAttach = XCTAttachment(screenshot: preservedScreenshot)
+        preservedAttach.name = "Position-Preserved"
+        preservedAttach.lifetime = .keepAlways
+        add(preservedAttach)
+        print("Position preserved screenshot captured")
+
+        // Check if position was preserved (view didn't fight)
+        let scrollPositionAfterWait = chatTable.frame
+        let positionPreserved = abs(scrollPositionAfterUp.minY - scrollPositionAfterWait.minY) < 50
+        print("Scroll position preserved: \(positionPreserved)")
+        print("  After scroll up: \(scrollPositionAfterUp.minY)")
+        print("  After wait: \(scrollPositionAfterWait.minY)")
+
+        // === USER SCROLLS DOWN - should resume following ===
+        print("User scrolling DOWN (should resume auto-scroll)...")
+        chatTable.swipeUp()
+        chatTable.swipeUp()
+        chatTable.swipeUp()
+
+        let afterScrollDownScreenshot = XCUIScreen.main.screenshot()
+        try? afterScrollDownScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/after-scroll-down.png"))
+        let scrollDownAttach = XCTAttachment(screenshot: afterScrollDownScreenshot)
+        scrollDownAttach.name = "After-Scroll-Down"
+        scrollDownAttach.lifetime = .keepAlways
+        add(scrollDownAttach)
+        print("After scroll down screenshot captured")
+
+        // Wait for typewriter to make significant progress
+        // Slow mode: ~100 chars/sec, so 20 seconds = ~2000 chars = ~4-5 paragraphs
+        print("Waiting for typewriter to progress...")
+        sleep(20)
+
+        // Take screenshot to see how far typewriter got
+        let progressScreenshot = XCUIScreen.main.screenshot()
+        try? progressScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/progress.png"))
+        let progressAttach = XCTAttachment(screenshot: progressScreenshot)
+        progressAttach.name = "Progress"
+        progressAttach.lifetime = .keepAlways
+        add(progressAttach)
+        print("Progress screenshot captured")
+
+        // Wait more for typewriter to complete
+        print("Waiting for typewriter to complete...")
+        sleep(30)
+
+        // Final state
+        let finalScreenshot = XCUIScreen.main.screenshot()
+        try? finalScreenshot.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/final.png"))
+        let finalAttach = XCTAttachment(screenshot: finalScreenshot)
+        finalAttach.name = "Final"
+        finalAttach.lifetime = .keepAlways
+        add(finalAttach)
+        print("Final screenshot captured")
+
+        // Verify the response has significant content (at least a few paragraphs)
+        // Check for Paragraph 3 which should definitely be there after our wait
+        let paragraph3Text = stubApp.textViews.containing(NSPredicate(format: "value CONTAINS %@", "Overflow Point")).firstMatch
+        XCTAssertTrue(paragraph3Text.waitForExistence(timeout: 10),
+                      "Paragraph 3 (Overflow Point) should be visible - typewriter should have progressed")
+
+        // Assert that scroll position was preserved when user scrolled up
+        XCTAssertTrue(positionPreserved,
+                      "View should NOT fight with user scroll - position should be preserved")
+
+        print("=== TEST COMPLETE ===")
+        print("Screenshots saved to: \(screenshotDir)/")
     }
 
     // MARK: - Drawer Navigation Tests

@@ -21,9 +21,44 @@ public final class BookChatViewController: UIViewController {
     private var typewriterTimer: Timer?
     private var typewriterMessageIndex: Int?
     private var typewriterFullContent: String?
-    private var typewriterWords: [String] = []
-    private var typewriterWordIndex: Int = 0
-    private let typewriterWordDelay: TimeInterval = 0.04
+    private var typewriterCharIndex: Int = 0
+    private var typewriterLastLayoutUpdate: Date = .distantPast
+    private var typewriterStartTime: Date = .distantPast
+    private var typewriterLastLoggedIndex: Int = 0
+
+    // Organic timing configuration
+    // Note: renderMarkdown takes ~7ms, so we batch chars to hit target rate
+    private struct TypewriterTiming {
+        let tickInterval: TimeInterval
+        let charsPerTickBase: Int
+        let charsPerTickJitter: Int
+        let pauseAtPeriod: TimeInterval
+        let pauseAtNewline: TimeInterval
+        let layoutUpdateInterval: TimeInterval
+
+        static let normal = TypewriterTiming(
+            tickInterval: 0.012, // 12ms between ticks
+            charsPerTickBase: 6, // Base chars per tick
+            charsPerTickJitter: 4, // ±4 chars jitter (so 2-10 chars per tick)
+            pauseAtPeriod: 0.025, // Extra pause at sentence end
+            pauseAtNewline: 0.040, // Extra pause at paragraph
+            layoutUpdateInterval: 0.15
+        )
+
+        // Slow mode for UI testing - makes typewriter observable
+        // ~100 chars/sec (vs ~500 chars/sec normal) = 5x slower
+        // 4500 char response takes ~45 seconds
+        static let slow = TypewriterTiming(
+            tickInterval: 0.030, // 30ms between ticks (2.5x slower)
+            charsPerTickBase: 3, // 3 chars per tick (2x fewer)
+            charsPerTickJitter: 1, // ±1 char jitter (so 2-4 chars per tick)
+            pauseAtPeriod: 0.060, // Longer pause at sentence end
+            pauseAtNewline: 0.100, // Longer pause at paragraph
+            layoutUpdateInterval: 0.20
+        )
+    }
+
+    private let typewriterConfig: TypewriterTiming
 
     // MARK: - UI Components
 
@@ -64,10 +99,19 @@ public final class BookChatViewController: UIViewController {
             agentService = StubAgentService(mode: .long)
         } else if args.contains("--uitesting-stub-chat-short") {
             agentService = StubAgentService(mode: .short)
+        } else if args.contains("--uitesting-stub-chat-extralong") {
+            agentService = StubAgentService(mode: .extraLong)
         } else if args.contains("--uitesting-stub-chat-error") {
             agentService = StubAgentService(mode: .error)
         } else {
             agentService = ReaderAgentService()
+        }
+
+        // Slow typewriter for UI testing observation
+        if args.contains("--uitesting-slow-typewriter") {
+            typewriterConfig = .slow
+        } else {
+            typewriterConfig = .normal
         }
 
         // Load existing conversation or create new one
@@ -245,12 +289,12 @@ public final class BookChatViewController: UIViewController {
 
             // Text view at top of container
             textView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: 12),
-            textView.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 4),
-            textView.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -4),
+            textView.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 12),
+            textView.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -12),
             textViewHeight,
 
-            // Placeholder aligned with text
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 12),
+            // Placeholder aligned with text cursor
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 6),
             placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 4),
 
             // Button row below text view
@@ -697,48 +741,100 @@ public final class BookChatViewController: UIViewController {
 
         typewriterMessageIndex = messageIndex
         typewriterFullContent = fullContent
-        typewriterWords = fullContent.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-        typewriterWordIndex = 0
+        typewriterCharIndex = 0
+        typewriterStartTime = Date()
+
+        Self.logger.info("TYPEWRITER: Starting, \(fullContent.count) chars total")
 
         // Start with empty content
         messages[messageIndex].content = ""
         tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
 
-        // Scroll to show the response at top
-        scrollToResponseTop()
+        // Scroll to show the response
+        scrollToBottom()
 
-        // Start timer
-        typewriterTimer = Timer.scheduledTimer(withTimeInterval: typewriterWordDelay, repeats: true) { [weak self] _ in
+        // Schedule first tick
+        scheduleNextTypewriterTick(delay: typewriterConfig.tickInterval)
+    }
+
+    /// Schedules the next typewriter tick with variable delay
+    private func scheduleNextTypewriterTick(delay: TimeInterval) {
+        typewriterTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             self?.typewriterTick()
         }
     }
 
-    /// Called on each timer tick to reveal the next word
+    /// Called on each timer tick to reveal a batch of characters
     private func typewriterTick() {
         guard let messageIndex = typewriterMessageIndex,
-              typewriterWordIndex < typewriterWords.count
+              let fullContent = typewriterFullContent,
+              typewriterCharIndex < fullContent.count
         else {
             finishTypewriterEffect()
             return
         }
 
-        // Check if user has scrolled to "catch up" with the typewriter (near bottom)
-        // If so, we'll anchor to bottom after updating content
-        let shouldAnchorToBottom = isScrolledNearBottom()
+        // Calculate batch size with jitter for organic feel
+        let jitter = Int.random(in: -typewriterConfig.charsPerTickJitter ... typewriterConfig.charsPerTickJitter)
+        let batchSize = max(1, typewriterConfig.charsPerTickBase + jitter)
+        let remainingChars = fullContent.count - typewriterCharIndex
+        let charsToAdd = min(batchSize, remainingChars)
 
-        // Add next word
-        typewriterWordIndex += 1
-        let visibleWords = typewriterWords.prefix(typewriterWordIndex)
-        messages[messageIndex].content = visibleWords.joined(separator: " ")
+        // Advance and update content
+        typewriterCharIndex += charsToAdd
+        let endIndex = fullContent.index(fullContent.startIndex, offsetBy: typewriterCharIndex)
+        let newContent = String(fullContent[..<endIndex])
+        messages[messageIndex].content = newContent
 
-        // Update the cell
-        let indexPath = IndexPath(row: messageIndex, section: 0)
-        tableView.reloadRows(at: [indexPath], with: .none)
-
-        // If user caught up with the typewriter, keep them anchored at the bottom
-        if shouldAnchorToBottom {
-            scrollToBottom()
+        // Sample logging every 200 chars
+        if typewriterCharIndex - typewriterLastLoggedIndex >= 200 {
+            let elapsed = Date().timeIntervalSince(typewriterStartTime)
+            let rate = Double(typewriterCharIndex) / elapsed
+            Self.logger.info("TYPEWRITER: \(typewriterCharIndex)/\(fullContent.count) chars in \(String(format: "%.2f", elapsed))s (\(Int(rate)) chars/sec)")
+            typewriterLastLoggedIndex = typewriterCharIndex
         }
+
+        // Update cell text directly
+        let indexPath = IndexPath(row: messageIndex, section: 0)
+        if let cell = tableView.cellForRow(at: indexPath) as? ChatMessageCell {
+            cell.updateTypewriterText(newContent, role: .assistant)
+        }
+
+        // Periodically update cell height so content becomes visible
+        let now = Date()
+        if now.timeIntervalSince(typewriterLastLayoutUpdate) >= typewriterConfig.layoutUpdateInterval {
+            typewriterLastLayoutUpdate = now
+
+            // Update cell height and scroll synchronously to avoid visual flash
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+                tableView.layoutIfNeeded()
+
+                let contentHeight = tableView.contentSize.height
+                let visibleHeight = tableView.bounds.height
+                let currentOffset = tableView.contentOffset.y
+                let visibleBottom = currentOffset + visibleHeight
+
+                // Only scroll if content bottom extends past visible area
+                guard contentHeight > visibleBottom else { return }
+
+                // Scroll to show bottom of content
+                let targetOffset = contentHeight - visibleHeight
+                tableView.setContentOffset(CGPoint(x: 0, y: max(0, targetOffset)), animated: false)
+            }
+        }
+
+        // Calculate next delay - add pause at punctuation
+        var nextDelay = typewriterConfig.tickInterval
+        let lastChar = fullContent[fullContent.index(before: endIndex)]
+        if lastChar == "." || lastChar == "!" || lastChar == "?" {
+            nextDelay += typewriterConfig.pauseAtPeriod
+        } else if lastChar == "\n" {
+            nextDelay += typewriterConfig.pauseAtNewline
+        }
+
+        scheduleNextTypewriterTick(delay: nextDelay)
     }
 
     /// Checks if the table view is scrolled near the bottom of the content
@@ -766,7 +862,12 @@ public final class BookChatViewController: UIViewController {
             return
         }
 
-        // Set final content
+        // Log final stats
+        let elapsed = Date().timeIntervalSince(typewriterStartTime)
+        let rate = elapsed > 0 ? Double(fullContent.count) / elapsed : 0
+        Self.logger.info("TYPEWRITER: Finished \(fullContent.count) chars in \(String(format: "%.2f", elapsed))s (\(Int(rate)) chars/sec)")
+
+        // Set final content and reload to ensure correct cell height
         messages[messageIndex].content = fullContent
         tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
 
@@ -779,8 +880,10 @@ public final class BookChatViewController: UIViewController {
         typewriterTimer = nil
         typewriterMessageIndex = nil
         typewriterFullContent = nil
-        typewriterWords = []
-        typewriterWordIndex = 0
+        typewriterCharIndex = 0
+        typewriterLastLayoutUpdate = .distantPast
+        typewriterStartTime = .distantPast
+        typewriterLastLoggedIndex = 0
     }
 
     // MARK: - Keyboard
@@ -1171,9 +1274,9 @@ private final class ChatMessageCell: UITableViewCell {
             bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
             contentStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
-            contentStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
-            contentStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
-            contentStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -12),
+            contentStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 14),
+            contentStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -14),
+            contentStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -16),
         ])
 
         // Add tap gesture for collapsible messages
@@ -1238,6 +1341,12 @@ private final class ChatMessageCell: UITableViewCell {
 
         // Display images (maps are set separately via setMaps)
         displayMedia(images: images, maps: [])
+    }
+
+    /// Lightweight text update for typewriter effect - avoids full reconfigure
+    func updateTypewriterText(_ text: String, role: ChatMessage.Role) {
+        let color: UIColor = role == .user ? .white : .label
+        messageTextView.attributedText = renderMarkdown(text, font: fontManager.bodyFont, color: color)
     }
 
     func setMaps(_ maps: [(lat: Double, lon: Double, name: String)]) {
