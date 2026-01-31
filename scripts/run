@@ -254,6 +254,10 @@ fi
 
 echo "Installing app..."
 if [ "$USE_SIMULATOR" = "1" ]; then
+  # Uninstall first to prevent orphaned containers accumulating
+  # Each install creates a new container; old ones are never cleaned up
+  # and their CoreML caches (128MB each) pile up fast
+  xcrun simctl uninstall "$DEVICE_UDID" "$APP_BUNDLE_ID" 2>/dev/null || true
   xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
 
   # Load test books if available (set TEST_BOOKS_DIR in .env or environment)
