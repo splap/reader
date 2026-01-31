@@ -85,6 +85,7 @@ public final class BookChatViewController: UIViewController {
     private let modelButton = UIButton(type: .system)
     private let sendButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private let scrollToBottomButton = UIButton(type: .system)
 
     private var messages: [ChatMessage] = []
     private var messageTraces: [UUID: AgentExecutionTrace] = [:]
@@ -271,6 +272,55 @@ public final class BookChatViewController: UIViewController {
         loadingIndicator.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
         buttonRow.addSubview(loadingIndicator)
 
+        // Scroll-to-bottom button - liquid glass style floating button
+        scrollToBottomButton.translatesAutoresizingMaskIntoConstraints = false
+        scrollToBottomButton.isHidden = true
+        scrollToBottomButton.alpha = 0
+        scrollToBottomButton.accessibilityIdentifier = "scroll-to-bottom-button"
+        scrollToBottomButton.addTarget(self, action: #selector(scrollToBottomTapped), for: .touchUpInside)
+
+        // Liquid glass background using visual effect view
+        let blurEffect = UIBlurEffect(style: .systemThinMaterial)
+        let glassBackground = UIVisualEffectView(effect: blurEffect)
+        glassBackground.translatesAutoresizingMaskIntoConstraints = false
+        glassBackground.layer.cornerRadius = 22
+        glassBackground.clipsToBounds = true
+        glassBackground.isUserInteractionEnabled = false
+
+        // Subtle border for glass edge definition
+        glassBackground.layer.borderWidth = 0.5
+        glassBackground.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+
+        // Icon with vibrancy effect
+        let vibrancyEffect = UIVibrancyEffect(blurEffect: blurEffect, style: .label)
+        let vibrancyView = UIVisualEffectView(effect: vibrancyEffect)
+        vibrancyView.translatesAutoresizingMaskIntoConstraints = false
+
+        let iconView = UIImageView(image: UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)))
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.contentMode = .scaleAspectFit
+        vibrancyView.contentView.addSubview(iconView)
+
+        glassBackground.contentView.addSubview(vibrancyView)
+        scrollToBottomButton.addSubview(glassBackground)
+
+        NSLayoutConstraint.activate([
+            glassBackground.topAnchor.constraint(equalTo: scrollToBottomButton.topAnchor),
+            glassBackground.leadingAnchor.constraint(equalTo: scrollToBottomButton.leadingAnchor),
+            glassBackground.trailingAnchor.constraint(equalTo: scrollToBottomButton.trailingAnchor),
+            glassBackground.bottomAnchor.constraint(equalTo: scrollToBottomButton.bottomAnchor),
+
+            vibrancyView.topAnchor.constraint(equalTo: glassBackground.contentView.topAnchor),
+            vibrancyView.leadingAnchor.constraint(equalTo: glassBackground.contentView.leadingAnchor),
+            vibrancyView.trailingAnchor.constraint(equalTo: glassBackground.contentView.trailingAnchor),
+            vibrancyView.bottomAnchor.constraint(equalTo: glassBackground.contentView.bottomAnchor),
+
+            iconView.centerXAnchor.constraint(equalTo: vibrancyView.contentView.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: vibrancyView.contentView.centerYAnchor),
+        ])
+
+        view.addSubview(scrollToBottomButton)
+
         // Layout
         let bottomConstraint = inputContainer.bottomAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14
@@ -322,6 +372,12 @@ public final class BookChatViewController: UIViewController {
 
             loadingIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
+
+            // Scroll-to-bottom button - centered horizontally, above input container
+            scrollToBottomButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            scrollToBottomButton.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
+            scrollToBottomButton.widthAnchor.constraint(equalToConstant: 44),
+            scrollToBottomButton.heightAnchor.constraint(equalToConstant: 44),
         ])
     }
 
@@ -613,7 +669,14 @@ public final class BookChatViewController: UIViewController {
         // Add user message
         messages.append(ChatMessage(role: .user, content: text))
         tableView.reloadData()
-        scrollToBottom()
+        tableView.layoutIfNeeded()
+
+        // Scroll user message to TOP of visible area
+        // This pushes any previous content out of view
+        let userMessageIndex = messages.count - 1
+        let indexPath = IndexPath(row: userMessageIndex, section: 0)
+        let cellRect = tableView.rectForRow(at: indexPath)
+        tableView.setContentOffset(CGPoint(x: 0, y: cellRect.origin.y), animated: false)
 
         textView.text = ""
         placeholderLabel.isHidden = false
@@ -652,6 +715,17 @@ public final class BookChatViewController: UIViewController {
                     self.logTranscript()
 
                     tableView.reloadData()
+                    tableView.layoutIfNeeded()
+
+                    // Scroll user message to TOP (response is below it)
+                    // This pushes any previous content out of view
+                    let userMessageIndex = messages.count - 2
+                    if userMessageIndex >= 0 {
+                        let indexPath = IndexPath(row: userMessageIndex, section: 0)
+                        let cellRect = tableView.rectForRow(at: indexPath)
+                        tableView.setContentOffset(CGPoint(x: 0, y: cellRect.origin.y), animated: false)
+                    }
+
                     setLoading(false)
 
                     // Start typewriter effect with the full response content
@@ -707,6 +781,36 @@ public final class BookChatViewController: UIViewController {
         tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
     }
 
+    @objc private func scrollToBottomTapped() {
+        let bottomOffset = tableView.contentSize.height - tableView.bounds.height
+        tableView.setContentOffset(CGPoint(x: 0, y: max(0, bottomOffset)), animated: true)
+    }
+
+    private func updateScrollToBottomButtonVisibility() {
+        let contentHeight = tableView.contentSize.height
+        let visibleHeight = tableView.bounds.height
+        let currentOffset = tableView.contentOffset.y
+        let visibleBottom = currentOffset + visibleHeight
+
+        // Show button as soon as content extends below visible area (small threshold for tolerance)
+        let threshold: CGFloat = 20
+        let shouldShow = contentHeight > visibleBottom + threshold
+
+        // Only animate if state is changing
+        let isCurrentlyVisible = scrollToBottomButton.alpha > 0
+
+        if shouldShow != isCurrentlyVisible {
+            scrollToBottomButton.isHidden = false
+            UIView.animate(withDuration: 0.2) {
+                self.scrollToBottomButton.alpha = shouldShow ? 1 : 0
+            } completion: { _ in
+                if !shouldShow {
+                    self.scrollToBottomButton.isHidden = true
+                }
+            }
+        }
+    }
+
     /// Scrolls to position the new response at the top of the visible area
     private func scrollToResponseTop() {
         guard !messages.isEmpty else { return }
@@ -730,9 +834,6 @@ public final class BookChatViewController: UIViewController {
         // Start with empty content
         messages[messageIndex].content = ""
         tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
-
-        // Scroll to show the response
-        scrollToBottom()
 
         // Schedule first tick
         scheduleNextTypewriterTick(delay: typewriterConfig.tickInterval)
@@ -786,24 +887,15 @@ public final class BookChatViewController: UIViewController {
         if now.timeIntervalSince(typewriterLastLayoutUpdate) >= typewriterConfig.layoutUpdateInterval {
             typewriterLastLayoutUpdate = now
 
-            // Update cell height and scroll synchronously to avoid visual flash
+            // Update cell height without auto-scrolling
             UIView.performWithoutAnimation {
                 tableView.beginUpdates()
                 tableView.endUpdates()
                 tableView.layoutIfNeeded()
-
-                let contentHeight = tableView.contentSize.height
-                let visibleHeight = tableView.bounds.height
-                let currentOffset = tableView.contentOffset.y
-                let visibleBottom = currentOffset + visibleHeight
-
-                // Only scroll if content bottom extends past visible area
-                guard contentHeight > visibleBottom else { return }
-
-                // Scroll to show bottom of content
-                let targetOffset = contentHeight - visibleHeight
-                tableView.setContentOffset(CGPoint(x: 0, y: max(0, targetOffset)), animated: false)
             }
+
+            // Update scroll-to-bottom button visibility
+            updateScrollToBottomButtonVisibility()
         }
 
         // Calculate next delay - add pause at punctuation
@@ -816,22 +908,6 @@ public final class BookChatViewController: UIViewController {
         }
 
         scheduleNextTypewriterTick(delay: nextDelay)
-    }
-
-    /// Checks if the table view is scrolled near the bottom of the content
-    /// Used to determine if we should auto-scroll during typewriter effect
-    private func isScrolledNearBottom() -> Bool {
-        let contentHeight = tableView.contentSize.height
-        let visibleHeight = tableView.bounds.height
-        let scrollOffset = tableView.contentOffset.y
-
-        // If content is smaller than visible area, consider it "at bottom"
-        guard contentHeight > visibleHeight else { return true }
-
-        // Consider "near bottom" if within 50 points of the bottom
-        let bottomThreshold: CGFloat = 50
-        let distanceFromBottom = contentHeight - (scrollOffset + visibleHeight)
-        return distanceFromBottom < bottomThreshold
     }
 
     /// Completes the typewriter effect immediately
@@ -851,6 +927,9 @@ public final class BookChatViewController: UIViewController {
         // Set final content and reload to ensure correct cell height
         messages[messageIndex].content = fullContent
         tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+
+        // Update scroll-to-bottom button visibility
+        updateScrollToBottomButtonVisibility()
 
         stopTypewriterEffect()
     }
@@ -882,8 +961,7 @@ public final class BookChatViewController: UIViewController {
         UIView.animate(withDuration: duration) {
             self.view.layoutIfNeeded()
         }
-
-        scrollToBottom()
+        // Don't auto-scroll - let user control scroll position
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
@@ -1104,6 +1182,10 @@ extension BookChatViewController: UITableViewDelegate {
 
     public func tableView(_: UITableView, estimatedHeightForRowAt _: IndexPath) -> CGFloat {
         60
+    }
+
+    public func scrollViewDidScroll(_: UIScrollView) {
+        updateScrollToBottomButtonVisibility()
     }
 }
 
