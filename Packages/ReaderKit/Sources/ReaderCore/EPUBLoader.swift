@@ -3,6 +3,55 @@ import OSLog
 import UIKit
 import ZIPFoundation
 
+/// Represents a single spine item (chapter) in the EPUB
+public struct SpineItem {
+    public let id: String
+    public let href: String
+    public let mediaType: String
+
+    public init(id: String, href: String, mediaType: String) {
+        self.id = id
+        self.href = href
+        self.mediaType = mediaType
+    }
+}
+
+/// Metadata for lazy-loading EPUB sections on-demand
+/// Contains everything needed to load individual sections without re-parsing the package
+public struct SpineMetadata {
+    public let epubURL: URL
+    public let title: String?
+    public let spineItems: [SpineItem]
+    public let ncxLabels: [String: String]
+    public let hrefToSpineItemId: [String: String]
+    public let imageCache: [String: Data]
+    public let cssCache: [String: String]
+    public let packagePath: String
+
+    public init(
+        epubURL: URL,
+        title: String?,
+        spineItems: [SpineItem],
+        ncxLabels: [String: String],
+        hrefToSpineItemId: [String: String],
+        imageCache: [String: Data],
+        cssCache: [String: String],
+        packagePath: String
+    ) {
+        self.epubURL = epubURL
+        self.title = title
+        self.spineItems = spineItems
+        self.ncxLabels = ncxLabels
+        self.hrefToSpineItemId = hrefToSpineItemId
+        self.imageCache = imageCache
+        self.cssCache = cssCache
+        self.packagePath = packagePath
+    }
+
+    /// Total number of spine items (sections/chapters)
+    public var sectionCount: Int { spineItems.count }
+}
+
 public final class EPUBLoader {
     private static let logger = Log.logger(category: "epub")
 
@@ -12,6 +61,7 @@ public final class EPUBLoader {
         case missingPackage
         case missingSpine
         case emptyContent
+        case sectionNotFound(Int)
 
         public var description: String {
             switch self {
@@ -25,6 +75,8 @@ public final class EPUBLoader {
                 "Missing spine content in package."
             case .emptyContent:
                 "No readable XHTML content."
+            case let .sectionNotFound(index):
+                "Section at index \(index) not found."
             }
         }
     }
@@ -156,6 +208,166 @@ public final class EPUBLoader {
 
         // Use fast initializer - skip NSAttributedString conversion (saves ~1s for large books)
         return Chapter(id: chapterId, htmlSections: htmlSections, title: title, ncxLabels: ncxLabels, hrefToSpineItemId: hrefToSpineItemId)
+    }
+
+    // MARK: - Lazy Loading Methods
+
+    /// Load spine metadata without parsing HTML content (fast initial load)
+    /// This extracts all metadata needed for lazy section loading: spine items, NCX labels, images, CSS
+    /// - Parameter url: The EPUB file URL
+    /// - Returns: SpineMetadata containing everything needed for on-demand section loading
+    public func loadSpineMetadata(from url: URL) throws -> SpineMetadata {
+        let start = CFAbsoluteTimeGetCurrent()
+        let archive = try Archive(url: url, accessMode: .read)
+
+        guard let containerData = try data(for: "META-INF/container.xml", in: archive) else {
+            throw LoaderError.missingContainer
+        }
+
+        let containerParser = EPUBContainerParser()
+        containerParser.parse(containerData)
+        guard let packagePath = containerParser.rootfilePath else {
+            throw LoaderError.missingPackage
+        }
+
+        guard let packageData = try data(for: packagePath, in: archive) else {
+            throw LoaderError.missingPackage
+        }
+
+        let package = EPUBPackageParser(packagePath: packagePath)
+        package.parse(packageData)
+
+        let manifestItems = package.spine.compactMap { package.manifest[$0] }
+        guard !manifestItems.isEmpty else {
+            throw LoaderError.missingSpine
+        }
+
+        // Convert to SpineItem structs
+        let spineItems = manifestItems.map { item in
+            SpineItem(id: item.id, href: item.href, mediaType: item.mediaType)
+        }
+
+        // Parse NCX file to get chapter labels
+        var ncxLabels: [String: String] = [:]
+        if let ncxItem = package.manifest.values.first(where: { $0.mediaType.contains("ncx") }) {
+            let ncxPath = package.resolve(ncxItem.href)
+            if let ncxData = try data(for: ncxPath, in: archive) {
+                let parser = NCXParser()
+                let navPoints = parser.parse(data: ncxData)
+
+                for navPoint in navPoints {
+                    if let matchingItem = manifestItems.first(where: { item in
+                        let itemPath = package.resolve(item.href)
+                        return itemPath.hasSuffix(navPoint.filePath) || navPoint.filePath.hasSuffix(item.href)
+                    }) {
+                        ncxLabels[matchingItem.id] = navPoint.label
+                    }
+                }
+                Self.logger.debug("Parsed NCX: \(ncxLabels.count) labels mapped")
+            }
+        }
+
+        // Extract and cache images and CSS
+        extractImages(from: archive, package: package)
+        extractCSS(from: archive, package: package)
+
+        // Build href to spine item ID mapping
+        var hrefToSpineItemId: [String: String] = [:]
+        for item in spineItems {
+            hrefToSpineItemId[item.href] = item.id
+            hrefToSpineItemId[(item.href as NSString).lastPathComponent] = item.id
+        }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        Self.logger.info("PERF: loadSpineMetadata took \(String(format: "%.3f", elapsed))s for \(spineItems.count) spine items")
+
+        return SpineMetadata(
+            epubURL: url,
+            title: package.title,
+            spineItems: spineItems,
+            ncxLabels: ncxLabels,
+            hrefToSpineItemId: hrefToSpineItemId,
+            imageCache: imageCache,
+            cssCache: cssCache,
+            packagePath: packagePath
+        )
+    }
+
+    /// Load and parse a single section on-demand
+    /// - Parameters:
+    ///   - index: The spine item index to load
+    ///   - metadata: The spine metadata from loadSpineMetadata
+    /// - Returns: The parsed HTMLSection for this spine item
+    public func loadSection(at index: Int, from metadata: SpineMetadata) throws -> HTMLSection {
+        let start = CFAbsoluteTimeGetCurrent()
+
+        guard index >= 0, index < metadata.spineItems.count else {
+            throw LoaderError.sectionNotFound(index)
+        }
+
+        let archive = try Archive(url: metadata.epubURL, accessMode: .read)
+        let item = metadata.spineItems[index]
+
+        guard item.mediaType.contains("html") else {
+            throw LoaderError.sectionNotFound(index)
+        }
+
+        // Resolve the path relative to the package
+        let packageBase = (metadata.packagePath as NSString).deletingLastPathComponent
+        let resolvedPath = packageBase.isEmpty ? item.href : (packageBase as NSString).appendingPathComponent(item.href)
+
+        guard let htmlData = try data(for: resolvedPath, in: archive),
+              let htmlString = String(data: htmlData, encoding: .utf8)
+        else {
+            throw LoaderError.sectionNotFound(index)
+        }
+
+        let basePath = (resolvedPath as NSString).deletingLastPathComponent
+        let cssContent = extractCSSForHTML(htmlString, basePath: basePath, cssCache: metadata.cssCache)
+
+        // Parse HTML into blocks and generate annotated HTML
+        let (blocks, annotatedHTML) = blockParser.parseWithAnnotatedHTML(
+            html: htmlString,
+            spineItemId: item.id
+        )
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        Self.logger.info("PERF: loadSection[\(index)] took \(String(format: "%.3f", elapsed))s")
+
+        return HTMLSection(
+            html: htmlString,
+            annotatedHTML: annotatedHTML,
+            basePath: basePath,
+            imageCache: metadata.imageCache,
+            cssContent: cssContent,
+            blocks: blocks,
+            spineItemId: item.id
+        )
+    }
+
+    /// Extract CSS for a specific HTML file using a provided cache
+    private func extractCSSForHTML(_ html: String, basePath: String, cssCache: [String: String]) -> String? {
+        let pattern = #"<link[^>]+href\s*=\s*["\']([^"\']+\.css)["\'][^>]*>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return nil
+        }
+
+        let nsHtml = html as NSString
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
+
+        var combinedCSS = ""
+        for match in matches {
+            guard match.numberOfRanges >= 2 else { continue }
+            let hrefRange = match.range(at: 1)
+            let href = nsHtml.substring(with: hrefRange)
+
+            let resolvedPath = basePath.isEmpty ? href : (basePath as NSString).appendingPathComponent(href)
+            if let css = cssCache[resolvedPath] ?? cssCache[href] ?? cssCache[(href as NSString).lastPathComponent] {
+                combinedCSS += css + "\n"
+            }
+        }
+
+        return combinedCSS.isEmpty ? nil : combinedCSS
     }
 
     private func data(for path: String, in archive: Archive) throws -> Data? {

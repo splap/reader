@@ -38,7 +38,11 @@ private class SelectableWebView: WKWebView {
 
 public final class WebPageViewController: UIViewController, PageRenderer {
     private static let logger = Log.logger(category: "page-view")
-    private let htmlSections: [HTMLSection]
+
+    // Section source - either lazy loading or pre-loaded array (for backward compatibility)
+    private var lazyChapter: LazyChapter?
+    private var htmlSections: [HTMLSection]?
+
     private let bookTitle: String?
     private let bookAuthor: String?
     private let chapterTitle: String?
@@ -53,6 +57,40 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     private let spineItemIdToSectionIndex: [String: Int]
     private var currentSectionIndex: Int?
     private var isContentLoaded = false
+
+    /// Total number of sections available
+    private var sectionCount: Int {
+        lazyChapter?.sectionCount ?? htmlSections?.count ?? 0
+    }
+
+    /// Get section at index (loads on-demand for LazyChapter)
+    private func section(at index: Int) throws -> HTMLSection {
+        if let lazy = lazyChapter {
+            return try lazy.section(at: index)
+        } else if let sections = htmlSections, index >= 0, index < sections.count {
+            return sections[index]
+        } else {
+            throw EPUBLoader.LoaderError.sectionNotFound(index)
+        }
+    }
+
+    /// Check if section is loaded (always true for pre-loaded, checks cache for lazy)
+    private func isSectionLoaded(at index: Int) -> Bool {
+        if let lazy = lazyChapter {
+            return lazy.isSectionLoaded(at: index)
+        }
+        return true // Pre-loaded sections are always available
+    }
+
+    /// Get current spine item ID
+    private var currentSpineItemId: String {
+        if let lazy = lazyChapter {
+            return lazy.spineItemId(at: currentSpineIndex) ?? ""
+        } else if let sections = htmlSections, currentSpineIndex < sections.count {
+            return sections[currentSpineIndex].spineItemId
+        }
+        return ""
+    }
 
     private var lastAppliedLayout: PaginationLayout?
 
@@ -95,6 +133,33 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     /// Called when a section is loaded. Parameters: (loadedCount, totalCount)
     public var onLoadingProgress: ((Int, Int) -> Void)?
 
+    /// Initialize with lazy-loading chapter (recommended for large EPUBs)
+    public init(
+        lazyChapter: LazyChapter,
+        bookTitle: String? = nil,
+        bookAuthor: String? = nil,
+        chapterTitle: String? = nil,
+        fontScale: CGFloat = 2.0,
+        initialCFI: String? = nil
+    ) {
+        self.lazyChapter = lazyChapter
+        htmlSections = nil
+        self.bookTitle = bookTitle
+        self.bookAuthor = bookAuthor
+        self.chapterTitle = chapterTitle
+        self.fontScale = fontScale
+        self.initialCFI = initialCFI
+        hrefToSpineItemId = lazyChapter.hrefToSpineItemId
+        // Build spine item ID to index map from metadata
+        var sectionIndexMap: [String: Int] = [:]
+        for (index, spineItem) in lazyChapter.spineMetadata.spineItems.enumerated() {
+            sectionIndexMap[spineItem.id] = index
+        }
+        spineItemIdToSectionIndex = sectionIndexMap
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    /// Initialize with pre-loaded sections (legacy, for backward compatibility)
     public init(
         htmlSections: [HTMLSection],
         bookTitle: String? = nil,
@@ -104,6 +169,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         initialCFI: String? = nil,
         hrefToSpineItemId: [String: String] = [:]
     ) {
+        lazyChapter = nil
         self.htmlSections = htmlSections
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
@@ -132,10 +198,14 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
         Self.logger.debug("WebPageViewController viewDidLoad")
 
-        // Combine all image caches from sections
+        // Get image cache - either from lazy chapter metadata or from pre-loaded sections
         var combinedImageCache: [String: Data] = [:]
-        for section in htmlSections {
-            combinedImageCache.merge(section.imageCache) { _, new in new }
+        if let lazy = lazyChapter {
+            combinedImageCache = lazy.spineMetadata.imageCache
+        } else if let sections = htmlSections {
+            for section in sections {
+                combinedImageCache.merge(section.imageCache) { _, new in new }
+            }
         }
 
         // Create URL scheme handler for serving images
@@ -336,8 +406,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     public func loadSpineItem(at index: Int, restoreCFI: (domPath: [Int], charOffset: Int?)? = nil, atEnd: Bool = false, atPage: Int? = nil) {
         let loadStart = CFAbsoluteTimeGetCurrent()
 
-        guard index >= 0, index < htmlSections.count else {
-            Self.logger.error("SPINE: Invalid spine index \(index), max is \(htmlSections.count - 1)")
+        guard index >= 0, index < sectionCount else {
+            Self.logger.error("SPINE: Invalid spine index \(index), max is \(sectionCount - 1)")
             return
         }
 
@@ -360,16 +430,22 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         currentSpineIndex = index
         currentSectionIndex = index
 
-        Self.logger.info("SPINE: Loading spine item \(index) of \(htmlSections.count)")
+        Self.logger.info("SPINE: Loading spine item \(index) of \(sectionCount)")
 
-        // Build HTML for just this spine item
-        let section = htmlSections[index]
-        let bodyContent = extractBodyContent(from: section.annotatedHTML)
-        let processedHTML = processHTMLWithImages(bodyContent, basePath: section.basePath, imageCache: section.imageCache)
+        // Load section (on-demand for LazyChapter)
+        let sectionToLoad: HTMLSection
+        do {
+            sectionToLoad = try section(at: index)
+        } catch {
+            Self.logger.error("SPINE: Failed to load section \(index): \(error)")
+            return
+        }
+        let bodyContent = extractBodyContent(from: sectionToLoad.annotatedHTML)
+        let processedHTML = processHTMLWithImages(bodyContent, basePath: sectionToLoad.basePath, imageCache: sectionToLoad.imageCache)
 
         // Collect publisher CSS from this section
         var publisherCSS = ""
-        if let css = section.cssContent, !css.isEmpty {
+        if let css = sectionToLoad.cssContent, !css.isEmpty {
             publisherCSS = css
         }
 
@@ -693,10 +769,17 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         webView.loadHTMLString(wrappedHTML, baseURL: nil)
 
         // Report loading progress (spine-scoped: always 1/total until locations list is built)
-        onLoadingProgress?(index + 1, htmlSections.count)
+        onLoadingProgress?(index + 1, sectionCount)
 
         // Report spine change
-        onSpineChanged?(index, htmlSections.count)
+        onSpineChanged?(index, sectionCount)
+
+        // Trigger background preloading for adjacent sections (LazyChapter only)
+        if let lazy = lazyChapter {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                lazy.preloadSections(from: index + 1, count: 3)
+            }
+        }
     }
 
     // Pending restore state (used after WebView finishes loading)
@@ -711,7 +794,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         // Use CFI to find spine index
         if let cfi = initialCFI, let parsed = CFIParser.parseFullCFI(cfi) {
             Self.logger.debug("SPINE: Initial CFI points to spine \(parsed.spineIndex)")
-            return min(parsed.spineIndex, htmlSections.count - 1)
+            return min(parsed.spineIndex, sectionCount - 1)
         }
 
         // No saved position - start at beginning
@@ -726,7 +809,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     /// - Returns: true if navigation occurred, false if already at end
     @discardableResult
     public func navigateToNextSpineItem(animated: Bool = false) -> Bool {
-        guard currentSpineIndex < htmlSections.count - 1 else {
+        guard currentSpineIndex < sectionCount - 1 else {
             Self.logger.debug("SPINE: Already at last spine item (\(currentSpineIndex))")
             return false
         }
@@ -1284,8 +1367,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     ///   - animated: Whether to animate (ignored with spine-scoped rendering)
     public func navigateToSpineItem(_ spineItemId: String, animated: Bool = false) {
         // Find the spine index for this spine item
-        guard let spineIndex = htmlSections.firstIndex(where: { $0.spineItemId == spineItemId }) else {
-            Self.logger.warning("Spine item \(spineItemId) not found in htmlSections")
+        guard let spineIndex = spineItemIdToSectionIndex[spineItemId] else {
+            Self.logger.warning("Spine item \(spineItemId) not found")
             return
         }
 
@@ -1303,7 +1386,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
     }
 
     public func navigateToSpineIndex(_ spineIndex: Int, atPage page: Int?) {
-        guard spineIndex >= 0, spineIndex < htmlSections.count else {
+        guard spineIndex >= 0, spineIndex < sectionCount else {
             Self.logger.error("SPINE: Invalid spine index \(spineIndex)")
             return
         }
@@ -1401,7 +1484,7 @@ public final class WebPageViewController: UIViewController, PageRenderer {
             guard let self, let domPath else { return }
 
             // Generate full CFI string from components
-            let spineItemIdref = spineItemId ?? htmlSections[currentSpineIndex].spineItemId
+            let spineItemIdref = spineItemId ?? self.currentSpineItemId
             let cfi = CFIParser.generateFullCFI(
                 spineIndex: currentSpineIndex,
                 idref: spineItemIdref,
@@ -1484,7 +1567,7 @@ extension WebPageViewController: UIScrollViewDelegate {
             totalPages: computedTotalPages,
             velocity: velocity.x,
             spineIndex: currentSpineIndex,
-            totalSpines: htmlSections.count
+            totalSpines: sectionCount
         )
 
         let action = PageNavigationResolver.resolve(input)
@@ -1568,7 +1651,7 @@ extension WebPageViewController: UIScrollViewDelegate {
         let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
         let currentPage = Int(round(currentOffset / pageWidth))
         let totalPages = Int(ceil(scrollView.contentSize.width / pageWidth))
-        Self.logger.info("PAGE[\(source)]: spine=\(currentSpineIndex)/\(htmlSections.count - 1), page=\(currentPage)/\(totalPages - 1), offset=\(Int(currentOffset))/\(Int(maxOffset))")
+        Self.logger.info("PAGE[\(source)]: spine=\(currentSpineIndex)/\(sectionCount - 1), page=\(currentPage)/\(totalPages - 1), offset=\(Int(currentOffset))/\(Int(maxOffset))")
     }
 }
 

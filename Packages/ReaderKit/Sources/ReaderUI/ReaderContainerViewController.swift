@@ -104,11 +104,22 @@ public final class ReaderContainerViewController: UIViewController {
     }
 
     private func setupReader() {
+        // Load saved position to determine initial spine index for fast loading
+        let positionStore = UserDefaultsCFIPositionStore()
+        var initialSpineIndex: Int?
+        if let position = positionStore.load(bookId: bookId),
+           let parsed = CFIParser.parseFullCFI(position.cfi)
+        {
+            initialSpineIndex = parsed.spineIndex
+            Self.logger.debug("Loaded saved position: spine index \(parsed.spineIndex)")
+        }
+
         readerViewController = ReaderViewController(
             epubURL: epubURL,
             bookId: bookId,
             bookTitle: bookTitle,
-            bookAuthor: bookAuthor
+            bookAuthor: bookAuthor,
+            initialSpineItemIndex: initialSpineIndex
         )
 
         addChild(readerViewController)

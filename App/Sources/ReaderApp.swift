@@ -5,6 +5,8 @@ import UIKit
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
+    private static let logger = Log.logger(category: "app")
+
     var window: UIWindow?
     private var screenshotObserver: NSObjectProtocol?
 
@@ -12,8 +14,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        NSLog("🚀 ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
-        NSLog("🚀 Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+        Self.logger.info("ReaderApp launched! Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "unknown")")
+        Self.logger.info("Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
 
         // Screenshot mode - headless capture and exit
         if CommandLine.arguments.contains("--screenshot-mode") {
@@ -32,10 +34,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let uitestingCFI = Self.parseArgument("--uitesting-cfi=")
 
         if isUITesting, cleanAllData {
-            NSLog("🧪 UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
+            Self.logger.info("UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
             clearAllAppData()
         } else if isUITesting, !keepUIState {
-            NSLog("🧪 UI Testing mode detected - clearing app state")
+            Self.logger.info("UI Testing mode detected - clearing app state")
             clearAppStateForTesting()
         }
 
@@ -67,7 +69,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             )
             navController.pushViewController(readerVC, animated: false)
         } else if let bookSlug = uitestingBook, let book = findBookBySlug(bookSlug) {
-            NSLog("🚀 UI test opening book by slug: \(bookSlug) -> \(book.title)")
+            Self.logger.info("UI test opening book by slug: \(bookSlug) -> \(book.title)")
             BookLibraryService.shared.updateLastOpened(bookId: book.id)
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
 
@@ -76,9 +78,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             if spineItemIndex == nil, let cfi = uitestingCFI {
                 if let parsed = CFIParser.parseBaseCFI(cfi) {
                     spineItemIndex = parsed.spineIndex
-                    NSLog("🚀 Parsed CFI '\(cfi)' -> spine index \(parsed.spineIndex)")
+                    Self.logger.info("Parsed CFI '\(cfi)' -> spine index \(parsed.spineIndex)")
                 } else {
-                    NSLog("⚠️ Invalid CFI format: \(cfi)")
+                    Self.logger.warning("Invalid CFI format: \(cfi)")
                 }
             }
 
@@ -91,7 +93,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             )
             navController.pushViewController(readerVC, animated: false)
         } else if autoOpenFirstBook, let book = BookLibraryService.shared.getAllBooks().first {
-            NSLog("🚀 UI test auto-opening first book: \(book.title)")
+            Self.logger.info("UI test auto-opening first book: \(book.title)")
             BookLibraryService.shared.updateLastOpened(bookId: book.id)
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
             let readerVC = ReaderViewController(
@@ -105,7 +107,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                   let uuid = UUID(uuidString: idString),
                   let book = BookLibraryService.shared.getBook(id: uuid)
         {
-            NSLog("🚀 Auto-opening last book: \(book.title)")
+            Self.logger.info("Auto-opening last book: \(book.title)")
 
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
             let readerVC = ReaderViewController(
@@ -116,7 +118,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             )
             navController.pushViewController(readerVC, animated: false)
         } else {
-            NSLog("🚀 Showing library")
+            Self.logger.info("Showing library")
         }
 
         window.rootViewController = navController
@@ -148,7 +150,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
             return true
         } catch {
-            print("Failed to import EPUB from external source: \(error)")
+            Self.logger.error("Failed to import EPUB from external source: \(error)")
             return false
         }
     }
@@ -169,7 +171,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let booksDir = appSupport.appendingPathComponent("Books")
             if fileManager.fileExists(atPath: booksDir.path) {
                 try? fileManager.removeItem(at: booksDir)
-                NSLog("🧪 Cleared Books directory")
+                Self.logger.debug("Cleared Books directory")
             }
         }
     }
@@ -182,7 +184,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // Clear UserDefaults
         UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
         UserDefaults.standard.synchronize()
-        NSLog("🧪 Cleared UserDefaults")
+        Self.logger.debug("Cleared UserDefaults")
 
         // Clear Application Support directory contents
         if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
@@ -193,27 +195,27 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let vectorsDir = readerDir.appendingPathComponent("vectors")
             if fileManager.fileExists(atPath: vectorsDir.path) {
                 try? fileManager.removeItem(at: vectorsDir)
-                NSLog("🧪 Cleared vectors directory")
+                Self.logger.debug("Cleared vectors directory")
             }
 
             // Clear chunks database
             let chunksDB = readerDir.appendingPathComponent("chunks.sqlite")
             if fileManager.fileExists(atPath: chunksDB.path) {
                 try? fileManager.removeItem(at: chunksDB)
-                NSLog("🧪 Cleared chunks database")
+                Self.logger.debug("Cleared chunks database")
             }
 
             // Clear concept maps
             let conceptsDir = readerDir.appendingPathComponent("concepts")
             if fileManager.fileExists(atPath: conceptsDir.path) {
                 try? fileManager.removeItem(at: conceptsDir)
-                NSLog("🧪 Cleared concepts directory")
+                Self.logger.debug("Cleared concepts directory")
             }
 
             // Clear imported books
             if fileManager.fileExists(atPath: booksDir.path) {
                 try? fileManager.removeItem(at: booksDir)
-                NSLog("🧪 Cleared Books directory")
+                Self.logger.debug("Cleared Books directory")
             }
         }
 
@@ -222,11 +224,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             let testBooksDir = documentsDir.appendingPathComponent("TestBooks")
             if fileManager.fileExists(atPath: testBooksDir.path) {
                 try? fileManager.removeItem(at: testBooksDir)
-                NSLog("🧪 Cleared TestBooks directory")
+                Self.logger.debug("Cleared TestBooks directory")
             }
         }
 
-        NSLog("🧪 All app data cleared successfully")
+        Self.logger.info("All app data cleared successfully")
     }
 
     // MARK: - Bundled Books
@@ -247,10 +249,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 let destURL = testBooksURL.appendingPathComponent("\(bookName).epub")
                 if !FileManager.default.fileExists(atPath: destURL.path) {
                     try? FileManager.default.copyItem(at: bundleURL, to: destURL)
-                    NSLog("📚 Copied bundled book: \(bookName)")
+                    Self.logger.debug("Copied bundled book: \(bookName)")
                 }
             } else {
-                NSLog("⚠️ Bundled book not found: \(bookName)")
+                Self.logger.warning("Bundled book not found: \(bookName)")
             }
         }
 
@@ -296,16 +298,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     // MARK: - Screenshot Mode
 
     private func handleScreenshotMode() -> Bool {
-        NSLog("📸 Screenshot mode activated")
+        Self.logger.info("Screenshot mode activated")
 
         // Parse screenshot arguments
         guard let bookSlug = Self.parseArgument("--screenshot-book=") else {
-            NSLog("📸 ERROR: --screenshot-book= is required")
+            Self.logger.error("--screenshot-book= is required")
             exit(1)
         }
 
         guard let outputPath = Self.parseArgument("--screenshot-output=") else {
-            NSLog("📸 ERROR: --screenshot-output= is required")
+            Self.logger.error("--screenshot-output= is required")
             exit(1)
         }
 
@@ -315,7 +317,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = Self.parseArgument("--screenshot-renderer=") // Ignored, native renderer removed
         let fontScaleArg = Self.parseArgument("--screenshot-font-scale=")
 
-        NSLog("📸 Config: book=\(bookSlug), chapter=\(String(describing: chapterIndex)), cfi=\(String(describing: cfiString)), output=\(outputPath)")
+        Self.logger.info("Screenshot config: book=\(bookSlug), chapter=\(String(describing: chapterIndex)), cfi=\(String(describing: cfiString)), output=\(outputPath)")
 
         // Copy bundled books and scan for test books
         copyBundledBooksIfNeeded()
@@ -323,7 +325,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // Find the book
         guard let book = findBookBySlug(bookSlug) else {
-            NSLog("📸 ERROR: Book not found: \(bookSlug)")
+            Self.logger.error("Book not found: \(bookSlug)")
             exit(1)
         }
 
@@ -334,9 +336,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         } else if let cfi = cfiString {
             if let parsed = CFIParser.parseBaseCFI(cfi) {
                 spineItemIndex = parsed.spineIndex
-                NSLog("📸 Parsed CFI '\(cfi)' -> spine index \(parsed.spineIndex)")
+                Self.logger.info("Parsed CFI '\(cfi)' -> spine index \(parsed.spineIndex)")
             } else {
-                NSLog("📸 ERROR: Invalid CFI format: \(cfi)")
+                Self.logger.error("Invalid CFI format: \(cfi)")
                 exit(1)
             }
         }
@@ -344,11 +346,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // Set font scale if specified (default 1.0 for consistent comparison)
         if let fontScaleStr = fontScaleArg, let scale = Double(fontScaleStr) {
             ReaderPreferences.shared.fontScale = CGFloat(scale)
-            NSLog("📸 Font scale set to \(scale)")
+            Self.logger.debug("Font scale set to \(scale)")
         } else {
             // Default to 1.0 for screenshot mode to match reference
             ReaderPreferences.shared.fontScale = 1.0
-            NSLog("📸 Font scale defaulting to 1.0")
+            Self.logger.debug("Font scale defaulting to 1.0")
         }
 
         // Create window
@@ -381,12 +383,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             self?.captureScreenshot(outputPath: outputPath)
         }
 
-        NSLog("📸 Waiting for render ready...")
+        Self.logger.info("Waiting for render ready...")
         return true
     }
 
     private func captureScreenshot(outputPath: String) {
-        NSLog("📸 Render ready, capturing screenshot...")
+        Self.logger.info("Render ready, capturing screenshot...")
 
         // Remove observer
         if let observer = screenshotObserver {
@@ -395,9 +397,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         // Small delay to ensure rendering is fully complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let window = self?.window else {
-                NSLog("📸 ERROR: No window available")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let window = self.window else {
+                Self.logger.error("No window available")
                 exit(1)
             }
 
@@ -409,7 +411,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
             // Save to file
             guard let pngData = image.pngData() else {
-                NSLog("📸 ERROR: Failed to create PNG data")
+                Self.logger.error("Failed to create PNG data")
                 exit(1)
             }
 
@@ -420,10 +422,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
                 try pngData.write(to: outputURL)
-                NSLog("📸 Screenshot saved to: \(outputPath)")
+                Self.logger.info("Screenshot saved to: \(outputPath)")
                 exit(0)
             } catch {
-                NSLog("📸 ERROR: Failed to save screenshot: \(error)")
+                Self.logger.error("Failed to save screenshot: \(error)")
                 exit(1)
             }
         }

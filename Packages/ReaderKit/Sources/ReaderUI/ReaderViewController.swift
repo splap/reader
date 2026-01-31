@@ -13,7 +13,26 @@ protocol ReaderViewControllerContainerDelegate: AnyObject {
 public final class ReaderViewController: UIViewController {
     private static let logger = Log.logger(category: "reader-vc")
     private let viewModel: ReaderViewModel
-    let chapter: Chapter
+
+    // Chapter data - either lazy or pre-loaded
+    private var lazyChapter: LazyChapter?
+    private var _chapter: Chapter? // For backward compatibility when lazy loading
+    var chapter: Chapter {
+        // Return pre-loaded chapter if available, otherwise create minimal Chapter from LazyChapter
+        if let c = _chapter { return c }
+        guard let lazy = lazyChapter else {
+            return SampleChapter.make()
+        }
+        // Create Chapter with empty sections - this is only for metadata access
+        return Chapter(
+            id: lazy.id,
+            htmlSections: [],
+            title: lazy.title,
+            ncxLabels: lazy.ncxLabels,
+            hrefToSpineItemId: lazy.hrefToSpineItemId
+        )
+    }
+
     private let bookId: String
     private let bookTitle: String?
     private let bookAuthor: String?
@@ -55,7 +74,8 @@ public final class ReaderViewController: UIViewController {
 
     public init(chapter: Chapter = SampleChapter.make(), bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, initialSpineItemIndex: Int? = nil) {
         viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
-        self.chapter = chapter
+        _chapter = chapter
+        lazyChapter = nil
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
@@ -63,20 +83,34 @@ public final class ReaderViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
 
-    public init(epubURL: URL, bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections: Int = .max, initialSpineItemIndex: Int? = nil) {
+    public init(epubURL: URL, bookId: String = UUID().uuidString, bookTitle: String? = nil, bookAuthor: String? = nil, maxSections _: Int = .max, initialSpineItemIndex: Int? = nil) {
         let initStart = CFAbsoluteTimeGetCurrent()
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
         self.initialSpineItemIndex = initialSpineItemIndex
+
+        // Use lazy loading for fast initial render
         do {
-            let chapter = try EPUBLoader().loadChapter(from: epubURL, maxSections: maxSections)
-            self.chapter = chapter
-            viewModel = ReaderViewModel(chapter: chapter, bookId: bookId)
+            let metadata = try EPUBLoader().loadSpineMetadata(from: epubURL)
+            let lazy = LazyChapter(metadata: metadata)
+            lazyChapter = lazy
+            _chapter = nil
+
+            // Create minimal Chapter for ViewModel (only metadata, no sections)
+            let minimalChapter = Chapter(
+                id: lazy.id,
+                htmlSections: [],
+                title: lazy.title,
+                ncxLabels: lazy.ncxLabels,
+                hrefToSpineItemId: lazy.hrefToSpineItemId
+            )
+            viewModel = ReaderViewModel(chapter: minimalChapter, bookId: bookId)
         } catch {
             Self.logger.error("Failed to load EPUB from \(epubURL.path): \(error)")
             let fallback = SampleChapter.make()
-            chapter = fallback
+            _chapter = fallback
+            lazyChapter = nil
             viewModel = ReaderViewModel(chapter: fallback, bookId: bookId)
         }
         super.init(nibName: nil, bundle: nil)
@@ -137,16 +171,27 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func setupWebPageViewController() {
-        // Create WebView renderer
-        let renderer = WebPageViewController(
-            htmlSections: chapter.htmlSections,
-            bookTitle: bookTitle,
-            bookAuthor: bookAuthor,
-            chapterTitle: chapter.title,
-            fontScale: viewModel.fontScale,
-            initialCFI: viewModel.initialCFI,
-            hrefToSpineItemId: chapter.hrefToSpineItemId
-        )
+        // Create WebView renderer - use lazy chapter if available for fast initial load
+        let renderer = if let lazy = lazyChapter {
+            WebPageViewController(
+                lazyChapter: lazy,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterTitle: lazy.title,
+                fontScale: viewModel.fontScale,
+                initialCFI: viewModel.initialCFI
+            )
+        } else {
+            WebPageViewController(
+                htmlSections: chapter.htmlSections,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterTitle: chapter.title,
+                fontScale: viewModel.fontScale,
+                initialCFI: viewModel.initialCFI,
+                hrefToSpineItemId: chapter.hrefToSpineItemId
+            )
+        }
 
         // Configure callbacks
         renderer.onSendToLLM = { [weak self] selection in
@@ -386,12 +431,17 @@ public final class ReaderViewController: UIViewController {
         hasNavigatedToInitialSpineItem = true
 
         // Get the spine item ID at the given index
-        guard spineIndex < chapter.htmlSections.count else {
-            Self.logger.error("Initial spine item index \(spineIndex) out of range (max: \(chapter.htmlSections.count - 1))")
+        let sectionCount = lazyChapter?.sectionCount ?? chapter.htmlSections.count
+        guard spineIndex < sectionCount else {
+            Self.logger.error("Initial spine item index \(spineIndex) out of range (max: \(sectionCount - 1))")
             return
         }
 
-        let spineItemId = chapter.htmlSections[spineIndex].spineItemId
+        let spineItemId: String = if let lazy = lazyChapter {
+            lazy.spineItemId(at: spineIndex) ?? ""
+        } else {
+            chapter.htmlSections[spineIndex].spineItemId
+        }
         Self.logger.info("Navigating to initial spine item index \(spineIndex): \(spineItemId)")
         pageRenderer.navigateToSpineItem(spineItemId, animated: false)
     }
@@ -517,9 +567,13 @@ public final class ReaderViewController: UIViewController {
 
         // Standalone fallback - present chat modally
         let spineIndex = viewModel.currentSpineIndex
-        let currentSpineItemId = spineIndex < chapter.htmlSections.count
-            ? chapter.htmlSections[spineIndex].spineItemId
-            : (chapter.htmlSections.first?.spineItemId ?? "")
+        let currentSpineItemId: String = if let lazy = lazyChapter {
+            lazy.spineItemId(at: spineIndex) ?? lazy.spineItemId(at: 0) ?? ""
+        } else {
+            spineIndex < chapter.htmlSections.count
+                ? chapter.htmlSections[spineIndex].spineItemId
+                : (chapter.htmlSections.first?.spineItemId ?? "")
+        }
 
         let bookContext = ReaderBookContext(
             chapter: chapter,
@@ -538,14 +592,32 @@ public final class ReaderViewController: UIViewController {
 
     // MARK: - Table of Contents
 
+    /// Get table of contents - uses lazy chapter if available
+    private var tableOfContents: [TOCItem] {
+        lazyChapter?.tableOfContents ?? chapter.tableOfContents
+    }
+
     /// Whether there's a meaningful table of contents (more than 1 item)
     var hasMeaningfulTOC: Bool {
-        chapter.tableOfContents.count >= 2
+        tableOfContents.count >= 2
+    }
+
+    /// Build the table of contents menu for the navigation bar
+    func buildTOCMenu() -> UIMenu? {
+        let tocItems = tableOfContents
+        guard !tocItems.isEmpty else { return nil }
+
+        let actions = tocItems.map { item in
+            UIAction(title: item.label) { [weak self] _ in
+                self?.navigateToChapter(item)
+            }
+        }
+        return UIMenu(title: "Table of Contents", children: actions)
     }
 
     /// Present the table of contents as a popover from the given source view
     func presentTOC(from sourceView: UIView) {
-        let tocItems = chapter.tableOfContents
+        let tocItems = tableOfContents
         guard !tocItems.isEmpty else { return }
 
         let tocVC = TOCTableViewController(
