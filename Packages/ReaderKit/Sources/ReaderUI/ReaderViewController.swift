@@ -543,17 +543,26 @@ public final class ReaderViewController: UIViewController {
         chapter.tableOfContents.count >= 2
     }
 
-    /// Build the table of contents menu for the navigation bar
-    func buildTOCMenu() -> UIMenu? {
+    /// Present the table of contents as a popover from the given source view
+    func presentTOC(from sourceView: UIView) {
         let tocItems = chapter.tableOfContents
-        guard !tocItems.isEmpty else { return nil }
+        guard !tocItems.isEmpty else { return }
 
-        let actions = tocItems.map { item in
-            UIAction(title: item.label) { [weak self] _ in
-                self?.navigateToChapter(item)
-            }
+        let tocVC = TOCTableViewController(
+            tocItems: tocItems,
+            currentSpineIndex: currentSpineIndex
+        ) { [weak self] selectedItem in
+            self?.navigateToChapter(selectedItem)
         }
-        return UIMenu(title: "Table of Contents", children: actions)
+
+        tocVC.modalPresentationStyle = .popover
+        if let popover = tocVC.popoverPresentationController {
+            popover.sourceView = sourceView
+            popover.sourceRect = sourceView.bounds
+            popover.permittedArrowDirections = [.up, .down]
+        }
+
+        present(tocVC, animated: true)
     }
 
     private func navigateToChapter(_ tocItem: TOCItem) {

@@ -166,14 +166,15 @@ public final class ReaderContainerViewController: UIViewController {
             },
         ]
 
-        // Add TOC menu if there are enough items
-        if let tocMenu = readerViewController.buildTOCMenu(), readerViewController.hasMeaningfulTOC {
-            leadingItems.append(.menu(
+        // Add TOC popover button if there are enough items
+        if readerViewController.hasMeaningfulTOC {
+            leadingItems.append(.popoverButton(
                 systemImage: "list.bullet",
                 accessibilityLabel: "Table of Contents",
-                accessibilityIdentifier: "toc-button",
-                menu: tocMenu
-            ))
+                accessibilityIdentifier: "toc-button"
+            ) { [weak self] sourceView in
+                self?.readerViewController.presentTOC(from: sourceView)
+            })
         }
 
         let trailingItems: [NavigationBarItem] = [

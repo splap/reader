@@ -14,6 +14,8 @@ enum NavigationBarItem {
     case button(systemImage: String, accessibilityLabel: String, action: () -> Void)
     case textButton(title: String, action: () -> Void)
     case menu(systemImage: String, accessibilityLabel: String, accessibilityIdentifier: String?, menu: UIMenu)
+    /// Button that presents a popover. The closure receives the source view for anchoring.
+    case popoverButton(systemImage: String, accessibilityLabel: String, accessibilityIdentifier: String?, present: (_ sourceView: UIView) -> Void)
 }
 
 /// Protocol for view controllers that provide navigation bar configuration
@@ -169,6 +171,20 @@ final class ReaderNavigationBar: UIView {
             button.accessibilityIdentifier = accessibilityIdentifier
             button.showsMenuAsPrimaryAction = true
             button.menu = menu
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 44),
+                button.heightAnchor.constraint(equalToConstant: 44),
+            ])
+            return button
+
+        case let .popoverButton(systemImage, accessibilityLabel, accessibilityIdentifier, present):
+            let button = NavigationBarButton(systemImage: systemImage)
+            button.accessibilityLabel = accessibilityLabel
+            button.accessibilityIdentifier = accessibilityIdentifier
+            button.addAction(UIAction { [weak button] _ in
+                guard let button else { return }
+                present(button)
+            }, for: .touchUpInside)
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: 44),
                 button.heightAnchor.constraint(equalToConstant: 44),
