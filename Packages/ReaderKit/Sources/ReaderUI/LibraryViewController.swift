@@ -104,16 +104,16 @@ public final class LibraryViewController: UITableViewController {
     private func navigateToReader(book: Book) {
         let navStart = CFAbsoluteTimeGetCurrent()
         let fileURL = BookLibraryService.shared.getFileURL(for: book)
-        let readerVC = ReaderViewController(
+        let containerVC = ReaderContainerViewController(
             epubURL: fileURL,
             bookId: book.id.uuidString,
             bookTitle: book.title,
             bookAuthor: book.author
         )
-        Self.logger.info("PERF: ReaderViewController creation took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - navStart))s for \(book.title)")
+        Self.logger.info("PERF: ReaderContainerViewController creation took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - navStart))s for \(book.title)")
 
         BookLibraryService.shared.updateLastOpened(bookId: book.id)
-        navigationController?.pushViewController(readerVC, animated: true)
+        navigationController?.pushViewController(containerVC, animated: true)
     }
 
     override public func viewDidAppear(_ animated: Bool) {

@@ -64,6 +64,21 @@ public final class BookChatViewController: UIViewController {
 
     private let tableView = UITableView()
     private let inputContainer = UIView()
+
+    /// Top content inset for the table view (to account for overlaid navigation bar)
+    var topContentInset: CGFloat = 0 {
+        didSet {
+            updateTableViewInsets()
+        }
+    }
+
+    /// Bottom content inset for the table view (to account for overlaid input area)
+    var bottomContentInset: CGFloat = 0 {
+        didSet {
+            updateTableViewInsets()
+        }
+    }
+
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
     private let buttonRow = UIView()
@@ -144,6 +159,15 @@ public final class BookChatViewController: UIViewController {
         setupKeyboardObservers()
         setupFontScaleObserver()
         addWelcomeMessage()
+        updateTableViewInsets()
+    }
+
+    private func updateTableViewInsets() {
+        // Apply insets to account for overlaid navigation bar and input area
+        tableView.contentInset.top = topContentInset
+        tableView.contentInset.bottom = bottomContentInset
+        tableView.verticalScrollIndicatorInsets.top = topContentInset
+        tableView.verticalScrollIndicatorInsets.bottom = bottomContentInset
     }
 
     override public func viewWillDisappear(_ animated: Bool) {
@@ -240,9 +264,11 @@ public final class BookChatViewController: UIViewController {
         sendButton.accessibilityIdentifier = "chat-send-button"
         buttonRow.addSubview(sendButton)
 
-        // Loading indicator
+        // Loading indicator - use large style for visibility
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.hidesWhenStopped = true
+        loadingIndicator.style = .large
+        loadingIndicator.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
         buttonRow.addSubview(loadingIndicator)
 
         // Layout
@@ -256,10 +282,11 @@ public final class BookChatViewController: UIViewController {
         textViewHeightConstraint = textViewHeight
 
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            // Table view extends full height - content insets handle the overlaid UI
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -14),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             // Input container with margins matching message bubbles
             inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),

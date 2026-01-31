@@ -2,19 +2,18 @@ import OSLog
 import ReaderCore
 import UIKit
 
+/// Delegate protocol for ChatContainerViewController to communicate with its container
+protocol ChatContainerViewControllerDelegate: AnyObject {
+    func chatContainerDidRequestDismiss(_ controller: ChatContainerViewController)
+}
+
 /// Container view controller that manages the conversation drawer and chat view
 public final class ChatContainerViewController: UIViewController {
     private static let logger = Log.logger(category: "chat-container")
     private let context: BookContext
     private let initialSelection: SelectionPayload?
 
-    // Top bar (fixed, never moves)
-    private let topBar = UIView()
-    private let sidebarButton = UIButton(type: .system)
-    private let titleLabel = UILabel()
-    private let closeButton = UIButton(type: .system)
-
-    // Content area (below top bar)
+    // Content area
     private let contentContainer = UIView()
     private var drawerViewController: ConversationDrawerViewController!
     private var chatViewController: BookChatViewController!
@@ -26,9 +25,34 @@ public final class ChatContainerViewController: UIViewController {
     private var originChatViewController: BookChatViewController?
     private var originConversationId: UUID?
 
+    // Container delegate for dismiss requests
+    weak var containerDelegate: ChatContainerViewControllerDelegate?
+
+    // Whether this VC is being used standalone (without container) - legacy support
+    private var isStandalone: Bool { containerDelegate == nil }
+
+    // Standalone mode top bar (only used when no container)
+    private var standaloneTopBar: UIView?
+    private var standaloneSidebarButton: UIButton?
+    private var standaloneCloseButton: UIButton?
+
     /// Responsive drawer width - percentage of view width, capped
     private var drawerWidth: CGFloat {
         min(view.bounds.width * 0.4, 350)
+    }
+
+    /// Top content inset for the chat view (to account for overlaid navigation bar)
+    var topContentInset: CGFloat = 0 {
+        didSet {
+            chatViewController?.topContentInset = topContentInset
+        }
+    }
+
+    /// Bottom content inset for the chat view (to account for overlaid input area)
+    var bottomContentInset: CGFloat = 0 {
+        didSet {
+            chatViewController?.bottomContentInset = bottomContentInset
+        }
     }
 
     // MARK: - Initialization
@@ -52,20 +76,26 @@ public final class ChatContainerViewController: UIViewController {
         view.backgroundColor = .systemBackground
         view.accessibilityIdentifier = "chat-container-view"
 
-        setupTopBar()
+        // Setup content before potentially adding standalone top bar
         setupContentContainer()
         setupDrawer()
         setupChat()
         setupGestures()
+
+        // If standalone (no container), add our own top bar
+        if isStandalone {
+            setupStandaloneTopBar()
+        }
     }
 
     // MARK: - Setup
 
-    private func setupTopBar() {
-        // Container for the floating bar (holds blur + shadow)
+    private func setupStandaloneTopBar() {
+        // Create top bar container with blur background
+        let topBar = UIView()
         topBar.translatesAutoresizingMaskIntoConstraints = false
         topBar.backgroundColor = .clear
-        view.addSubview(topBar)
+        standaloneTopBar = topBar
 
         // Blur background - match reader's style
         let blurEffect = UIBlurEffect(style: .systemThinMaterial)
@@ -81,7 +111,8 @@ public final class ChatContainerViewController: UIViewController {
         topBar.layer.shadowOffset = CGSize(width: 0, height: 2)
         topBar.layer.shadowRadius = 4
 
-        // Sidebar toggle button (left) - match reader's FloatingButton style
+        // Sidebar toggle button (left)
+        let sidebarButton = UIButton(type: .system)
         sidebarButton.translatesAutoresizingMaskIntoConstraints = false
         var sidebarConfig = UIButton.Configuration.plain()
         sidebarConfig.image = UIImage(systemName: "sidebar.left")
@@ -93,9 +124,11 @@ public final class ChatContainerViewController: UIViewController {
         sidebarButton.configuration = sidebarConfig
         sidebarButton.addTarget(self, action: #selector(toggleDrawer), for: .touchUpInside)
         sidebarButton.accessibilityIdentifier = "chat-sidebar-button"
+        standaloneSidebarButton = sidebarButton
         topBar.addSubview(sidebarButton)
 
         // Centered title (book name)
+        let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.text = context.bookTitle
         titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
@@ -107,20 +140,23 @@ public final class ChatContainerViewController: UIViewController {
         topBar.addSubview(titleLabel)
 
         // Done button (right) - standard iOS modal pattern
+        let closeButton = UIButton(type: .system)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         var closeConfig = UIButton.Configuration.plain()
         closeConfig.title = "Done"
         closeConfig.baseForegroundColor = .systemBlue
         closeConfig.contentInsets = .zero
-        // Use attributed title for proper font control
         closeConfig.attributedTitle = AttributedString("Done", attributes: AttributeContainer([
             .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
         ]))
         closeButton.configuration = closeConfig
         closeButton.addTarget(self, action: #selector(dismissChat), for: .touchUpInside)
+        standaloneCloseButton = closeButton
         topBar.addSubview(closeButton)
 
         let topBarHeight: CGFloat = 64
+
+        view.addSubview(topBar)
 
         NSLayoutConstraint.activate([
             // Floating bar with insets from edges
@@ -152,6 +188,18 @@ public final class ChatContainerViewController: UIViewController {
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: sidebarButton.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -8),
         ])
+
+        // Adjust content container top constraint for standalone mode
+        // Find and update the top constraint
+        for constraint in contentContainer.superview?.constraints ?? [] {
+            if constraint.firstItem as? UIView == contentContainer,
+               constraint.firstAttribute == .top
+            {
+                constraint.isActive = false
+            }
+        }
+
+        contentContainer.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8).isActive = true
     }
 
     private func setupContentContainer() {
@@ -159,8 +207,8 @@ public final class ChatContainerViewController: UIViewController {
         view.addSubview(contentContainer)
 
         NSLayoutConstraint.activate([
-            // Content starts below the floating bar (with a small gap)
-            contentContainer.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+            // Content fills the view (container manages top bar position)
+            contentContainer.topAnchor.constraint(equalTo: view.topAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -197,6 +245,8 @@ public final class ChatContainerViewController: UIViewController {
 
     private func setupChat() {
         chatViewController = BookChatViewController(context: context, selection: initialSelection)
+        chatViewController.topContentInset = topContentInset
+        chatViewController.bottomContentInset = bottomContentInset
 
         addChild(chatViewController)
         contentContainer.addSubview(chatViewController.view)
@@ -234,7 +284,7 @@ public final class ChatContainerViewController: UIViewController {
         }
     }
 
-    @objc private func toggleDrawer() {
+    @objc func toggleDrawer() {
         if isDrawerVisible {
             hideDrawer()
         } else {
@@ -311,12 +361,21 @@ public final class ChatContainerViewController: UIViewController {
 
     @objc private func dismissChat() {
         chatViewController.saveConversation()
-        dismiss(animated: true)
+
+        // Delegate to container if available
+        if let delegate = containerDelegate {
+            delegate.chatContainerDidRequestDismiss(self)
+        } else {
+            // Standalone mode - dismiss modally
+            dismiss(animated: true)
+        }
     }
 
     private func loadConversation(id: UUID) {
         // Create new chat with conversation
         let newChatViewController = BookChatViewController(context: context, selection: nil, conversationId: id)
+        newChatViewController.topContentInset = topContentInset
+        newChatViewController.bottomContentInset = bottomContentInset
         newChatViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Add new view first (underneath)
@@ -352,6 +411,8 @@ public final class ChatContainerViewController: UIViewController {
 
         // Create new chat
         let newChatViewController = BookChatViewController(context: context, selection: nil)
+        newChatViewController.topContentInset = topContentInset
+        newChatViewController.bottomContentInset = bottomContentInset
         newChatViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Add new view first (underneath)
