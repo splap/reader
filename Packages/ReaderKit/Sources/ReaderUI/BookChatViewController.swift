@@ -70,8 +70,6 @@ public final class BookChatViewController: UIViewController {
     private let modelButton = UIButton(type: .system)
     private let sendButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
-    private let statusBubble = UIView()
-    private let statusTextView = UITextView()
 
     private var messages: [ChatMessage] = []
     private var messageTraces: [UUID: AgentExecutionTrace] = [:]
@@ -247,25 +245,6 @@ public final class BookChatViewController: UIViewController {
         loadingIndicator.hidesWhenStopped = true
         buttonRow.addSubview(loadingIndicator)
 
-        // Status bubble - shows what we're waiting for
-        statusBubble.translatesAutoresizingMaskIntoConstraints = false
-        statusBubble.backgroundColor = .tertiarySystemFill
-        statusBubble.layer.cornerRadius = 12
-        statusBubble.isHidden = true
-        tableView.addSubview(statusBubble)
-
-        // Status text view inside bubble (selectable)
-        statusTextView.translatesAutoresizingMaskIntoConstraints = false
-        statusTextView.isEditable = false
-        statusTextView.isScrollEnabled = false
-        statusTextView.textContainerInset = .zero
-        statusTextView.textContainer.lineFragmentPadding = 0
-        statusTextView.backgroundColor = .clear
-        statusTextView.font = fontManager.captionFont
-        statusTextView.textColor = .secondaryLabel
-        statusTextView.textAlignment = .center
-        statusBubble.addSubview(statusTextView)
-
         // Layout
         let bottomConstraint = inputContainer.bottomAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14
@@ -316,17 +295,6 @@ public final class BookChatViewController: UIViewController {
 
             loadingIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
-
-            // Status bubble - positioned just above the input container, matching message bubble margins
-            statusBubble.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            statusBubble.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -60),
-            statusBubble.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
-
-            // Status text view inside bubble
-            statusTextView.topAnchor.constraint(equalTo: statusBubble.topAnchor, constant: 8),
-            statusTextView.leadingAnchor.constraint(equalTo: statusBubble.leadingAnchor, constant: 12),
-            statusTextView.trailingAnchor.constraint(equalTo: statusBubble.trailingAnchor, constant: -12),
-            statusTextView.bottomAnchor.constraint(equalTo: statusBubble.bottomAnchor, constant: -8),
         ])
     }
 
@@ -684,22 +652,8 @@ public final class BookChatViewController: UIViewController {
 
         if loading {
             loadingIndicator.startAnimating()
-            // Show status bubble with model name
-            statusTextView.text = "Waiting on \(OpenRouterConfig.modelDisplayName)..."
-            statusBubble.isHidden = false
-            statusBubble.alpha = 0
-            UIView.animate(withDuration: 0.2) {
-                self.statusBubble.alpha = 1
-            }
         } else {
             loadingIndicator.stopAnimating()
-            // Hide status bubble
-            UIView.animate(withDuration: 0.2) {
-                self.statusBubble.alpha = 0
-            } completion: { _ in
-                self.statusBubble.isHidden = true
-            }
-            // Restore focus to text field after loading completes
             textView.becomeFirstResponder()
         }
     }
