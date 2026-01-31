@@ -215,6 +215,9 @@ public final class ReaderContainerViewController: UIViewController {
         ]
 
         let trailingItems: [NavigationBarItem] = [
+            .button(systemImage: "info.circle", accessibilityLabel: "Debug Transcript") { [weak self] in
+                self?.chatContainerViewController?.showDebugTranscript()
+            },
             .textButton(title: "Done") { [weak self] in
                 self?.showReader()
             },

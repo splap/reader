@@ -438,4 +438,11 @@ public final class ChatContainerViewController: UIViewController {
         // Update reference
         chatViewController = newChatViewController
     }
+
+    /// Shows the debug transcript in a full-screen view
+    func showDebugTranscript() {
+        let transcript = chatViewController.buildDebugTranscript()
+        let debugVC = DebugTranscriptViewController(transcript: transcript)
+        present(debugVC, animated: true)
+    }
 }
