@@ -1153,7 +1153,11 @@ public final class NativePageViewController: UIViewController, PageRenderer {
 // MARK: - UIScrollViewDelegate
 
 extension NativePageViewController: UIScrollViewDelegate {
-    public func scrollViewDidScroll(_: UIScrollView) {
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Prevent any vertical scrolling - only allow horizontal
+        if scrollView.contentOffset.y != 0 {
+            scrollView.contentOffset.y = 0
+        }
         // Update visible views during scroll for smooth lazy loading
         updateVisibleViews()
     }
