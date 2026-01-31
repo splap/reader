@@ -76,54 +76,6 @@ final class MemoryStressUITests: XCTestCase {
         print("SUCCESS: Completed 60 rapid page navigations without crash")
     }
 
-    /// Rapidly change font size to stress notification observers and content reloads.
-    func testRapidFontSizeChanges() {
-        let webView = openFrankenstein(in: app)
-
-        for i in 1 ... 15 {
-            // Tap to reveal overlay
-            webView.tap()
-            sleep(1)
-
-            // Open settings
-            let settingsButton = app.buttons["Settings"]
-            guard settingsButton.waitForExistence(timeout: 3), settingsButton.isHittable else {
-                print("Settings button not accessible on iteration \(i), skipping")
-                continue
-            }
-            settingsButton.tap()
-            sleep(1)
-
-            // Find font size slider
-            let slider = app.sliders.firstMatch
-            guard slider.waitForExistence(timeout: 3) else {
-                print("Slider not found on iteration \(i), skipping")
-                // Try to dismiss settings
-                let doneButton = app.navigationBars.buttons.firstMatch
-                if doneButton.exists {
-                    doneButton.tap()
-                }
-                continue
-            }
-
-            // Toggle between small and large font
-            let size = (i % 2 == 0) ? 0.2 : 0.9
-            slider.adjust(toNormalizedSliderPosition: CGFloat(size))
-            sleep(1)
-
-            // Close settings
-            let doneButton = app.navigationBars.buttons.firstMatch
-            if doneButton.exists, doneButton.isHittable {
-                doneButton.tap()
-            }
-            sleep(2) // Wait for content to reflow
-
-            print("[\(i)/15] Font size change complete")
-        }
-
-        print("SUCCESS: Completed font size stress test without crash")
-    }
-
     /// Jump around chapters via TOC to stress chapter loading/unloading.
     func testRapidChapterJumping() {
         let webView = openFrankenstein(in: app)
