@@ -24,8 +24,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let isUITesting = CommandLine.arguments.contains("--uitesting")
         let keepUIState = CommandLine.arguments.contains("--uitesting-keep-state")
         let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
-        let useWebView = CommandLine.arguments.contains("--uitesting-webview")
-        let useNative = CommandLine.arguments.contains("--uitesting-native")
+        _ = CommandLine.arguments.contains("--uitesting-webview") // Ignored, WebView is only renderer
+        _ = CommandLine.arguments.contains("--uitesting-native") // Ignored, native renderer removed
         let cleanAllData = CommandLine.arguments.contains("--uitesting-clean-all-data")
         let uitestingBook = Self.parseArgument("--uitesting-book=")
         let uitestingSpineItem = Self.parseIntArgument("--uitesting-spine-item=")
@@ -37,13 +37,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         } else if isUITesting, !keepUIState {
             NSLog("🧪 UI Testing mode detected - clearing app state")
             clearAppStateForTesting()
-        }
-
-        // Set render mode for UI testing
-        if useWebView {
-            ReaderPreferences.shared.renderMode = .webView
-        } else if useNative {
-            ReaderPreferences.shared.renderMode = .native
         }
 
         // Copy bundled books on first launch, then scan for all test books
@@ -316,13 +309,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             exit(1)
         }
 
-        // Parse optional chapter/cfi/renderer/font-scale
+        // Parse optional chapter/cfi/font-scale (renderer arg ignored, WebView only)
         let chapterIndex = Self.parseIntArgument("--screenshot-chapter=")
         let cfiString = Self.parseArgument("--screenshot-cfi=")
-        let rendererArg = Self.parseArgument("--screenshot-renderer=")
+        _ = Self.parseArgument("--screenshot-renderer=") // Ignored, native renderer removed
         let fontScaleArg = Self.parseArgument("--screenshot-font-scale=")
 
-        NSLog("📸 Config: book=\(bookSlug), chapter=\(String(describing: chapterIndex)), cfi=\(String(describing: cfiString)), output=\(outputPath), renderer=\(String(describing: rendererArg))")
+        NSLog("📸 Config: book=\(bookSlug), chapter=\(String(describing: chapterIndex)), cfi=\(String(describing: cfiString)), output=\(outputPath)")
 
         // Copy bundled books and scan for test books
         copyBundledBooksIfNeeded()
@@ -346,22 +339,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 NSLog("📸 ERROR: Invalid CFI format: \(cfi)")
                 exit(1)
             }
-        }
-
-        // Set renderer mode (default to webView for screenshot mode)
-        if let renderer = rendererArg {
-            switch renderer.lowercased() {
-            case "native":
-                ReaderPreferences.shared.renderMode = .native
-            case "webview", "html":
-                ReaderPreferences.shared.renderMode = .webView
-            default:
-                NSLog("📸 WARNING: Unknown renderer '\(renderer)', using webView")
-                ReaderPreferences.shared.renderMode = .webView
-            }
-        } else {
-            // Default to webView for screenshot mode (HTML renderer matches reference server)
-            ReaderPreferences.shared.renderMode = .webView
         }
 
         // Set font scale if specified (default 1.0 for consistent comparison)

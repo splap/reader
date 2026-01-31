@@ -9,11 +9,9 @@ public enum UITestChapter {
             body += "<div style=\"break-after: column; -webkit-column-break-after: always;\">Page \(index)</div>"
         }
         let html = "<div id=\"pagination-container\">\(body)</div>"
-        let section = HTMLSection(html: html, basePath: "", imageCache: [:], cssContent: nil)
-        let attributed = NSAttributedString(string: "UI Test Position")
+        let section = HTMLSection(html: html, basePath: "", spineItemId: "chapter1")
         return Chapter(
             id: "uitest-position",
-            attributedText: attributed,
             htmlSections: [section],
             title: "UI Test Position"
         )

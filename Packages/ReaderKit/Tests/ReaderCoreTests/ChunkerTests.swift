@@ -100,13 +100,11 @@ final class ChunkerTests: XCTestCase {
 
         let chapter1 = Chapter(
             id: "ch1",
-            attributedText: NSAttributedString(string: "Chapter 1 content"),
             htmlSections: [HTMLSection(html: "<p>Chapter 1 content</p>", basePath: "", blocks: blocks1, spineItemId: "ch1")],
             title: "Chapter 1"
         )
         let chapter2 = Chapter(
             id: "ch2",
-            attributedText: NSAttributedString(string: "Chapter 2 content"),
             htmlSections: [HTMLSection(html: "<p>Chapter 2 content</p>", basePath: "", blocks: blocks2, spineItemId: "ch2")],
             title: "Chapter 2"
         )

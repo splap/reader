@@ -32,10 +32,6 @@ public final class ReaderViewController: UIViewController {
     private var topBarContainer: UIView!
     private var titleLabel: UILabel!
 
-    // Loading overlay for renderer switch
-    private var loadingOverlay: UIView?
-    private var awaitingRendererReady = false
-
     // Spine (chapter) tracking for progress display
     private var currentSpineIndex: Int = 0
     private var totalSpineItems: Int = 0
@@ -91,14 +87,6 @@ public final class ReaderViewController: UIViewController {
         let showOverlay = CommandLine.arguments.contains("--uitesting-show-overlay")
         // Start with overlay hidden unless UI tests request it visible.
         setOverlayVisible(showOverlay, animated: false)
-
-        // Observe render mode changes
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(renderModeDidChange(_:)),
-            name: ReaderPreferences.renderModeDidChangeNotification,
-            object: nil
-        )
     }
 
     override public func viewWillAppear(_ animated: Bool) {
@@ -128,34 +116,16 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func setupWebPageViewController() {
-        // Create renderer based on current preference
-        let renderer: PageRenderer
-        let renderMode = ReaderPreferences.shared.renderMode
-
-        switch renderMode {
-        case .native:
-            renderer = NativePageViewController(
-                htmlSections: chapter.htmlSections,
-                bookId: bookId,
-                bookTitle: bookTitle,
-                bookAuthor: bookAuthor,
-                chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale,
-                initialCFI: viewModel.initialCFI,
-                hrefToSpineItemId: chapter.hrefToSpineItemId
-            )
-
-        case .webView:
-            renderer = WebPageViewController(
-                htmlSections: chapter.htmlSections,
-                bookTitle: bookTitle,
-                bookAuthor: bookAuthor,
-                chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale,
-                initialCFI: viewModel.initialCFI,
-                hrefToSpineItemId: chapter.hrefToSpineItemId
-            )
-        }
+        // Create WebView renderer
+        let renderer = WebPageViewController(
+            htmlSections: chapter.htmlSections,
+            bookTitle: bookTitle,
+            bookAuthor: bookAuthor,
+            chapterTitle: chapter.title,
+            fontScale: viewModel.fontScale,
+            initialCFI: viewModel.initialCFI,
+            hrefToSpineItemId: chapter.hrefToSpineItemId
+        )
 
         // Configure callbacks
         renderer.onSendToLLM = { [weak self] selection in
@@ -173,27 +143,14 @@ public final class ReaderViewController: UIViewController {
             self?.viewModel.setCurrentSpineIndex(spineIndex)
             self?.updateScrubber()
         }
-        // Block position tracking removed - CFI is the only position mechanism
         renderer.onRenderReady = { [weak self] in
             NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
         }
         renderer.onCFIPositionChanged = { [weak self] cfi, spineIndex in
             self?.viewModel.updateCFIPosition(cfi: cfi, spineIndex: spineIndex)
         }
-
-        // Hook up loading progress callback (WebView renderer only)
-        if let webRenderer = renderer as? WebPageViewController {
-            webRenderer.onLoadingProgress = { [weak self] loaded, total in
-                self?.updateLoadingProgress(loaded: loaded, total: total)
-            }
-        }
-
-        // Hook up internal link navigation callback (native renderer only)
-        if let nativeRenderer = renderer as? NativePageViewController {
-            nativeRenderer.onInternalLinkTapped = { [weak self] spineItemId, _ in
-                // Navigate to the target spine item
-                self?.pageRenderer?.navigateToSpineItem(spineItemId, animated: false)
-            }
+        renderer.onLoadingProgress = { [weak self] loaded, total in
+            self?.updateLoadingProgress(loaded: loaded, total: total)
         }
 
         pageRenderer = renderer
@@ -636,185 +593,6 @@ public final class ReaderViewController: UIViewController {
             }
         }
         return nil
-    }
-
-    // MARK: - Render Mode Switching
-
-    @objc private func renderModeDidChange(_ notification: Notification) {
-        guard let newMode = notification.object as? RenderMode else { return }
-        switchRenderer(to: newMode)
-    }
-
-    private func switchRenderer(to mode: RenderMode) {
-        // Mark that we're waiting for renderer to be ready
-        awaitingRendererReady = true
-
-        // Show loading overlay
-        showLoadingOverlay(message: "Switching to \(mode.displayName) renderer...")
-
-        // Delay slightly to allow overlay to appear
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.performRendererSwitch(to: mode)
-        }
-    }
-
-    private func performRendererSwitch(to mode: RenderMode) {
-        // Remove old renderer
-        let oldRendererVC = pageRenderer.viewController
-        oldRendererVC.willMove(toParent: nil)
-        oldRendererVC.view.removeFromSuperview()
-        oldRendererVC.removeFromParent()
-
-        // Create new renderer
-        let renderer: PageRenderer = switch mode {
-        case .native:
-            NativePageViewController(
-                htmlSections: chapter.htmlSections,
-                bookId: bookId,
-                bookTitle: bookTitle,
-                bookAuthor: bookAuthor,
-                chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale,
-                initialCFI: viewModel.currentCFI,
-                hrefToSpineItemId: chapter.hrefToSpineItemId
-            )
-
-        case .webView:
-            WebPageViewController(
-                htmlSections: chapter.htmlSections,
-                bookTitle: bookTitle,
-                bookAuthor: bookAuthor,
-                chapterTitle: chapter.title,
-                fontScale: viewModel.fontScale,
-                initialCFI: viewModel.currentCFI,
-                hrefToSpineItemId: chapter.hrefToSpineItemId
-            )
-        }
-
-        // Configure callbacks
-        renderer.onSendToLLM = { [weak self] selection in
-            self?.openChatWithSelection(selection)
-        }
-        renderer.onPageChanged = { [weak self] newPage, totalPages in
-            self?.viewModel.updateCurrentPage(newPage, totalPages: totalPages)
-            self?.updateScrubber()
-            self?.maybePerformUITestJump(totalPages: totalPages)
-
-            // Hide loading overlay when renderer reports first page (content is ready)
-            if self?.awaitingRendererReady == true {
-                self?.awaitingRendererReady = false
-                self?.hideLoadingOverlay()
-            }
-        }
-        renderer.onSpineChanged = { [weak self] spineIndex, totalSpines in
-            self?.currentSpineIndex = spineIndex
-            self?.totalSpineItems = totalSpines
-            self?.viewModel.setCurrentSpineIndex(spineIndex)
-            self?.updateScrubber()
-        }
-        // Block position tracking removed - CFI is the only position mechanism
-        renderer.onRenderReady = { [weak self] in
-            NotificationCenter.default.post(name: ReaderPreferences.readerRenderReadyNotification, object: nil)
-        }
-        renderer.onCFIPositionChanged = { [weak self] cfi, spineIndex in
-            self?.viewModel.updateCFIPosition(cfi: cfi, spineIndex: spineIndex)
-        }
-
-        // Hook up loading progress callback (WebView renderer only)
-        if let webRenderer = renderer as? WebPageViewController {
-            webRenderer.onLoadingProgress = { [weak self] loaded, total in
-                self?.updateLoadingProgress(loaded: loaded, total: total)
-            }
-        }
-
-        // Hook up internal link navigation callback (native renderer only)
-        if let nativeRenderer = renderer as? NativePageViewController {
-            nativeRenderer.onInternalLinkTapped = { [weak self] spineItemId, _ in
-                // Navigate to the target spine item
-                self?.pageRenderer?.navigateToSpineItem(spineItemId, animated: false)
-            }
-        }
-
-        pageRenderer = renderer
-
-        // Add new renderer
-        let rendererVC = renderer.viewController
-        addChild(rendererVC)
-        view.insertSubview(rendererVC.view, at: 0)
-        rendererVC.view.frame = view.bounds
-        rendererVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        rendererVC.didMove(toParent: self)
-
-        // Ensure overlay elements are on top
-        view.bringSubviewToFront(topBarContainer)
-        view.bringSubviewToFront(scrubberContainer)
-        if let overlay = loadingOverlay {
-            view.bringSubviewToFront(overlay)
-        }
-
-        // Fallback: hide overlay after 10 seconds if callback never fires
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-            if self?.awaitingRendererReady == true {
-                self?.awaitingRendererReady = false
-                self?.hideLoadingOverlay()
-            }
-        }
-    }
-
-    private func showLoadingOverlay(message: String) {
-        // Remove existing overlay if any
-        loadingOverlay?.removeFromSuperview()
-
-        let overlay = UIView()
-        overlay.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let spinner = UIActivityIndicatorView(style: .large)
-        spinner.startAnimating()
-
-        let label = UILabel()
-        label.text = message
-        label.font = .systemFont(ofSize: 16, weight: .medium)
-        label.textColor = .label
-        label.textAlignment = .center
-
-        stack.addArrangedSubview(spinner)
-        stack.addArrangedSubview(label)
-        overlay.addSubview(stack)
-
-        view.addSubview(overlay)
-        loadingOverlay = overlay
-
-        NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: view.topAnchor),
-            overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
-        ])
-
-        overlay.alpha = 0
-        UIView.animate(withDuration: 0.2) {
-            overlay.alpha = 1
-        }
-    }
-
-    private func hideLoadingOverlay() {
-        guard let overlay = loadingOverlay else { return }
-        UIView.animate(withDuration: 0.2, animations: {
-            overlay.alpha = 0
-        }, completion: { _ in
-            overlay.removeFromSuperview()
-            self.loadingOverlay = nil
-        })
     }
 }
 

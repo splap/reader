@@ -5,14 +5,15 @@ import ZIPFoundation
 
 /// Shared test utilities for ReaderCore tests
 enum TestHelpers {
-    /// Creates a chapter with repeated Lorem ipsum text for pagination testing
+    /// Creates a chapter with repeated Lorem ipsum text for testing
     static func makeChapter() -> Chapter {
         let text = String(repeating: "Lorem ipsum dolor sit amet. ", count: 400)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 14),
-        ]
-        let attributedText = NSAttributedString(string: text, attributes: attributes)
-        return Chapter(id: "sample", attributedText: attributedText, title: "Sample")
+        let section = HTMLSection(
+            html: "<p>\(text)</p>",
+            basePath: "",
+            spineItemId: "chapter1"
+        )
+        return Chapter(id: "sample", htmlSections: [section], title: "Sample")
     }
 
     /// Creates a minimal valid EPUB file for testing

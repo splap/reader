@@ -1,19 +1,6 @@
 import Foundation
 import UIKit
 
-/// Rendering mode for book content
-public enum RenderMode: String, Codable, CaseIterable {
-    case native
-    case webView = "webview"
-
-    public var displayName: String {
-        switch self {
-        case .native: "Native"
-        case .webView: "HTML"
-        }
-    }
-}
-
 /// Appearance mode for the reader
 public enum AppearanceMode: Int, CaseIterable {
     case dark = 0
@@ -43,34 +30,16 @@ public final class ReaderPreferences {
 
     // MARK: - Notifications
 
-    public static let renderModeDidChangeNotification = Notification.Name("ReaderPreferences.renderModeDidChange")
     public static let appearanceModeDidChangeNotification = Notification.Name("ReaderPreferences.appearanceModeDidChange")
     public static let marginSizeDidChangeNotification = Notification.Name("ReaderPreferences.marginSizeDidChange")
     public static let readerRenderReadyNotification = Notification.Name("ReaderPreferences.readerRenderReady")
 
     // MARK: - Keys
 
-    private static let renderModeKey = "ReaderRenderMode"
     private static let appearanceModeKey = "AppearanceMode"
     private static let marginSizeKey = "ReaderMarginSize"
 
     // MARK: - Properties
-
-    /// Current render mode (native attributed strings or WebView HTML)
-    public var renderMode: RenderMode {
-        get {
-            guard let stored = UserDefaults.standard.string(forKey: Self.renderModeKey),
-                  let mode = RenderMode(rawValue: stored)
-            else {
-                return .webView // Default to HTML
-            }
-            return mode
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: Self.renderModeKey)
-            NotificationCenter.default.post(name: Self.renderModeDidChangeNotification, object: newValue)
-        }
-    }
 
     /// Convenience accessor to FontScaleManager's font scale
     public var fontScale: CGFloat {

@@ -143,8 +143,7 @@ run_tests() {
     "  \"bookPageOffset\": ${BOOK_PAGE_OFFSET:-0}," \
     "  \"chapter\": \"${CHAPTER:-0}\"," \
     "  \"page\": \"${PAGE:-1}\"," \
-    "  \"chapterCount\": \"${CHAPTER_COUNT:-5}\"," \
-    "  \"renderer\": \"${RENDERER:-html}\"" \
+    "  \"chapterCount\": \"${CHAPTER_COUNT:-5}\"" \
     '}' > /tmp/reader-tests/test-config.json
 
   xcodebuild_args+=(test)

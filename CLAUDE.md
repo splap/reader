@@ -56,7 +56,6 @@ Read the output file afterward. Never pipe it.
 ### Clearing App Data (--clean)
 
 Use `./scripts/run --clean` to clear all cached app data before launching. This removes:
-- Page layout cache (`page_layouts.sqlite`)
 - Search indices (`book_index.sqlite`, `vectors/`)
 - AI-generated content (`concept_maps/`, `book_synopses/`, `chapter_summaries/`)
 - Documents folder contents

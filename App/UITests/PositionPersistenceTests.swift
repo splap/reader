@@ -23,7 +23,6 @@ final class PositionPersistenceTests: XCTestCase {
         app.launchArguments = [
             "--uitesting",
             "--uitesting-skip-indexing",
-            rendererArgument,
             "--uitesting-clean-all-data",
         ]
         app.launch()
@@ -145,7 +144,6 @@ final class PositionPersistenceTests: XCTestCase {
         app.launchArguments = [
             "--uitesting",
             "--uitesting-keep-state",
-            rendererArgument,
         ]
         app.launch()
 
@@ -210,7 +208,7 @@ final class PositionPersistenceTests: XCTestCase {
 
         // Open Frankenstein with clean state
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting", rendererArgument, "--uitesting-clean-all-data"]
+        app.launchArguments = ["--uitesting", "--uitesting-clean-all-data"]
         app.launch()
 
         let libraryNavBar = app.navigationBars["Library"]
@@ -290,7 +288,7 @@ final class PositionPersistenceTests: XCTestCase {
         print("Relaunching app to test position restoration...")
         app.terminate()
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting", rendererArgument, "--uitesting-keep-state"]
+        app.launchArguments = ["--uitesting", "--uitesting-keep-state"]
         app.launch()
 
         // App may auto-open to the last book (reader) or show library

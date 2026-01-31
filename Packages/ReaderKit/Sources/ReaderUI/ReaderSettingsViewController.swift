@@ -47,7 +47,7 @@ public final class ReaderSettingsViewController: UITableViewController {
     // MARK: - Table View
 
     override public func numberOfSections(in _: UITableView) -> Int {
-        5
+        4
     }
 
     override public func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -55,8 +55,7 @@ public final class ReaderSettingsViewController: UITableViewController {
         case 0: 1 // Appearance
         case 1: 1 // Font size
         case 2: 1 // Margins
-        case 3: 1 // Render mode
-        case 4: 2 // API key + link
+        case 3: 2 // API key + link
         default: 0
         }
     }
@@ -66,17 +65,13 @@ public final class ReaderSettingsViewController: UITableViewController {
         case 0: "Appearance"
         case 1: "Font Size"
         case 2: "Margins"
-        case 3: "Rendering"
-        case 4: "OpenRouter API"
+        case 3: "OpenRouter API"
         default: nil
         }
     }
 
     override public func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == 3 {
-            return "Native uses iOS text rendering for cleaner layout. HTML preserves original formatting."
-        }
-        if section == 4 {
             return "Your API key is stored securely on device and only used to call the LLM when you select text."
         }
         return nil
@@ -91,8 +86,6 @@ public final class ReaderSettingsViewController: UITableViewController {
         case 2:
             marginSizeCell()
         case 3:
-            renderModeCell()
-        case 4:
             if indexPath.row == 0 {
                 apiKeyCell()
             } else {
@@ -108,9 +101,7 @@ public final class ReaderSettingsViewController: UITableViewController {
 
         if indexPath.section == 0 {
             showAppearanceModePicker()
-        } else if indexPath.section == 3 {
-            showRenderModePicker()
-        } else if indexPath.section == 4, indexPath.row == 1 {
+        } else if indexPath.section == 3, indexPath.row == 1 {
             // Open OpenRouter link
             if let url = URL(string: "https://openrouter.ai/keys") {
                 UIApplication.shared.open(url)
@@ -261,16 +252,6 @@ public final class ReaderSettingsViewController: UITableViewController {
         return cell
     }
 
-    private func renderModeCell() -> UITableViewCell {
-        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
-        cell.textLabel?.text = "Renderer"
-        cell.textLabel?.font = fontManager.bodyFont
-        cell.detailTextLabel?.text = ReaderPreferences.shared.renderMode.displayName
-        cell.detailTextLabel?.font = fontManager.bodyFont
-        cell.accessoryType = .disclosureIndicator
-        return cell
-    }
-
     private func appearanceModeCell() -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
         cell.textLabel?.text = "Theme"
@@ -354,30 +335,6 @@ public final class ReaderSettingsViewController: UITableViewController {
         {
             label.text = "\(Int(value))px"
         }
-    }
-
-    private func showRenderModePicker() {
-        let alert = UIAlertController(title: "Select Renderer", message: nil, preferredStyle: .actionSheet)
-
-        for mode in RenderMode.allCases {
-            let action = UIAlertAction(title: mode.displayName, style: .default) { [weak self] _ in
-                ReaderPreferences.shared.renderMode = mode
-                self?.tableView.reloadRows(at: [IndexPath(row: 0, section: 3)], with: .automatic)
-            }
-            if mode == ReaderPreferences.shared.renderMode {
-                action.setValue(true, forKey: "checked")
-            }
-            alert.addAction(action)
-        }
-
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = tableView
-            popover.sourceRect = tableView.rectForRow(at: IndexPath(row: 0, section: 3))
-        }
-
-        present(alert, animated: true)
     }
 
     private func showAppearanceModePicker() {

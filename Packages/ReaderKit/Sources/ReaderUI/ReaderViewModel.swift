@@ -23,7 +23,6 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    @Published var pages: [Page] = []
     @Published var currentPageIndex: Int = 0
     @Published var totalPages: Int = 0
     @Published var fontScale: CGFloat = FontScaleManager.shared.fontScale
@@ -33,12 +32,9 @@ final class ReaderViewModel: ObservableObject {
     @Published var currentCFI: String?
     @Published var currentSpineIndex: Int = 0
 
-    private let engine: TextEngine
     private let cfiPositionStore: CFIPositionStoring
     let chapterId: String
     let bookId: String
-    private var lastPageSize: CGSize = .zero
-    private var lastInsets: UIEdgeInsets = .zero
 
     // Initial CFI to navigate to after content loads
     private(set) var initialCFI: String?
@@ -48,7 +44,6 @@ final class ReaderViewModel: ObservableObject {
         bookId: String? = nil,
         cfiPositionStore: CFIPositionStoring = UserDefaultsCFIPositionStore()
     ) {
-        engine = TextEngine(chapter: chapter)
         self.cfiPositionStore = cfiPositionStore
         chapterId = chapter.id
         self.bookId = bookId ?? chapter.id
@@ -70,22 +65,6 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    func updateLayout(pageSize: CGSize, insets: UIEdgeInsets) {
-        guard pageSize != .zero else { return }
-
-        lastPageSize = pageSize
-        lastInsets = insets
-
-        let result = engine.paginate(pageSize: pageSize, insets: insets, fontScale: fontScale)
-        pages = result.pages
-
-        #if DEBUG
-            Self.logger.debug(
-                "paginate size=\(pageSize.width)x\(pageSize.height) pages=\(pages.count)"
-            )
-        #endif
-    }
-
     func updateCurrentPage(_ index: Int, totalPages: Int = 0) {
         currentPageIndex = index
         if totalPages > 0 {
@@ -101,17 +80,6 @@ final class ReaderViewModel: ObservableObject {
     func updateFontScale(_ scale: CGFloat) {
         fontScale = scale
         FontScaleManager.shared.fontScale = scale
-        updateLayout(pageSize: lastPageSize, insets: lastInsets)
-    }
-
-    func navigateToNextPage() {
-        guard currentPageIndex < pages.count - 1 else { return }
-        currentPageIndex += 1
-    }
-
-    func navigateToPreviousPage() {
-        guard currentPageIndex > 0 else { return }
-        currentPageIndex -= 1
     }
 
     // MARK: - CFI Position Tracking

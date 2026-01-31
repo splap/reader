@@ -78,7 +78,7 @@ final class VisualDebugUITests: XCTestCase {
         XCTAssertTrue(readerView.waitForExistence(timeout: 15), "Reader view should load")
         sleep(3) // Let content render
 
-        print("Opened book directly via CFI (renderer: \(isNativeRenderer ? "native" : "html"))")
+        print("Opened book directly via CFI")
 
         // Swipe forward if page offset specified
         if pageOffset > 0 {

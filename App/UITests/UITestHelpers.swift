@@ -1,61 +1,23 @@
 import XCTest
 
 extension XCTestCase {
-    /// Reads the renderer setting from test config file written by scripts/test
-    /// - Returns: The renderer type ("native" or "html")
-    private var configuredRenderer: String {
-        let configPath = "/tmp/reader-tests/test-config.json"
-        guard FileManager.default.fileExists(atPath: configPath),
-              let data = FileManager.default.contents(atPath: configPath),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let renderer = json["renderer"] as? String
-        else {
-            return "html"
-        }
-        return renderer.lowercased()
-    }
-
-    /// Whether tests should use the native renderer (set via RENDERER=native environment variable)
-    var isNativeRenderer: Bool {
-        configuredRenderer == "native"
-    }
-
-    /// Returns the appropriate renderer argument based on test configuration
-    /// Use this when building custom launch arguments instead of launchReaderApp()
-    var rendererArgument: String {
-        isNativeRenderer ? "--uitesting-native" : "--uitesting-webview"
-    }
-
     /// Launches the Reader app with standard UI testing arguments
     /// - Parameter extraArgs: Additional launch arguments to append
     /// - Returns: The launched XCUIApplication instance
     func launchReaderApp(extraArgs: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         var args = ["--uitesting", "--uitesting-skip-indexing"]
-
-        // Check config file for renderer selection (RENDERER env var passed via scripts/test)
-        if isNativeRenderer {
-            args.append("--uitesting-native")
-        } else {
-            args.append("--uitesting-webview")
-        }
-
         args.append(contentsOf: extraArgs)
         app.launchArguments = args
         app.launch()
         return app
     }
 
-    /// Returns the reader content view based on the current renderer mode
-    /// For native renderer, uses the accessibility identifier; for WebView, uses webViews query
+    /// Returns the reader content view (WebView)
     /// - Parameter app: The XCUIApplication instance
     /// - Returns: The reader content view element
     func getReaderView(in app: XCUIApplication) -> XCUIElement {
-        if isNativeRenderer {
-            app.otherElements["reader-content-view"].firstMatch
-        } else {
-            app.webViews.firstMatch
-        }
+        app.webViews.firstMatch
     }
 
     /// Helper to find a book cell by partial title match
