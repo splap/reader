@@ -321,6 +321,9 @@ public final class ReaderContainerViewController: UIViewController {
 
         Self.logger.info("Transitioning to reader mode")
 
+        // Save conversation before transitioning away
+        chatContainerViewController?.saveChat()
+
         // Make reader visible again
         readerViewController.view.isHidden = false
 

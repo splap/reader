@@ -359,6 +359,11 @@ public final class ChatContainerViewController: UIViewController {
         originConversationId = nil
     }
 
+    /// Saves the current chat conversation (called by container before transitioning away)
+    func saveChat() {
+        chatViewController.saveConversation()
+    }
+
     @objc private func dismissChat() {
         chatViewController.saveConversation()
 
