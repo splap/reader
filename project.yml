@@ -16,6 +16,14 @@ targets:
     platform: iOS
     info:
       path: App/Info.plist
+      properties:
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UILaunchScreen:
+          UIColorName: systemBackground
     sources:
       - path: App/Sources
       - path: App/Resources
