@@ -346,6 +346,7 @@ public final class ReaderViewController: UIViewController {
         if let delegate = containerDelegate {
             delegate.readerViewControllerDidRequestOverlayToggle(self)
         } else {
+            // Standalone mode (no container) - only toggle scrubber
             setOverlayVisible(!overlayVisible, animated: true)
         }
     }
@@ -754,8 +755,8 @@ public final class ReaderViewController: UIViewController {
     /// Check if layout has changed and restart page counting if needed
     /// Called after every page change (which happens after any reflow)
     private func checkLayoutForPageCounting() {
-        // Only count for multi-chapter books
-        guard chapter.htmlSections.count > 1 else { return }
+        // Only count for multi-chapter books with lazy loading
+        guard let lazy = lazyChapter, lazy.sectionCount > 1 else { return }
 
         guard let currentKey = currentLayoutKey() else { return }
 
@@ -765,7 +766,7 @@ public final class ReaderViewController: UIViewController {
         // Layout changed - start or restart counting
         Self.logger.info("Layout changed, starting page count with: \(currentKey.hashString)")
         countingLayoutKey = currentKey
-        viewModel.startGlobalPageCounting(htmlSections: chapter.htmlSections, layoutKey: currentKey)
+        viewModel.startGlobalPageCounting(lazyChapter: lazy, layoutKey: currentKey)
     }
 }
 

@@ -113,12 +113,12 @@ final class ReaderViewModel: ObservableObject {
 
     // MARK: - Global Page Count
 
-    /// Start background page counting for the book
+    /// Start background page counting for the book using lazy loading
     /// - Parameters:
-    ///   - htmlSections: The HTML sections (spine items) to count
+    ///   - lazyChapter: The lazy chapter to count pages for
     ///   - layoutKey: Current layout configuration
     @MainActor
-    func startGlobalPageCounting(htmlSections: [HTMLSection], layoutKey: LayoutKey) {
+    func startGlobalPageCounting(lazyChapter: LazyChapter, layoutKey: LayoutKey) {
         let counter = BackgroundPageCounter()
         pageCounter = counter
 
@@ -130,12 +130,12 @@ final class ReaderViewModel: ObservableObject {
             }
 
         counter.startCounting(
-            htmlSections: htmlSections,
-            bookId: bookId,
+            lazyChapter: lazyChapter,
+            bookId: bookId, // Use the actual book UUID, not lazyChapter.id (which is the filename)
             layoutKey: layoutKey
         )
 
-        Self.logger.info("Started global page counting for \(htmlSections.count) spine items")
+        Self.logger.info("Started global page counting for \(lazyChapter.sectionCount) spine items, bookId=\(bookId)")
     }
 
     /// Cancel any in-progress page counting

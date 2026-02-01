@@ -167,4 +167,121 @@ final class BookPageCountsTests: XCTestCase {
         XCTAssertEqual(result.spineIndex, 2)
         XCTAssertEqual(result.localPage, 7)
     }
+
+    // MARK: - Cache Tests
+
+    func testCacheIsolatesDifferentBooks() async {
+        // This test verifies that different books have separate cache entries
+        let cache = BookPageCountsCache.shared
+        await cache.invalidateAll()
+
+        let layoutKey = LayoutKey(fontScale: 1.0, marginSize: 32, viewportWidth: 800, viewportHeight: 600)
+
+        // Create page counts for two different books
+        let book1Counts = BookPageCounts(
+            bookId: "book-uuid-1",
+            layoutKey: layoutKey,
+            spinePageCounts: [10, 5, 8] // 23 pages
+        )
+
+        let book2Counts = BookPageCounts(
+            bookId: "book-uuid-2",
+            layoutKey: layoutKey,
+            spinePageCounts: [20, 30, 40] // 90 pages
+        )
+
+        // Cache both
+        await cache.set(book1Counts)
+        await cache.set(book2Counts)
+
+        // Retrieve and verify they're different
+        let retrieved1 = await cache.get(bookId: "book-uuid-1", layoutKey: layoutKey)
+        let retrieved2 = await cache.get(bookId: "book-uuid-2", layoutKey: layoutKey)
+
+        XCTAssertNotNil(retrieved1)
+        XCTAssertNotNil(retrieved2)
+        XCTAssertEqual(retrieved1?.totalPages, 23, "Book 1 should have 23 pages")
+        XCTAssertEqual(retrieved2?.totalPages, 90, "Book 2 should have 90 pages")
+        XCTAssertNotEqual(retrieved1?.totalPages, retrieved2?.totalPages,
+                          "Different books should have different page counts")
+    }
+
+    func testCacheDistinguishesSameFilenameDifferentBooks() async {
+        // This is the critical test: books stored as {uuid}/book.epub should be cached separately
+        // The cache key must use the actual book UUID, not the filename
+        let cache = BookPageCountsCache.shared
+        await cache.invalidateAll()
+
+        let layoutKey = LayoutKey(fontScale: 1.0, marginSize: 32, viewportWidth: 800, viewportHeight: 600)
+
+        // Simulate two books that would have the same filename (book.epub) but different UUIDs
+        let counts1 = BookPageCounts(
+            bookId: "7E2B1B63-C2A6-412B-A232-99A058613037", // Real UUID from library
+            layoutKey: layoutKey,
+            spinePageCounts: [5, 5, 5] // 15 pages
+        )
+
+        let counts2 = BookPageCounts(
+            bookId: "8F3C2D74-D3B7-523C-B343-AA169614724", // Different UUID
+            layoutKey: layoutKey,
+            spinePageCounts: [100, 200, 300] // 600 pages
+        )
+
+        await cache.set(counts1)
+        await cache.set(counts2)
+
+        // Each book should get its own page count
+        let retrieved1 = await cache.get(bookId: "7E2B1B63-C2A6-412B-A232-99A058613037", layoutKey: layoutKey)
+        let retrieved2 = await cache.get(bookId: "8F3C2D74-D3B7-523C-B343-AA169614724", layoutKey: layoutKey)
+
+        XCTAssertEqual(retrieved1?.totalPages, 15)
+        XCTAssertEqual(retrieved2?.totalPages, 600)
+    }
+
+    func testCacheInvalidateBook() async {
+        let cache = BookPageCountsCache.shared
+        await cache.invalidateAll()
+
+        let layoutKey = LayoutKey(fontScale: 1.0, marginSize: 32, viewportWidth: 800, viewportHeight: 600)
+
+        let counts = BookPageCounts(
+            bookId: "test-book",
+            layoutKey: layoutKey,
+            spinePageCounts: [10, 20]
+        )
+
+        await cache.set(counts)
+
+        // Verify it's cached
+        var retrieved = await cache.get(bookId: "test-book", layoutKey: layoutKey)
+        XCTAssertNotNil(retrieved)
+
+        // Invalidate
+        await cache.invalidate(bookId: "test-book")
+
+        // Should be gone
+        retrieved = await cache.get(bookId: "test-book", layoutKey: layoutKey)
+        XCTAssertNil(retrieved)
+    }
+
+    func testCacheLayoutKeyIsolation() async {
+        // Different layout keys should have separate cache entries for the same book
+        let cache = BookPageCountsCache.shared
+        await cache.invalidateAll()
+
+        let layout1 = LayoutKey(fontScale: 1.0, marginSize: 32, viewportWidth: 800, viewportHeight: 600)
+        let layout2 = LayoutKey(fontScale: 2.0, marginSize: 32, viewportWidth: 800, viewportHeight: 600) // Different font scale
+
+        let counts1 = BookPageCounts(bookId: "test-book", layoutKey: layout1, spinePageCounts: [10])
+        let counts2 = BookPageCounts(bookId: "test-book", layoutKey: layout2, spinePageCounts: [20]) // More pages due to larger font
+
+        await cache.set(counts1)
+        await cache.set(counts2)
+
+        let retrieved1 = await cache.get(bookId: "test-book", layoutKey: layout1)
+        let retrieved2 = await cache.get(bookId: "test-book", layoutKey: layout2)
+
+        XCTAssertEqual(retrieved1?.totalPages, 10)
+        XCTAssertEqual(retrieved2?.totalPages, 20)
+    }
 }

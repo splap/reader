@@ -774,12 +774,8 @@ public final class WebPageViewController: UIViewController, PageRenderer {
         // Report spine change
         onSpineChanged?(index, sectionCount)
 
-        // Trigger background preloading for adjacent sections (LazyChapter only)
-        if let lazy = lazyChapter {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                lazy.preloadSections(from: index + 1, count: 3)
-            }
-        }
+        // Note: Background preloading removed - the BackgroundPageCounter now loads all sections
+        // sequentially for page counting, which caches them in LazyChapter for later navigation
     }
 
     // Pending restore state (used after WebView finishes loading)

@@ -133,14 +133,14 @@ public final class ReaderContainerViewController: UIViewController {
             initialSpineItemIndex: initialSpineIndex
         )
 
+        // Set delegate BEFORE adding view - addSubview triggers viewDidLoad which may use the delegate
+        readerViewController.containerDelegate = self
+
         addChild(readerViewController)
         contentContainer.addSubview(readerViewController.view)
         readerViewController.view.frame = contentContainer.bounds
         readerViewController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         readerViewController.didMove(toParent: self)
-
-        // Set up delegate for bar configuration
-        readerViewController.containerDelegate = self
 
         // Configure nav bar for reader mode
         updateNavigationBar(animated: false)

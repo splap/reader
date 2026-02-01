@@ -98,13 +98,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             Self.logger.info("UI test auto-opening first book: \(book.title)")
             BookLibraryService.shared.updateLastOpened(bookId: book.id)
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
-            let readerVC = ReaderViewController(
+            let containerVC = ReaderContainerViewController(
                 epubURL: fileURL,
                 bookId: book.id.uuidString,
                 bookTitle: book.title,
                 bookAuthor: book.author
             )
-            navController.pushViewController(readerVC, animated: false)
+            navController.pushViewController(containerVC, animated: false)
         } else if let idString = UserDefaults.standard.string(forKey: "reader.lastOpenedBookId"),
                   let uuid = UUID(uuidString: idString),
                   let book = BookLibraryService.shared.getBook(id: uuid)
@@ -112,13 +112,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             Self.logger.info("Auto-opening last book: \(book.title)")
 
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
-            let readerVC = ReaderViewController(
+            let containerVC = ReaderContainerViewController(
                 epubURL: fileURL,
                 bookId: book.id.uuidString,
                 bookTitle: book.title,
                 bookAuthor: book.author
             )
-            navController.pushViewController(readerVC, animated: false)
+            navController.pushViewController(containerVC, animated: false)
         } else {
             Self.logger.info("Showing library")
         }
