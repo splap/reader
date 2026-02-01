@@ -119,6 +119,11 @@ public final class WebPageViewController: UIViewController, PageRenderer {
 
     public var viewController: UIViewController { self }
 
+    public var overlayBlockingGestures: [UIGestureRecognizer] {
+        guard let webView else { return [] }
+        return [webView.scrollView.panGestureRecognizer]
+    }
+
     public var fontScale: CGFloat = 2.0 {
         didSet {
             guard fontScale != oldValue else { return }

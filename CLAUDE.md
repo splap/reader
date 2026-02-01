@@ -200,6 +200,25 @@ Note: Console.app also works for live streaming (search `subsystem:com.splap.rea
     If you need Xcode projects, generate them via Tuist or XcodeGen.
     Never rely on manual file adds or target membership.
 
+## CRITICAL: Adding New Files to Xcode Project
+
+**NEVER manually edit Reader.xcodeproj.** The project is generated from `project.yml` using XcodeGen.
+
+When adding new Swift files:
+1. Add the file to the appropriate directory (files are auto-discovered by path in `project.yml`)
+2. Run `./scripts/bootstrap` to regenerate the Xcode project
+3. The new file will automatically be included based on the `sources` paths in `project.yml`
+
+```bash
+# After adding new files
+./scripts/bootstrap
+```
+
+Key source paths in `project.yml`:
+- `App/Sources` - Main app target
+- `App/UITests` - UI test target
+- `Packages/ReaderKit/Sources/ReaderUI` - Reader UI module
+- `Packages/ReaderKit/Sources/ReaderCore` - Reader Core module
 
 2. One-command workflows (agents must only call scripts)
     use these scripts as much as possible

@@ -337,9 +337,18 @@ public final class ReaderViewController: UIViewController {
     }
 
     private func setupTapGesture() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        // Use QuickTapGestureRecognizer which only recognizes taps shorter than
+        // the system's long press duration. This prevents overlay toggle during
+        // text selection without hardcoded timing values.
+        let tapGesture = QuickTapGestureRecognizer(target: self, action: #selector(handleTap))
         tapGesture.cancelsTouchesInView = false
         tapGesture.delegate = self
+
+        // Require pan gestures to fail (for swipe detection)
+        for gesture in pageRenderer.overlayBlockingGestures {
+            tapGesture.require(toFail: gesture)
+        }
+
         view.addGestureRecognizer(tapGesture)
     }
 
