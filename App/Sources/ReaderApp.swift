@@ -48,8 +48,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             importTestBooksIfNeeded()
         }
 
-        // Create window
-        let window = UIWindow(frame: UIScreen.main.bounds)
+        // Create window - don't specify frame, let iOS set it based on current orientation
+        let window = UIWindow()
 
         // Apply saved appearance (default: dark)
         let appearance = ReaderPreferences.shared.appearanceMode
@@ -128,6 +128,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         self.window = window
 
         return true
+    }
+
+    // Explicitly support all orientations on iPad
+    func application(
+        _: UIApplication,
+        supportedInterfaceOrientationsFor _: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        .all
     }
 
     // Handle file opens from outside the app (AirDrop, Files, Share)
