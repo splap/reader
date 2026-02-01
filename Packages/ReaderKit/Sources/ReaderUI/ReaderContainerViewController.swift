@@ -35,13 +35,17 @@ public final class ReaderContainerViewController: UIViewController {
     private var overlayVisible = false
     private var scrubberVisibleBeforeChat = false
 
+    // Auto-open chat on load
+    private let autoOpenChat: Bool
+
     // MARK: - Initialization
 
-    public init(epubURL: URL, bookId: String, bookTitle: String?, bookAuthor: String?) {
+    public init(epubURL: URL, bookId: String, bookTitle: String?, bookAuthor: String?, autoOpenChat: Bool = false) {
         self.epubURL = epubURL
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
+        self.autoOpenChat = autoOpenChat
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -64,6 +68,13 @@ public final class ReaderContainerViewController: UIViewController {
         // Start with overlay hidden (matching reader behavior)
         let showOverlay = CommandLine.arguments.contains("--uitesting-show-overlay")
         setOverlayVisible(showOverlay, animated: false)
+
+        // Auto-open chat if requested (after brief delay for view setup)
+        if autoOpenChat {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.showChat(selection: nil)
+            }
+        }
     }
 
     override public func viewWillAppear(_ animated: Bool) {

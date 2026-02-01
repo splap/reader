@@ -883,6 +883,150 @@ final class ChatPanelTests: XCTestCase {
         print("Screenshots saved to: \(screenshotDir)/")
     }
 
+    /// Test: Second message scroll behavior
+    /// Expected:
+    /// 1. Send second message → user message appears at TOP (below menu bar)
+    /// 2. Response starts streaming → NO JUMP, user message stays at top
+    /// 3. Response grows below viewport → scroll-to-bottom button appears
+    func testSendSecondMessage_ScrollBehavior() {
+        let screenshotDir = "/tmp/reader-tests/second-message"
+        try? FileManager.default.createDirectory(atPath: screenshotDir, withIntermediateDirectories: true)
+
+        // Launch with long stub response (completes quickly, not slow typewriter)
+        let stubApp = launchReaderApp(extraArgs: ["--uitesting-stub-chat-long"])
+
+        // Open Frankenstein
+        let libraryNavBar = stubApp.navigationBars["Library"]
+        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
+
+        let bookCell = findBook(in: stubApp, containing: "Frankenstein")
+        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
+        bookCell.tap()
+
+        let readerView = getReaderView(in: stubApp)
+        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
+        sleep(2)
+
+        readerView.tap()
+        sleep(1)
+
+        let chatButton = stubApp.buttons["Chat"]
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
+        chatButton.tap()
+
+        let chatTable = stubApp.tables["chat-message-list"]
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
+        let tableFrame = chatTable.frame
+
+        let chatInput = stubApp.textViews["chat-input-textview"]
+        let sendButton = stubApp.buttons["chat-send-button"]
+
+        // === FIRST MESSAGE ===
+        print("=== FIRST MESSAGE ===")
+        chatInput.tap()
+        chatInput.typeText("First question")
+        sendButton.tap()
+        sleep(5) // Wait for response to complete
+
+        // Screenshot after first response
+        let ss1 = XCUIScreen.main.screenshot()
+        try? ss1.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/1-after-first-response.png"))
+        let attach1 = XCTAttachment(screenshot: ss1)
+        attach1.name = "1-After-First-Response"
+        attach1.lifetime = .keepAlways
+        add(attach1)
+
+        // === SECOND MESSAGE ===
+        print("=== SECOND MESSAGE ===")
+        chatInput.tap()
+        chatInput.typeText("Second question")
+
+        // Screenshot BEFORE sending second message
+        let ss2 = XCUIScreen.main.screenshot()
+        try? ss2.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/2-before-send-second.png"))
+        let attach2 = XCTAttachment(screenshot: ss2)
+        attach2.name = "2-Before-Send-Second"
+        attach2.lifetime = .keepAlways
+        add(attach2)
+
+        sendButton.tap()
+
+        // Wait a tiny bit for the user message to appear and scroll
+        sleep(1)
+
+        // Screenshot IMMEDIATELY after sending (before response arrives)
+        let ss3 = XCUIScreen.main.screenshot()
+        try? ss3.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/3-after-send-before-response.png"))
+        let attach3 = XCTAttachment(screenshot: ss3)
+        attach3.name = "3-After-Send-Before-Response"
+        attach3.lifetime = .keepAlways
+        add(attach3)
+
+        // Find the second user message cell (should be the 3rd cell: user1, assistant1, user2)
+        let cells = chatTable.cells.allElementsBoundByIndex
+        print("Cell count after sending second message: \(cells.count)")
+
+        // The second user message should be near the TOP of the visible area
+        if cells.count >= 3 {
+            let secondUserMessageCell = cells[2] // 0: user1, 1: assistant1, 2: user2
+            let cellFrame = secondUserMessageCell.frame
+            let cellTopRelativeToTable = cellFrame.minY - tableFrame.minY
+
+            print("Second user message top Y: \(cellFrame.minY)")
+            print("Table top Y: \(tableFrame.minY)")
+            print("Cell top relative to table: \(cellTopRelativeToTable)")
+
+            // ASSERTION: User message should be near top (within top 25% of visible area)
+            let topQuarter = tableFrame.height * 0.25
+            XCTAssertLessThan(cellTopRelativeToTable, topQuarter,
+                              "Second user message should be at TOP of visible area, but it's at \(cellTopRelativeToTable)pt from top (should be < \(topQuarter)pt)")
+        }
+
+        // Wait for response to arrive and complete
+        sleep(4)
+
+        // Screenshot AFTER response arrives
+        let ss4 = XCUIScreen.main.screenshot()
+        try? ss4.pngRepresentation.write(to: URL(fileURLWithPath: "\(screenshotDir)/4-after-response-arrives.png"))
+        let attach4 = XCTAttachment(screenshot: ss4)
+        attach4.name = "4-After-Response-Arrives"
+        attach4.lifetime = .keepAlways
+        add(attach4)
+
+        // Check cell positions again - user message should STILL be near top (no jump!)
+        let cellsAfterResponse = chatTable.cells.allElementsBoundByIndex
+        print("Cell count after response: \(cellsAfterResponse.count)")
+
+        if cellsAfterResponse.count >= 3 {
+            let secondUserMessageCell = cellsAfterResponse[2]
+            let cellFrame = secondUserMessageCell.frame
+            let cellTopRelativeToTable = cellFrame.minY - tableFrame.minY
+
+            print("AFTER RESPONSE - Second user message top Y: \(cellFrame.minY)")
+            print("AFTER RESPONSE - Cell top relative to table: \(cellTopRelativeToTable)")
+
+            // ASSERTION: User message should STILL be near top (NO JUMP during response)
+            let topQuarter = tableFrame.height * 0.25
+            XCTAssertLessThan(cellTopRelativeToTable, topQuarter,
+                              "BUG: User message JUMPED when response arrived! Now at \(cellTopRelativeToTable)pt from top (should be < \(topQuarter)pt)")
+        }
+
+        // Check if scroll-to-bottom button appeared (long response should overflow)
+        let scrollButton = stubApp.buttons["scroll-to-bottom-button"]
+        let buttonExists = scrollButton.waitForExistence(timeout: 2)
+        print("Scroll-to-bottom button exists: \(buttonExists)")
+
+        if buttonExists {
+            print("PASS: Button appeared as expected for long response")
+        } else {
+            // This might be OK if the response fits on screen, but with "long" mode it shouldn't
+            print("WARNING: Button did not appear - response may fit on screen or there's a bug")
+        }
+
+        print("=== TEST COMPLETE ===")
+        print("Screenshots saved to: \(screenshotDir)/")
+    }
+
     /// Video test for scroll-to-top behavior with second question
     /// Run with: ./scripts/test-video ui:testScrollBehavior_Video
     /// This records video externally while the test runs

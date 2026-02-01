@@ -65,6 +65,14 @@ public final class BookChatViewController: UIViewController {
     private let tableView = UITableView()
     private let inputContainer = UIView()
 
+    // Occlusion bands for content behind the viewport lines
+    private let topBlurView = UIVisualEffectView(effect: nil)
+    private let bottomBlurView = UIVisualEffectView(effect: nil)
+
+    // DEBUG: Visual guides showing viewport boundaries
+    private let topViewportLine = UIView()
+    private let bottomViewportLine = UIView()
+
     /// Top content inset for the table view (to account for overlaid navigation bar)
     var topContentInset: CGFloat = 0 {
         didSet {
@@ -75,6 +83,7 @@ public final class BookChatViewController: UIViewController {
     /// Bottom content inset for the table view (to account for overlaid input area)
     var bottomContentInset: CGFloat = 0 {
         didSet {
+            baseBottomContentInset = bottomContentInset
             updateTableViewInsets()
         }
     }
@@ -90,12 +99,24 @@ public final class BookChatViewController: UIViewController {
     private var messages: [ChatMessage] = []
     private var messageTraces: [UUID: AgentExecutionTrace] = [:]
 
+    /// True while streaming a response - used to know when to show scroll-to-bottom button
+    private var isStreamingResponse = false
+
+    /// Minimum height for the streaming response cell (viewport - user message height)
+    private var streamingCellMinimumHeight: CGFloat = 0
+
+    /// Whether we've exceeded the minimum height (need to use intrinsic sizing)
+    private var streamingContentExceedsMinimum = false
+
     private var inputContainerBottomConstraint: NSLayoutConstraint?
     private var textViewHeightConstraint: NSLayoutConstraint?
 
     private let minTextViewHeight: CGFloat = 36
     private let maxTextViewHeight: CGFloat = 200
     private let buttonRowHeight: CGFloat = 44
+    private let contentBelowTolerance: CGFloat = 8
+    private var baseBottomContentInset: CGFloat = 0
+    private var inputContainerExtraInset: CGFloat = 0
 
     // MARK: - Initialization
 
@@ -157,18 +178,94 @@ public final class BookChatViewController: UIViewController {
         super.viewDidLoad()
         Self.logger.debug("Chat UI opened for book: \(context.bookTitle)")
         setupUI()
+        setupViewportGuides()
         setupKeyboardObservers()
         setupFontScaleObserver()
         addWelcomeMessage()
         updateTableViewInsets()
     }
 
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Force layout to finalize before user interaction
+        // This prevents the input container from jumping when first tapped
+        view.layoutIfNeeded()
+    }
+
     private func updateTableViewInsets() {
         // Apply insets to account for overlaid navigation bar and input area
         tableView.contentInset.top = topContentInset
-        tableView.contentInset.bottom = bottomContentInset
+        tableView.contentInset.bottom = baseBottomContentInset + inputContainerExtraInset
         tableView.verticalScrollIndicatorInsets.top = topContentInset
-        tableView.verticalScrollIndicatorInsets.bottom = bottomContentInset
+        tableView.verticalScrollIndicatorInsets.bottom = baseBottomContentInset + inputContainerExtraInset
+        // Guides are updated in viewDidLayoutSubviews
+    }
+
+    /// Padding between chrome elements and the viewport boundary
+    /// Top contentInset has 8pt built in, so we add 16 more to get 24pt total
+    /// Bottom gets the full 24pt since no built-in gap
+    private let viewportPadding: CGFloat = 24
+
+    private func setupViewportGuides() {
+        // Top viewport line (red, 2pt thick)
+        topViewportLine.translatesAutoresizingMaskIntoConstraints = false
+        topViewportLine.backgroundColor = .systemRed
+        topViewportLine.isUserInteractionEnabled = false
+        view.addSubview(topViewportLine)
+
+        // Bottom viewport line (red, 2pt thick)
+        bottomViewportLine.translatesAutoresizingMaskIntoConstraints = false
+        bottomViewportLine.backgroundColor = .systemRed
+        bottomViewportLine.isUserInteractionEnabled = false
+        view.addSubview(bottomViewportLine)
+
+        NSLayoutConstraint.activate([
+            topViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topViewportLine.heightAnchor.constraint(equalToConstant: 2),
+
+            bottomViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomViewportLine.heightAnchor.constraint(equalToConstant: 2),
+
+            // Bottom line: 8pt above inputContainer to match the 8pt gap built into top contentInset
+            bottomViewportLine.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding),
+        ])
+    }
+
+    private var topGuideConstraint: NSLayoutConstraint?
+    private var topBlurHeightConstraint: NSLayoutConstraint?
+    private var bottomBlurTopConstraint: NSLayoutConstraint?
+
+    private func updateViewportGuides() {
+        // adjustedContentInset.top includes 8pt gap from parent's calculation
+        // Add 16 more to get 24pt total (matching bottom's 24pt)
+        let topInset = tableView.adjustedContentInset.top
+        let extraTopPadding: CGFloat = 16 // 8 built-in + 16 = 24pt total
+        let topViewportY = topInset + extraTopPadding
+
+        // Update top blur to extend from top of screen to top viewport line
+        topBlurHeightConstraint?.constant = topViewportY
+
+        topGuideConstraint?.isActive = false
+        topGuideConstraint = topViewportLine.topAnchor.constraint(equalTo: view.topAnchor, constant: topViewportY)
+        topGuideConstraint?.isActive = true
+
+        // Z-order: table view (bottom) < blur views < chrome elements < debug lines (top)
+        view.bringSubviewToFront(topBlurView)
+        view.bringSubviewToFront(bottomBlurView)
+        view.bringSubviewToFront(inputContainer)
+        view.bringSubviewToFront(scrollToBottomButton)
+        view.bringSubviewToFront(topViewportLine)
+        view.bringSubviewToFront(bottomViewportLine)
+    }
+
+    override public func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateInputContainerExtraInsetIfNeeded()
+        // Update top guide after layout - ensures insets are set
+        updateViewportGuides()
+        // Blur bands are always-on; no per-scroll toggling
     }
 
     override public func viewWillDisappear(_ animated: Bool) {
@@ -211,7 +308,25 @@ public final class BookChatViewController: UIViewController {
         tableView.keyboardDismissMode = .interactive
         tableView.register(ChatMessageCell.self, forCellReuseIdentifier: "MessageCell")
         tableView.accessibilityIdentifier = "chat-message-list"
+        tableView.backgroundColor = .clear // Transparent so blur only affects actual content
         view.addSubview(tableView)
+
+        // Blur overlays for content scrolling behind chrome
+        // These sit between the table view and the chrome elements
+        // Opaque bands anchored to viewport lines
+        topBlurView.translatesAutoresizingMaskIntoConstraints = false
+        topBlurView.isUserInteractionEnabled = false
+        topBlurView.effect = nil
+        topBlurView.backgroundColor = .black
+        topBlurView.contentView.backgroundColor = .black
+        view.addSubview(topBlurView)
+
+        bottomBlurView.translatesAutoresizingMaskIntoConstraints = false
+        bottomBlurView.isUserInteractionEnabled = false
+        bottomBlurView.effect = nil
+        bottomBlurView.backgroundColor = .black
+        bottomBlurView.contentView.backgroundColor = .black
+        view.addSubview(bottomBlurView)
 
         // Input container - single rounded rectangle
         inputContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -331,12 +446,32 @@ public final class BookChatViewController: UIViewController {
         let textViewHeight = textView.heightAnchor.constraint(equalToConstant: minTextViewHeight)
         textViewHeightConstraint = textViewHeight
 
+        // Top blur view height constraint - updated dynamically in viewDidLayoutSubviews
+        let topBlurHeight = topBlurView.heightAnchor.constraint(equalToConstant: 100)
+        topBlurHeightConstraint = topBlurHeight
+
+        // Bottom blur view top constraint - aligns with bottom viewport line
+        let bottomBlurTop = bottomBlurView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding)
+        bottomBlurTopConstraint = bottomBlurTop
+
         NSLayoutConstraint.activate([
             // Table view extends full height - content insets handle the overlaid UI
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            // Top blur overlay - from top of screen to top viewport line
+            topBlurView.topAnchor.constraint(equalTo: view.topAnchor),
+            topBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBlurHeight,
+
+            // Bottom blur overlay - from bottom viewport line to bottom of screen
+            bottomBlurTop,
+            bottomBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomBlurView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             // Input container with margins matching message bubbles
             inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
@@ -666,18 +801,29 @@ public final class BookChatViewController: UIViewController {
         // Stop any existing typewriter effect
         stopTypewriterEffect()
 
+        let userMessageIndex = messages.count
+        Self.logger.info("SCROLL[send]: user message will be row \(userMessageIndex)")
+
         // Add user message
         messages.append(ChatMessage(role: .user, content: text))
-        tableView.reloadData()
-        tableView.layoutIfNeeded()
 
-        // Scroll user message to TOP of visible area
-        // This pushes any previous content out of view
-        let userMessageIndex = messages.count - 1
-        let indexPath = IndexPath(row: userMessageIndex, section: 0)
-        let cellRect = tableView.rectForRow(at: indexPath)
-        tableView.setContentOffset(CGPoint(x: 0, y: cellRect.origin.y), animated: false)
+        // Reload and position user message at top of visible area - ONE TIME, no enforcement
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+            scrollRowToViewportTop(userMessageIndex)
+        }
 
+        // Calculate the available space for the response cell
+        // This "claims" the space upfront so no layout changes happen during streaming
+        let userMessageIndexPath = IndexPath(row: userMessageIndex, section: 0)
+        let userMessageRect = tableView.rectForRow(at: userMessageIndexPath)
+        let viewportHeight = bottomViewportLine.frame.minY - topViewportLine.frame.maxY
+        streamingCellMinimumHeight = max(0, viewportHeight - userMessageRect.height)
+        streamingContentExceedsMinimum = false
+        Self.logger.debug("SCROLL[claim]: viewport=\(viewportHeight), userMsg=\(userMessageRect.height), claimedHeight=\(self.streamingCellMinimumHeight)")
+
+        // Clear input and set loading state
         textView.text = ""
         placeholderLabel.isHidden = false
         updateTextViewHeight()
@@ -714,16 +860,12 @@ public final class BookChatViewController: UIViewController {
                     // Log debug transcript in chunks (OSLog truncates long messages)
                     self.logTranscript()
 
-                    tableView.reloadData()
-                    tableView.layoutIfNeeded()
-
-                    // Scroll user message to TOP (response is below it)
-                    // This pushes any previous content out of view
-                    let userMessageIndex = messages.count - 2
-                    if userMessageIndex >= 0 {
-                        let indexPath = IndexPath(row: userMessageIndex, section: 0)
-                        let cellRect = tableView.rectForRow(at: indexPath)
-                        tableView.setContentOffset(CGPoint(x: 0, y: cellRect.origin.y), animated: false)
+                    // Reload table but preserve scroll position - user message stays at top
+                    let offsetBefore = tableView.contentOffset
+                    UIView.performWithoutAnimation {
+                        tableView.reloadData()
+                        tableView.layoutIfNeeded()
+                        tableView.setContentOffset(offsetBefore, animated: false)
                     }
 
                     setLoading(false)
@@ -738,8 +880,12 @@ public final class BookChatViewController: UIViewController {
                         role: .assistant,
                         content: "Error: \(error.localizedDescription)"
                     ))
-                    tableView.reloadData()
-                    scrollToResponseTop()
+                    // Reload and scroll atomically - no animation to prevent flash
+                    UIView.performWithoutAnimation {
+                        tableView.reloadData()
+                        tableView.layoutIfNeeded()
+                        scrollLastMessageToTop()
+                    }
                     setLoading(false)
                 }
             }
@@ -775,26 +921,61 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
+    private func updateInputContainerExtraInsetIfNeeded() {
+        guard view.bounds.height > 0 else { return }
+        let bottomOverlayHeight = max(0, view.bounds.height - bottomViewportLine.frame.minY)
+        let desiredBottomInset = max(baseBottomContentInset, bottomOverlayHeight)
+        let extraInset = max(0, desiredBottomInset - baseBottomContentInset)
+        if abs(extraInset - inputContainerExtraInset) > 0.5 {
+            inputContainerExtraInset = extraInset
+            updateTableViewInsets()
+        }
+    }
+
+    // MARK: - Viewport Geometry
+
+    /// Current viewport geometry for scroll calculations
+    private var viewportGeometry: ChatViewportGeometry {
+        let topLineY = topViewportLine.frame.maxY
+        let bottomLineY = bottomViewportLine.frame.minY
+        return ChatViewportGeometry(
+            scrollView: tableView,
+            topLineY: topLineY,
+            bottomLineY: bottomLineY
+        )
+    }
+
     private func scrollToBottom() {
         guard !messages.isEmpty else { return }
-        let indexPath = IndexPath(row: messages.count - 1, section: 0)
-        tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
+        let geometry = viewportGeometry
+        tableView.setContentOffset(geometry.offsetToShowBottom, animated: true)
     }
 
     @objc private func scrollToBottomTapped() {
-        let bottomOffset = tableView.contentSize.height - tableView.bounds.height
-        tableView.setContentOffset(CGPoint(x: 0, y: max(0, bottomOffset)), animated: true)
+        let geometry = viewportGeometry
+        let targetOffset = geometry.offsetToShowBottom
+
+        // Use explicit animation with completion to ensure button hides after scroll settles
+        UIView.animate(withDuration: 0.3) {
+            self.tableView.setContentOffset(targetOffset, animated: false)
+        } completion: { _ in
+            self.updateScrollToBottomButtonVisibility()
+        }
+    }
+
+    /// Scrolls a specific row to align with the viewport top (one-time, no enforcement)
+    private func scrollRowToViewportTop(_ row: Int) {
+        guard row < messages.count else { return }
+        let indexPath = IndexPath(row: row, section: 0)
+        let cellRect = tableView.rectForRow(at: indexPath)
+        let geometry = viewportGeometry
+        let targetOffset = geometry.offsetToShowAtTop(cellRect.origin.y)
+        tableView.setContentOffset(targetOffset, animated: false)
     }
 
     private func updateScrollToBottomButtonVisibility() {
-        let contentHeight = tableView.contentSize.height
-        let visibleHeight = tableView.bounds.height
-        let currentOffset = tableView.contentOffset.y
-        let visibleBottom = currentOffset + visibleHeight
-
-        // Show button as soon as content extends below visible area (small threshold for tolerance)
-        let threshold: CGFloat = 20
-        let shouldShow = contentHeight > visibleBottom + threshold
+        let geometry = viewportGeometry
+        let shouldShow = geometry.distanceToBottom > contentBelowTolerance
 
         // Only animate if state is changing
         let isCurrentlyVisible = scrollToBottomButton.alpha > 0
@@ -811,11 +992,14 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
-    /// Scrolls to position the new response at the top of the visible area
-    private func scrollToResponseTop() {
+    /// Scrolls to position the last message at the visible top anchor
+    private func scrollLastMessageToTop() {
         guard !messages.isEmpty else { return }
         let indexPath = IndexPath(row: messages.count - 1, section: 0)
-        tableView.scrollToRow(at: indexPath, at: .top, animated: true)
+        tableView.layoutIfNeeded()
+        let cellRect = tableView.rectForRow(at: indexPath)
+        let geometry = viewportGeometry
+        tableView.setContentOffset(geometry.offsetToShowAtTop(cellRect.origin.y), animated: true)
     }
 
     // MARK: - Typewriter Effect
@@ -824,6 +1008,7 @@ public final class BookChatViewController: UIViewController {
     private func startTypewriterEffect(messageIndex: Int, fullContent: String) {
         stopTypewriterEffect()
 
+        isStreamingResponse = true
         typewriterMessageIndex = messageIndex
         typewriterFullContent = fullContent
         typewriterCharIndex = 0
@@ -831,9 +1016,17 @@ public final class BookChatViewController: UIViewController {
 
         Self.logger.info("TYPEWRITER: Starting, \(fullContent.count) chars total")
 
-        // Start with empty content
+        // Start with empty content - preserve scroll position through reload
         messages[messageIndex].content = ""
-        tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+        let offsetBefore = tableView.contentOffset
+        UIView.performWithoutAnimation {
+            tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+            tableView.layoutIfNeeded()
+            tableView.setContentOffset(offsetBefore, animated: false)
+        }
+
+        // Update button visibility now that response is starting
+        updateScrollToBottomButtonVisibility()
 
         // Schedule first tick
         scheduleNextTypewriterTick(delay: typewriterConfig.tickInterval)
@@ -882,19 +1075,34 @@ public final class BookChatViewController: UIViewController {
             cell.updateTypewriterText(newContent, role: .assistant)
         }
 
-        // Periodically update cell height so content becomes visible
+        // Periodically update layout - but use fixed height while content fits to prevent jumps
         let now = Date()
         if now.timeIntervalSince(typewriterLastLayoutUpdate) >= typewriterConfig.layoutUpdateInterval {
             typewriterLastLayoutUpdate = now
 
-            // Update cell height without auto-scrolling
-            UIView.performWithoutAnimation {
-                tableView.beginUpdates()
-                tableView.endUpdates()
-                tableView.layoutIfNeeded()
+            // Check if content now exceeds minimum height
+            if !streamingContentExceedsMinimum, streamingCellMinimumHeight > 0 {
+                let intrinsicHeight = measureIntrinsicHeight(for: newContent)
+                if intrinsicHeight > streamingCellMinimumHeight {
+                    streamingContentExceedsMinimum = true
+                    Self.logger.info("SCROLL[overflow]: intrinsic=\(intrinsicHeight) > minimum=\(self.streamingCellMinimumHeight), switching to auto height")
+                }
             }
 
-            // Update scroll-to-bottom button visibility
+            // Only do layout updates after content exceeds minimum (growth happens off-screen)
+            if streamingContentExceedsMinimum {
+                let scrollPositionBefore = tableView.contentOffset
+
+                UIView.performWithoutAnimation {
+                    tableView.beginUpdates()
+                    tableView.endUpdates()
+                    tableView.layoutIfNeeded()
+                    if !tableView.isDragging, !tableView.isDecelerating {
+                        tableView.setContentOffset(scrollPositionBefore, animated: false)
+                    }
+                }
+            }
+
             updateScrollToBottomButtonVisibility()
         }
 
@@ -926,7 +1134,15 @@ public final class BookChatViewController: UIViewController {
 
         // Set final content and reload to ensure correct cell height
         messages[messageIndex].content = fullContent
+
+        // Capture scroll position before reload
+        let scrollPositionBefore = tableView.contentOffset
+
         tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+        tableView.layoutIfNeeded()
+
+        // Restore scroll position to prevent auto-scroll to bottom
+        tableView.setContentOffset(scrollPositionBefore, animated: false)
 
         // Update scroll-to-bottom button visibility
         updateScrollToBottomButtonVisibility()
@@ -944,6 +1160,44 @@ public final class BookChatViewController: UIViewController {
         typewriterLastLayoutUpdate = .distantPast
         typewriterStartTime = .distantPast
         typewriterLastLoggedIndex = 0
+        isStreamingResponse = false
+
+        // Reset streaming cell height state
+        streamingCellMinimumHeight = 0
+        streamingContentExceedsMinimum = false
+    }
+
+    /// Measures the intrinsic height of rendered markdown content for a message
+    private func measureIntrinsicHeight(for content: String) -> CGFloat {
+        // Use the same width as the cell's text area
+        let cellWidth = tableView.bounds.width - 40 // account for margins (20 each side)
+        let textWidth = cellWidth - 28 // bubble padding (14 each side)
+
+        // Render markdown and measure
+        let attributed = renderMarkdown(content, font: fontManager.bodyFont, color: .label)
+        let boundingRect = attributed.boundingRect(
+            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
+
+        // Add cell padding: top bubble (12) + bottom bubble (16) + cell top (8) + cell bottom (8) = 44
+        return ceil(boundingRect.height) + 44
+    }
+
+    /// Renders markdown to attributed string (duplicated helper for measurement)
+    private func renderMarkdown(_ text: String, font: UIFont, color: UIColor) -> NSAttributedString {
+        // Use the cell's renderMarkdown - for measurement we just need simple rendering
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraphStyle,
+        ]
+
+        return NSAttributedString(string: text, attributes: attributes)
     }
 
     // MARK: - Keyboard
@@ -961,7 +1215,6 @@ public final class BookChatViewController: UIViewController {
         UIView.animate(withDuration: duration) {
             self.view.layoutIfNeeded()
         }
-        // Don't auto-scroll - let user control scroll position
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
@@ -969,7 +1222,8 @@ public final class BookChatViewController: UIViewController {
             return
         }
 
-        inputContainerBottomConstraint?.constant = 0
+        // Restore to original position (14pt above safe area bottom)
+        inputContainerBottomConstraint?.constant = -14
 
         UIView.animate(withDuration: duration) {
             self.view.layoutIfNeeded()
@@ -1176,8 +1430,21 @@ extension BookChatViewController: UITableViewDataSource {
 // MARK: - UITableViewDelegate
 
 extension BookChatViewController: UITableViewDelegate {
-    public func tableView(_: UITableView, heightForRowAt _: IndexPath) -> CGFloat {
-        UITableView.automaticDimension
+    public func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        // If this is the active streaming cell, use explicit height to prevent layout jumps
+        if let streamingIndex = typewriterMessageIndex,
+           indexPath.row == streamingIndex,
+           streamingCellMinimumHeight > 0
+        {
+            if streamingContentExceedsMinimum {
+                // Content exceeded minimum, use automatic sizing
+                return UITableView.automaticDimension
+            } else {
+                // Content fits in minimum, use fixed height
+                return streamingCellMinimumHeight
+            }
+        }
+        return UITableView.automaticDimension
     }
 
     public func tableView(_: UITableView, estimatedHeightForRowAt _: IndexPath) -> CGFloat {
@@ -1185,6 +1452,7 @@ extension BookChatViewController: UITableViewDelegate {
     }
 
     public func scrollViewDidScroll(_: UIScrollView) {
+        // Only update button visibility - no scroll enforcement
         updateScrollToBottomButtonVisibility()
     }
 }
@@ -1848,6 +2116,53 @@ private extension String {
 private class MapTapGestureRecognizer: UITapGestureRecognizer {
     var coordinate: CLLocationCoordinate2D = .init()
     var locationName: String = ""
+}
+
+// MARK: - Chat Viewport Geometry
+
+/// Encapsulates all viewport math for the chat scroll view.
+/// The "viewport" is the visible region between the menu bar (top) and input field (bottom).
+/// Content can scroll behind both chrome elements, but this struct tracks what's actually visible.
+private struct ChatViewportGeometry {
+    let scrollView: UIScrollView
+    let topLineY: CGFloat
+    let bottomLineY: CGFloat
+
+    /// The Y coordinate in content space where visible content starts (below menu bar)
+    var visibleTopAnchor: CGFloat {
+        scrollView.contentOffset.y + topLineY
+    }
+
+    /// The Y coordinate in content space where visible content ends (above input field)
+    var visibleBottomAnchor: CGFloat {
+        scrollView.contentOffset.y + bottomLineY
+    }
+
+    /// The Y coordinate of the last content in content space
+    var contentBottom: CGFloat {
+        scrollView.contentSize.height
+    }
+
+    /// How far content extends below the visible viewport
+    var distanceToBottom: CGFloat {
+        contentBottom - visibleBottomAnchor
+    }
+
+    /// Is content extending below the visible viewport?
+    var isContentBelowViewport: Bool {
+        distanceToBottom > 0
+    }
+
+    /// Scroll offset to align content bottom with visible bottom anchor
+    var offsetToShowBottom: CGPoint {
+        let targetOffset = contentBottom - bottomLineY
+        return CGPoint(x: 0, y: max(0, targetOffset))
+    }
+
+    /// Scroll offset to position a content Y coordinate at the visible top anchor
+    func offsetToShowAtTop(_ contentY: CGFloat) -> CGPoint {
+        CGPoint(x: 0, y: contentY - topLineY)
+    }
 }
 
 // MARK: - Model Picker View Controller

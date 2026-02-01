@@ -14,6 +14,8 @@ SCREENSHOT_OUTPUT=""
 SCREENSHOT_RENDERER=""
 SCREENSHOT_FONT_SCALE=""
 TARGET_DEVICE=""
+OPEN_BOOK=""
+OPEN_CHAT=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -24,7 +26,11 @@ for arg in "$@"; do
       SCREENSHOT_MODE=1
       ;;
     --book=*)
-      SCREENSHOT_BOOK="${arg#--book=}"
+      OPEN_BOOK="${arg#--book=}"
+      SCREENSHOT_BOOK="$OPEN_BOOK"  # Also set for screenshot mode compatibility
+      ;;
+    --chat)
+      OPEN_CHAT=1
       ;;
     --chapter=*)
       SCREENSHOT_CHAPTER="${arg#--chapter=}"
@@ -330,8 +336,22 @@ if [ "$USE_SIMULATOR" = "1" ]; then
     fi
   fi
 
-  # Normal launch mode
-  xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"
+  # Normal launch mode - build app arguments
+  APP_ARGS=""
+  if [ -n "$OPEN_BOOK" ]; then
+    APP_ARGS="$APP_ARGS --uitesting-book=$OPEN_BOOK"
+  fi
+  if [ "$OPEN_CHAT" = "1" ]; then
+    APP_ARGS="$APP_ARGS --open-chat"
+  fi
+
+  if [ -n "$APP_ARGS" ]; then
+    echo "Launch args: $APP_ARGS"
+    # shellcheck disable=SC2086
+    xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID" $APP_ARGS
+  else
+    xcrun simctl launch "$DEVICE_UDID" "$APP_BUNDLE_ID"
+  fi
   echo ""
   echo "=== App Logs (com.splap.reader) ==="
   echo "Press Ctrl+C to stop"

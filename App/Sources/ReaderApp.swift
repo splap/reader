@@ -32,6 +32,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         let uitestingBook = Self.parseArgument("--uitesting-book=")
         let uitestingSpineItem = Self.parseIntArgument("--uitesting-spine-item=")
         let uitestingCFI = Self.parseArgument("--uitesting-cfi=")
+        let openChat = CommandLine.arguments.contains("--open-chat")
 
         if isUITesting, cleanAllData {
             Self.logger.info("UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
@@ -69,7 +70,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             )
             navController.pushViewController(readerVC, animated: false)
         } else if let bookSlug = uitestingBook, let book = findBookBySlug(bookSlug) {
-            Self.logger.info("UI test opening book by slug: \(bookSlug) -> \(book.title)")
+            Self.logger.info("UI test opening book by slug: \(bookSlug) -> \(book.title), openChat: \(openChat)")
             BookLibraryService.shared.updateLastOpened(bookId: book.id)
             let fileURL = BookLibraryService.shared.getFileURL(for: book)
 
@@ -84,14 +85,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 }
             }
 
-            let readerVC = ReaderViewController(
+            // Use ReaderContainerViewController for full functionality (chat, nav bar)
+            let containerVC = ReaderContainerViewController(
                 epubURL: fileURL,
                 bookId: book.id.uuidString,
                 bookTitle: book.title,
                 bookAuthor: book.author,
-                initialSpineItemIndex: spineItemIndex
+                autoOpenChat: openChat
             )
-            navController.pushViewController(readerVC, animated: false)
+            navController.pushViewController(containerVC, animated: false)
         } else if autoOpenFirstBook, let book = BookLibraryService.shared.getAllBooks().first {
             Self.logger.info("UI test auto-opening first book: \(book.title)")
             BookLibraryService.shared.updateLastOpened(bookId: book.id)
