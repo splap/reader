@@ -47,132 +47,137 @@ public protocol BookContext {
     /// Get the full text of a chapter/section by spine item ID
     func chapterText(spineItemId: String) -> String?
 
-    /// Search for text in the current chapter (uses FTS index)
+    /// Search for text in the current chapter
     func searchChapter(query: String) async -> [SearchResult]
 
-    /// Search for text in the entire book (uses FTS index)
+    /// Search for text in the entire book
     func searchBook(query: String) async -> [SearchResult]
 
     /// Get blocks around a specific block ID
     func blocksAround(blockId: String, count: Int) -> [Block]
+
+    /// Get the block count for a section (loads section if needed)
+    func blockCount(forSpineItemId spineItemId: String) -> Int
 }
 
 // MARK: - Reader Book Context Implementation
 
-/// Concrete implementation of BookContext using loaded Chapter data
+/// Concrete implementation of BookContext that loads directly from EPUB
 public final class ReaderBookContext: BookContext {
-    private let chapter: Chapter
+    private let epubURL: URL
+    private let spineMetadata: SpineMetadata
+    private let loader = EPUBLoader()
+
+    // Cache for loaded sections
+    private var loadedSections: [String: HTMLSection] = [:]
+
     private let _bookId: String
-    private let title: String
-    private let author: String?
-    private var _currentSpineItemId: String
-    private var _currentBlockId: String?
+    private let _bookTitle: String
+    private let _bookAuthor: String?
+    private let _currentSpineItemId: String
+    private let _currentBlockId: String?
 
     public var bookId: String { _bookId }
-    public var bookTitle: String { title }
-    public var bookAuthor: String? { author }
+    public var bookTitle: String { _bookTitle }
+    public var bookAuthor: String? { _bookAuthor }
     public var currentSpineItemId: String { _currentSpineItemId }
     public var currentBlockId: String? { _currentBlockId }
 
     public init(
-        chapter: Chapter,
+        epubURL: URL,
         bookId: String,
         bookTitle: String,
         bookAuthor: String? = nil,
-        currentSpineItemId: String = "",
+        currentSpineIndex: Int = 0,
         currentBlockId: String? = nil
-    ) {
-        self.chapter = chapter
-        _bookId = bookId
-        title = bookTitle
-        author = bookAuthor
-        _currentSpineItemId = currentSpineItemId.isEmpty
-            ? (chapter.htmlSections.first?.spineItemId ?? "")
-            : currentSpineItemId
-        _currentBlockId = currentBlockId
-    }
+    ) throws {
+        self.epubURL = epubURL
+        self._bookId = bookId
+        self._bookTitle = bookTitle
+        self._bookAuthor = bookAuthor
 
-    /// Update the current reading position
-    public func updatePosition(spineItemId: String, blockId: String?) {
-        _currentSpineItemId = spineItemId
-        _currentBlockId = blockId
+        // Load spine metadata (fast - no content parsing)
+        self.spineMetadata = try loader.loadSpineMetadata(from: epubURL)
+
+        // Set current spine item ID from index
+        if currentSpineIndex < spineMetadata.spineItems.count {
+            self._currentSpineItemId = spineMetadata.spineItems[currentSpineIndex].id
+        } else {
+            self._currentSpineItemId = spineMetadata.spineItems.first?.id ?? ""
+        }
+        self._currentBlockId = currentBlockId
     }
 
     // MARK: - Sections
 
     public var sections: [SectionInfo] {
-        // Group by spine item ID to get unique sections
-        var seen = Set<String>()
-        var result: [SectionInfo] = []
-
-        for section in chapter.htmlSections {
-            if !seen.contains(section.spineItemId) {
-                seen.insert(section.spineItemId)
-
-                // Try to extract title from first heading block
-                let sectionTitle = extractSectionTitle(from: section)
-
-                // Count ALL blocks across all htmlSections with this spineItemId
-                let totalBlockCount = chapter.htmlSections
-                    .filter { $0.spineItemId == section.spineItemId }
-                    .reduce(0) { $0 + $1.blocks.count }
-
-                result.append(SectionInfo(
-                    spineItemId: section.spineItemId,
-                    title: sectionTitle,
-                    ncxLabel: chapter.ncxLabels[section.spineItemId],
-                    blockCount: totalBlockCount
-                ))
-            }
+        spineMetadata.spineItems.map { spineItem in
+            SectionInfo(
+                spineItemId: spineItem.id,
+                title: nil, // Would need to load content to extract
+                ncxLabel: spineMetadata.ncxLabels[spineItem.id],
+                blockCount: 0 // Unknown without loading
+            )
         }
-
-        return result
     }
 
-    private func extractSectionTitle(from section: HTMLSection) -> String? {
-        // Look for a heading block
-        for block in section.blocks {
-            switch block.type {
-            case .heading1, .heading2, .heading3:
-                let text = block.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty {
-                    return text
-                }
-            default:
-                continue
-            }
+    // MARK: - Section Loading
+
+    private func loadSection(spineItemId: String) -> HTMLSection? {
+        // Check cache
+        if let cached = loadedSections[spineItemId] {
+            return cached
         }
-        return nil
+
+        // Find index for this spine item ID
+        guard let index = spineMetadata.spineItems.firstIndex(where: { $0.id == spineItemId }) else {
+            return nil
+        }
+
+        // Load from EPUB
+        guard let section = try? loader.loadSection(at: index, from: spineMetadata) else {
+            return nil
+        }
+
+        // Cache and return
+        loadedSections[spineItemId] = section
+        return section
     }
 
     // MARK: - Chapter Text
 
     public func chapterText(spineItemId: String) -> String? {
-        let targetSections = chapter.htmlSections.filter { $0.spineItemId == spineItemId }
-
-        if targetSections.isEmpty {
+        guard let section = loadSection(spineItemId: spineItemId) else {
             return nil
         }
 
-        let text = targetSections
-            .flatMap(\.blocks)
+        let text = section.blocks
             .map(\.textContent)
             .joined(separator: "\n\n")
 
         return text.isEmpty ? nil : text
     }
 
-    // MARK: - Search (in-memory, instant)
+    // MARK: - Search
 
     public func searchChapter(query: String) async -> [SearchResult] {
-        searchBlocks(in: chapter.htmlSections.filter { $0.spineItemId == currentSpineItemId }, query: query)
+        guard let section = loadSection(spineItemId: currentSpineItemId) else {
+            return []
+        }
+        return searchBlocks(in: [section], query: query)
     }
 
     public func searchBook(query: String) async -> [SearchResult] {
-        searchBlocks(in: chapter.htmlSections, query: query)
+        // Load all sections for full book search
+        var allSections: [HTMLSection] = []
+        for spineItem in spineMetadata.spineItems {
+            if let section = loadSection(spineItemId: spineItem.id) {
+                allSections.append(section)
+            }
+        }
+        return searchBlocks(in: allSections, query: query)
     }
 
-    /// In-memory search - fast enough for any book size
     private func searchBlocks(in sections: [HTMLSection], query: String) -> [SearchResult] {
         var results: [SearchResult] = []
         let lowercasedQuery = query.lowercased()
@@ -197,15 +202,46 @@ public final class ReaderBookContext: BookContext {
     // MARK: - Context Around Block
 
     public func blocksAround(blockId: String, count: Int) -> [Block] {
-        let allBlocks = chapter.allBlocks
-
-        guard let centerIndex = allBlocks.firstIndex(where: { $0.id == blockId }) else {
-            return []
+        // First check loaded sections
+        for section in loadedSections.values {
+            if let centerIndex = section.blocks.firstIndex(where: { $0.id == blockId }) {
+                let startIndex = max(0, centerIndex - count)
+                let endIndex = min(section.blocks.count - 1, centerIndex + count)
+                return Array(section.blocks[startIndex ... endIndex])
+            }
         }
 
-        let startIndex = max(0, centerIndex - count)
-        let endIndex = min(allBlocks.count - 1, centerIndex + count)
+        // Block not in cache - try loading the current section (most likely location)
+        if let section = loadSection(spineItemId: currentSpineItemId) {
+            if let centerIndex = section.blocks.firstIndex(where: { $0.id == blockId }) {
+                let startIndex = max(0, centerIndex - count)
+                let endIndex = min(section.blocks.count - 1, centerIndex + count)
+                return Array(section.blocks[startIndex ... endIndex])
+            }
+        }
 
-        return Array(allBlocks[startIndex ... endIndex])
+        // Still not found - search all sections (expensive but thorough)
+        for spineItem in spineMetadata.spineItems {
+            if loadedSections[spineItem.id] != nil { continue } // Already checked
+            if let section = loadSection(spineItemId: spineItem.id) {
+                if let centerIndex = section.blocks.firstIndex(where: { $0.id == blockId }) {
+                    let startIndex = max(0, centerIndex - count)
+                    let endIndex = min(section.blocks.count - 1, centerIndex + count)
+                    return Array(section.blocks[startIndex ... endIndex])
+                }
+            }
+        }
+
+        return []
+    }
+
+    // MARK: - Block Count for Section
+
+    /// Get block count for a section (loads section if needed)
+    public func blockCount(forSpineItemId spineItemId: String) -> Int {
+        if let section = loadSection(spineItemId: spineItemId) {
+            return section.blocks.count
+        }
+        return 0
     }
 }

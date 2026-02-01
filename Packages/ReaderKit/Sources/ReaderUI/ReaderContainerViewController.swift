@@ -251,22 +251,32 @@ public final class ReaderContainerViewController: UIViewController {
         // Remember scrubber state
         scrubberVisibleBeforeChat = overlayVisible
 
-        // Create book context
+        // Query current block from WebView, then create context
         let spineIndex = readerViewController.currentSpineIndex
-        let chapter = readerViewController.chapter
-        let currentSpineItemId = spineIndex < chapter.htmlSections.count
-            ? chapter.htmlSections[spineIndex].spineItemId
-            : (chapter.htmlSections.first?.spineItemId ?? "")
+        readerViewController.queryCurrentBlock { [weak self] blockId, _ in
+            guard let self else { return }
 
-        let bookContext = ReaderBookContext(
-            chapter: chapter,
-            bookId: bookId,
-            bookTitle: bookTitle ?? "Unknown Book",
-            bookAuthor: bookAuthor,
-            currentSpineItemId: currentSpineItemId,
-            currentBlockId: nil
-        )
+            // Create book context (loads directly from EPUB)
+            let bookContext: ReaderBookContext
+            do {
+                bookContext = try ReaderBookContext(
+                    epubURL: self.epubURL,
+                    bookId: self.bookId,
+                    bookTitle: self.bookTitle ?? "Unknown Book",
+                    bookAuthor: self.bookAuthor,
+                    currentSpineIndex: spineIndex,
+                    currentBlockId: blockId
+                )
+            } catch {
+                Self.logger.error("Failed to create book context: \(error)")
+                return
+            }
 
+            self.presentChat(with: bookContext, selection: selection)
+        }
+    }
+
+    private func presentChat(with bookContext: ReaderBookContext, selection: SelectionPayload?) {
         // Create chat container
         let chatVC = ChatContainerViewController(context: bookContext, selection: selection)
         chatVC.containerDelegate = self

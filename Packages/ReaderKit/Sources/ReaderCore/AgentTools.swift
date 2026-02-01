@@ -369,16 +369,20 @@ public struct ToolExecutor {
         // Get current section info
         if let currentSection = context.sections.first(where: { $0.spineItemId == context.currentSpineItemId }) {
             let chapterLabel = currentSection.displayLabel
-            output += "Current chapter: \(chapterLabel)\n"
+            output += "Current chapter: \(chapterLabel) (id: \(currentSection.spineItemId))\n"
 
             // Calculate percentage through chapter
             if let blockId = context.currentBlockId,
-               let block = context.blocksAround(blockId: blockId, count: 0).first,
-               currentSection.blockCount > 0
+               let block = context.blocksAround(blockId: blockId, count: 0).first
             {
-                let percentage = Int(round(Double(block.ordinal + 1) / Double(currentSection.blockCount) * 100))
-                output += "Position in chapter: \(percentage)% through\n"
-                output += "Block \(block.ordinal + 1) of \(currentSection.blockCount)"
+                let totalBlocks = context.blockCount(forSpineItemId: context.currentSpineItemId)
+                if totalBlocks > 0 {
+                    let percentage = Int(round(Double(block.ordinal + 1) / Double(totalBlocks) * 100))
+                    output += "Position in chapter: \(percentage)% through\n"
+                    output += "Block \(block.ordinal + 1) of \(totalBlocks)"
+                } else {
+                    output += "Position in chapter: Beginning"
+                }
             } else {
                 output += "Position in chapter: Beginning"
             }

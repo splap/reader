@@ -92,20 +92,29 @@ enum TestHelpers {
         var currentBlockId: String? = nil
         var sections: [SectionInfo]
 
+        // Stubbed return values for testing
+        var stubbedChapterText: String? = nil
+        var stubbedBlocks: [Block] = []
+        var stubbedSearchResults: [SearchResult] = []
+
         func chapterText(spineItemId _: String) -> String? {
-            nil
+            stubbedChapterText
         }
 
-        func searchChapter(query _: String) -> [SearchResult] {
-            []
+        func searchChapter(query _: String) async -> [SearchResult] {
+            stubbedSearchResults
         }
 
-        func searchBook(query _: String) -> [SearchResult] {
-            []
+        func searchBook(query _: String) async -> [SearchResult] {
+            stubbedSearchResults
         }
 
         func blocksAround(blockId _: String, count _: Int) -> [Block] {
-            []
+            stubbedBlocks
+        }
+
+        func blockCount(forSpineItemId _: String) -> Int {
+            stubbedBlocks.count
         }
     }
 }

@@ -36,6 +36,7 @@ public final class ReaderViewController: UIViewController {
     private let bookId: String
     private let bookTitle: String?
     private let bookAuthor: String?
+    private var epubURL: URL?
     private var pageRenderer: PageRenderer!
     private var cancellables = Set<AnyCancellable>()
     private var scrubberContainer: UIView!
@@ -88,6 +89,7 @@ public final class ReaderViewController: UIViewController {
         self.bookId = bookId
         self.bookTitle = bookTitle
         self.bookAuthor = bookAuthor
+        self.epubURL = epubURL
         self.initialSpineItemIndex = initialSpineItemIndex
 
         // Use lazy loading for fast initial render
@@ -567,28 +569,49 @@ public final class ReaderViewController: UIViewController {
         }
 
         // Standalone fallback - present chat modally
-        let spineIndex = viewModel.currentSpineIndex
-        let currentSpineItemId: String = if let lazy = lazyChapter {
-            lazy.spineItemId(at: spineIndex) ?? lazy.spineItemId(at: 0) ?? ""
-        } else {
-            spineIndex < chapter.htmlSections.count
-                ? chapter.htmlSections[spineIndex].spineItemId
-                : (chapter.htmlSections.first?.spineItemId ?? "")
+        guard let url = epubURL else {
+            Self.logger.error("Cannot open chat: no EPUB URL available")
+            return
         }
 
-        let bookContext = ReaderBookContext(
-            chapter: chapter,
-            bookId: bookId,
-            bookTitle: bookTitle ?? "Unknown Book",
-            bookAuthor: bookAuthor,
-            currentSpineItemId: currentSpineItemId,
-            currentBlockId: nil
-        )
+        let spineIndex = viewModel.currentSpineIndex
 
-        let chatContainer = ChatContainerViewController(context: bookContext, selection: selection)
-        chatContainer.modalPresentationStyle = .fullScreen
+        // Query current block, then create context
+        queryCurrentBlock { [weak self] blockId, _ in
+            guard let self else { return }
 
-        present(chatContainer, animated: true)
+            let bookContext: ReaderBookContext
+            do {
+                bookContext = try ReaderBookContext(
+                    epubURL: url,
+                    bookId: self.bookId,
+                    bookTitle: self.bookTitle ?? "Unknown Book",
+                    bookAuthor: self.bookAuthor,
+                    currentSpineIndex: spineIndex,
+                    currentBlockId: blockId
+                )
+            } catch {
+                Self.logger.error("Failed to create book context: \(error)")
+                return
+            }
+
+            let chatContainer = ChatContainerViewController(context: bookContext, selection: selection)
+            chatContainer.modalPresentationStyle = .fullScreen
+
+            self.present(chatContainer, animated: true)
+        }
+    }
+
+    // MARK: - Current Block Query
+
+    /// Query the currently visible block from the WebView
+    /// - Parameter completion: Callback with (blockId, spineItemId) or (nil, nil) if not available
+    func queryCurrentBlock(completion: @escaping (String?, String?) -> Void) {
+        guard let webVC = pageRenderer as? WebPageViewController else {
+            completion(nil, nil)
+            return
+        }
+        webVC.queryFirstVisibleBlock(completion: completion)
     }
 
     // MARK: - Table of Contents
