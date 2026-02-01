@@ -18,28 +18,14 @@ final class ChatConversationFlowTests: XCTestCase {
     // MARK: - Helpers
 
     private func openChatOnFrankenstein(extraArgs: [String] = []) -> (table: XCUIElement, input: XCUIElement, sendButton: XCUIElement) {
-        app = launchReaderApp(extraArgs: extraArgs)
+        // Use --uitesting-book and --open-chat to skip library navigation
+        var args = ["--uitesting-book=frankenstein", "--open-chat"]
+        args.append(contentsOf: extraArgs)
+        app = launchReaderApp(extraArgs: args)
 
-        let libraryNavBar = app.navigationBars["Library"]
-        XCTAssertTrue(libraryNavBar.waitForExistence(timeout: 5))
-
-        let bookCell = findBook(in: app, containing: "Frankenstein")
-        XCTAssertTrue(bookCell.waitForExistence(timeout: 5))
-        bookCell.tap()
-
-        let readerView = getReaderView(in: app)
-        XCTAssertTrue(readerView.waitForExistence(timeout: 5))
-        sleep(2)
-
-        readerView.tap()
-        sleep(1)
-
-        let chatButton = app.buttons["Chat"]
-        XCTAssertTrue(chatButton.waitForExistence(timeout: 5))
-        chatButton.tap()
-
+        // Chat should open directly - wait for it
         let chatTable = app.tables["chat-message-list"]
-        XCTAssertTrue(chatTable.waitForExistence(timeout: 5))
+        XCTAssertTrue(chatTable.waitForExistence(timeout: 10), "Chat table should appear when opened via --open-chat")
 
         let chatInput = app.textViews["chat-input-textview"]
         XCTAssertTrue(chatInput.waitForExistence(timeout: 5))

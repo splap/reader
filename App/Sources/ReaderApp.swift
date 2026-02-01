@@ -25,6 +25,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // Clear state if running UI tests unless explicitly told to keep state.
         let isUITesting = CommandLine.arguments.contains("--uitesting")
         let keepUIState = CommandLine.arguments.contains("--uitesting-keep-state")
+        let keepBooks = CommandLine.arguments.contains("--uitesting-keep-books")
         let isPositionTest = CommandLine.arguments.contains("--uitesting-position-test")
         _ = CommandLine.arguments.contains("--uitesting-webview") // Ignored, WebView is only renderer
         _ = CommandLine.arguments.contains("--uitesting-native") // Ignored, native renderer removed
@@ -37,15 +38,27 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         if isUITesting, cleanAllData {
             Self.logger.info("UI Testing mode - clearing ALL app data (Application Support + UserDefaults)")
             clearAllAppData()
+        } else if isUITesting, keepBooks {
+            // Fast mode: only clear UserDefaults, preserve books to skip re-import
+            Self.logger.info("UI Testing mode - clearing UserDefaults only, keeping books")
+            UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+            UserDefaults.standard.synchronize()
         } else if isUITesting, !keepUIState {
             Self.logger.info("UI Testing mode detected - clearing app state")
             clearAppStateForTesting()
         }
 
         // Copy bundled books on first launch, then scan for all test books
+        // Skip if position test (uses synthetic chapter)
+        // With --uitesting-keep-books: only import if library is empty (first run optimization)
         if !isPositionTest {
             copyBundledBooksIfNeeded()
-            importTestBooksIfNeeded()
+            let libraryEmpty = BookLibraryService.shared.getAllBooks().isEmpty
+            if !keepBooks || libraryEmpty {
+                importTestBooksIfNeeded()
+            } else {
+                Self.logger.info("Skipping book scan - library has \(BookLibraryService.shared.getAllBooks().count) books")
+            }
         }
 
         // Create window - don't specify frame, let iOS set it based on current orientation

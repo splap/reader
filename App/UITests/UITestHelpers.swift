@@ -6,7 +6,8 @@ extension XCTestCase {
     /// - Returns: The launched XCUIApplication instance
     func launchReaderApp(extraArgs: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        var args = ["--uitesting", "--uitesting-skip-indexing"]
+        // --uitesting-keep-books preserves books between test runs, skipping expensive re-import
+        var args = ["--uitesting", "--uitesting-skip-indexing", "--uitesting-keep-books"]
         args.append(contentsOf: extraArgs)
         app.launchArguments = args
         app.launch()
