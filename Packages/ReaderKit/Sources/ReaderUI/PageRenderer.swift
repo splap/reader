@@ -7,6 +7,9 @@ public protocol PageRenderer: AnyObject {
     /// The view controller to embed in the reader
     var viewController: UIViewController { get }
 
+    /// Gesture recognizers that should block the overlay tap (swipes)
+    var overlayBlockingGestures: [UIGestureRecognizer] { get }
+
     /// Current font scale (1.0 - 1.8)
     var fontScale: CGFloat { get set }
 
