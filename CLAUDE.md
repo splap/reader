@@ -197,8 +197,8 @@ Note: Console.app also works for live streaming (search `subsystem:com.splap.rea
 1. Project structure (most important)
     Prefer Swift Package Manager (SPM) for feature code.
     Keep the Xcode app target thin (wiring + assets only).
-    If you need Xcode projects, generate them via Tuist or XcodeGen.
-    Never rely on manual file adds or target membership.
+    NEVER edit Reader.xcodeproj/project.pbxproj directly - it's generated from project.yml via XcodeGen.
+    When files change, run ./scripts/bootstrap to regenerate the project.
 
 ## CRITICAL: Adding New Files to Xcode Project
 
