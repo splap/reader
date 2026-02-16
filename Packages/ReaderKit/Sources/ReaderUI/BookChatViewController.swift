@@ -173,6 +173,7 @@ public final class BookChatViewController: UIViewController {
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         view.layoutIfNeeded()
+        textView.becomeFirstResponder()
     }
 
     override public func viewDidLayoutSubviews() {
