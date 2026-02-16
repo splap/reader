@@ -77,10 +77,11 @@ final class ChatConversationFlowTests: XCTestCase {
     // MARK: - Multi-Message Conversations
 
     /// Verifies a multi-turn conversation works correctly.
+    /// Note: With turn-based architecture, each turn (prompt + answer) is ONE cell.
     func testMultipleMessages_conversationBuilds() {
         let (chatTable, input, sendButton) = openChatOnFrankenstein(extraArgs: ["--uitesting-stub-chat-short"])
 
-        // First message
+        // First turn
         sendMessage("First question", input: input, sendButton: sendButton)
         sleep(3)
 
@@ -90,12 +91,13 @@ final class ChatConversationFlowTests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(firstResponse.waitForExistence(timeout: 5))
 
-        // Second message
+        // Second turn
         sendMessage("Follow-up question", input: input, sendButton: sendButton)
         sleep(3)
 
-        // Verify conversation has 4 cells (user1, assistant1, user2, assistant2)
+        // Verify conversation has 2 cells (turn1, turn2)
+        // Each turn contains both prompt and answer in a single cell
         let cells = chatTable.cells.allElementsBoundByIndex
-        XCTAssertEqual(cells.count, 4, "Should have 4 message cells after 2 exchanges")
+        XCTAssertEqual(cells.count, 2, "Should have 2 turn cells after 2 exchanges")
     }
 }

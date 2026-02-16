@@ -1,6 +1,99 @@
 import Foundation
 import OSLog
 
+// MARK: - Turn Model
+
+/// A turn represents a single user prompt and the assistant's response as one unit.
+/// This is the primary data model for the chat UI.
+public struct Turn: Identifiable {
+    public let id: UUID
+    public let prompt: String
+    public var answer: String
+    public var state: TurnState
+    public var context: String?
+    public var trace: AgentExecutionTrace?
+
+    public init(
+        id: UUID = UUID(),
+        prompt: String,
+        answer: String = "",
+        state: TurnState = .pending,
+        context: String? = nil,
+        trace: AgentExecutionTrace? = nil
+    ) {
+        self.id = id
+        self.prompt = prompt
+        self.answer = answer
+        self.state = state
+        self.context = context
+        self.trace = trace
+    }
+}
+
+/// The state of a turn's response
+public enum TurnState {
+    case pending // Waiting for response
+    case streaming // Typewriter in progress
+    case complete // Done
+}
+
+// MARK: - Turn <-> StoredMessage Conversion
+
+public extension Turn {
+    /// Creates a Turn from stored messages (for loading conversations)
+    static func from(userMessage: StoredMessage, assistantMessage: StoredMessage?) -> Turn {
+        Turn(
+            prompt: userMessage.content,
+            answer: assistantMessage?.content ?? "",
+            state: assistantMessage != nil ? .complete : .pending,
+            trace: assistantMessage?.executionTrace
+        )
+    }
+
+    /// Converts this turn to stored messages (for saving conversations)
+    func toStoredMessages() -> [StoredMessage] {
+        var messages: [StoredMessage] = []
+        messages.append(StoredMessage(role: .user, content: prompt))
+        if !answer.isEmpty {
+            messages.append(StoredMessage(role: .assistant, content: answer, executionTrace: trace))
+        }
+        return messages
+    }
+}
+
+/// Converts an array of StoredMessages to Turns
+public func turnsFromMessages(_ messages: [StoredMessage]) -> [Turn] {
+    var turns: [Turn] = []
+    var i = 0
+
+    while i < messages.count {
+        let msg = messages[i]
+
+        if msg.role == .user {
+            // Look ahead for assistant response
+            let nextIndex = i + 1
+            let assistantMsg = nextIndex < messages.count && messages[nextIndex].role == .assistant
+                ? messages[nextIndex]
+                : nil
+
+            turns.append(Turn.from(userMessage: msg, assistantMessage: assistantMsg))
+
+            // Skip assistant message if we consumed it
+            i += assistantMsg != nil ? 2 : 1
+        } else {
+            // Skip system messages or orphaned assistant messages
+            i += 1
+        }
+    }
+
+    return turns
+}
+
+/// Converts an array of Turns to StoredMessages
+public func messagesFromTurns(_ turns: [Turn]) -> [StoredMessage] {
+    turns.flatMap { $0.toStoredMessages() }
+}
+
 // MARK: - Conversation Model
 
 public struct Conversation: Codable, Identifiable {

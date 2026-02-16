@@ -16,10 +16,20 @@ public final class BookChatViewController: UIViewController {
     private var conversationHistory: [AgentMessage] = []
     private var isLoading = false
 
+    // MARK: - Turn-Based Data Model
+
+    private var turns: [Turn] = []
+    private var turnTraces: [UUID: AgentExecutionTrace] = [:]
+    private var dataSource: UITableViewDiffableDataSource<Section, Turn.ID>!
+
+    private enum Section {
+        case main
+    }
+
     // MARK: - Typewriter Effect Properties
 
     private var typewriterTimer: Timer?
-    private var typewriterMessageIndex: Int?
+    private var typewriterTurnId: UUID?
     private var typewriterFullContent: String?
     private var typewriterCharIndex: Int = 0
     private var typewriterLastLayoutUpdate: Date = .distantPast
@@ -27,7 +37,6 @@ public final class BookChatViewController: UIViewController {
     private var typewriterLastLoggedIndex: Int = 0
 
     // Organic timing configuration
-    // Note: renderMarkdown takes ~7ms, so we batch chars to hit target rate
     private struct TypewriterTiming {
         let tickInterval: TimeInterval
         let charsPerTickBase: Int
@@ -37,23 +46,20 @@ public final class BookChatViewController: UIViewController {
         let layoutUpdateInterval: TimeInterval
 
         static let normal = TypewriterTiming(
-            tickInterval: 0.012, // 12ms between ticks
-            charsPerTickBase: 6, // Base chars per tick
-            charsPerTickJitter: 4, // ±4 chars jitter (so 2-10 chars per tick)
-            pauseAtPeriod: 0.025, // Extra pause at sentence end
-            pauseAtNewline: 0.040, // Extra pause at paragraph
+            tickInterval: 0.012,
+            charsPerTickBase: 6,
+            charsPerTickJitter: 4,
+            pauseAtPeriod: 0.025,
+            pauseAtNewline: 0.040,
             layoutUpdateInterval: 0.15
         )
 
-        // Slow mode for UI testing - makes typewriter observable
-        // ~100 chars/sec (vs ~500 chars/sec normal) = 5x slower
-        // 4500 char response takes ~45 seconds
         static let slow = TypewriterTiming(
-            tickInterval: 0.030, // 30ms between ticks (2.5x slower)
-            charsPerTickBase: 3, // 3 chars per tick (2x fewer)
-            charsPerTickJitter: 1, // ±1 char jitter (so 2-4 chars per tick)
-            pauseAtPeriod: 0.060, // Longer pause at sentence end
-            pauseAtNewline: 0.100, // Longer pause at paragraph
+            tickInterval: 0.030,
+            charsPerTickBase: 3,
+            charsPerTickJitter: 1,
+            pauseAtPeriod: 0.060,
+            pauseAtNewline: 0.100,
             layoutUpdateInterval: 0.20
         )
     }
@@ -65,22 +71,18 @@ public final class BookChatViewController: UIViewController {
     private let tableView = UITableView()
     private let inputContainer = UIView()
 
-    // Occlusion bands for content behind the viewport lines
+    // Occlusion bands
     private let topBlurView = UIVisualEffectView(effect: nil)
     private let bottomBlurView = UIVisualEffectView(effect: nil)
 
-    // DEBUG: Visual guides showing viewport boundaries
+    // DEBUG: Visual guides
     private let topViewportLine = UIView()
     private let bottomViewportLine = UIView()
 
-    /// Top content inset for the table view (to account for overlaid navigation bar)
     var topContentInset: CGFloat = 0 {
-        didSet {
-            updateTableViewInsets()
-        }
+        didSet { updateTableViewInsets() }
     }
 
-    /// Bottom content inset for the table view (to account for overlaid input area)
     var bottomContentInset: CGFloat = 0 {
         didSet {
             baseBottomContentInset = bottomContentInset
@@ -96,31 +98,22 @@ public final class BookChatViewController: UIViewController {
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let scrollToBottomButton = UIButton(type: .system)
 
-    private var messages: [ChatMessage] = []
-    private var messageTraces: [UUID: AgentExecutionTrace] = [:]
-
-    /// True while streaming a response - used to know when to show scroll-to-bottom button
-    private var isStreamingResponse = false
-
-    /// Minimum height for the streaming response cell (viewport - user message height)
-    private var streamingCellMinimumHeight: CGFloat = 0
-
-    /// Whether we've exceeded the minimum height (need to use intrinsic sizing)
-    private var streamingContentExceedsMinimum = false
-
     private var inputContainerBottomConstraint: NSLayoutConstraint?
     private var textViewHeightConstraint: NSLayoutConstraint?
 
     private let minTextViewHeight: CGFloat = 36
     private let maxTextViewHeight: CGFloat = 200
     private let buttonRowHeight: CGFloat = 44
-    private let contentBelowTolerance: CGFloat = 8
+    private let contentBelowTolerance: CGFloat = 24
     private var baseBottomContentInset: CGFloat = 0
-    private var inputContainerExtraInset: CGFloat = 0
+    private let viewportPadding: CGFloat = 24
+
+    private var topGuideConstraint: NSLayoutConstraint?
+    private var topBlurHeightConstraint: NSLayoutConstraint?
+    private var bottomBlurTopConstraint: NSLayoutConstraint?
 
     // MARK: - Initialization
 
-    /// The current conversation ID (nil for new unsaved chats)
     public var currentConversationId: UUID? { conversationId }
 
     public init(context: BookContext, selection: SelectionPayload? = nil, conversationId: UUID? = nil) {
@@ -142,7 +135,6 @@ public final class BookChatViewController: UIViewController {
             agentService = ReaderAgentService()
         }
 
-        // Slow typewriter for UI testing observation
         if args.contains("--uitesting-slow-typewriter") {
             typewriterConfig = .slow
         } else {
@@ -155,7 +147,6 @@ public final class BookChatViewController: UIViewController {
         {
             conversation = existingConv
         } else {
-            // Create new conversation
             conversation = Conversation(
                 title: "New Chat",
                 bookTitle: context.bookTitle,
@@ -179,93 +170,21 @@ public final class BookChatViewController: UIViewController {
         Self.logger.debug("Chat UI opened for book: \(context.bookTitle)")
         setupUI()
         setupViewportGuides()
-        setupKeyboardObservers()
+        setupDataSource()
         setupFontScaleObserver()
-        addWelcomeMessage()
+        loadConversation()
         updateTableViewInsets()
     }
 
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Force layout to finalize before user interaction
-        // This prevents the input container from jumping when first tapped
         view.layoutIfNeeded()
-    }
-
-    private func updateTableViewInsets() {
-        // Apply insets to account for overlaid navigation bar and input area
-        tableView.contentInset.top = topContentInset
-        tableView.contentInset.bottom = baseBottomContentInset + inputContainerExtraInset
-        tableView.verticalScrollIndicatorInsets.top = topContentInset
-        tableView.verticalScrollIndicatorInsets.bottom = baseBottomContentInset + inputContainerExtraInset
-        // Guides are updated in viewDidLayoutSubviews
-    }
-
-    /// Padding between chrome elements and the viewport boundary
-    /// Top contentInset has 8pt built in, so we add 16 more to get 24pt total
-    /// Bottom gets the full 24pt since no built-in gap
-    private let viewportPadding: CGFloat = 24
-
-    private func setupViewportGuides() {
-        // Top viewport line (red, 2pt thick)
-        topViewportLine.translatesAutoresizingMaskIntoConstraints = false
-        topViewportLine.backgroundColor = .systemRed
-        topViewportLine.isUserInteractionEnabled = false
-        view.addSubview(topViewportLine)
-
-        // Bottom viewport line (red, 2pt thick)
-        bottomViewportLine.translatesAutoresizingMaskIntoConstraints = false
-        bottomViewportLine.backgroundColor = .systemRed
-        bottomViewportLine.isUserInteractionEnabled = false
-        view.addSubview(bottomViewportLine)
-
-        NSLayoutConstraint.activate([
-            topViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topViewportLine.heightAnchor.constraint(equalToConstant: 2),
-
-            bottomViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomViewportLine.heightAnchor.constraint(equalToConstant: 2),
-
-            // Bottom line: 8pt above inputContainer to match the 8pt gap built into top contentInset
-            bottomViewportLine.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding),
-        ])
-    }
-
-    private var topGuideConstraint: NSLayoutConstraint?
-    private var topBlurHeightConstraint: NSLayoutConstraint?
-    private var bottomBlurTopConstraint: NSLayoutConstraint?
-
-    private func updateViewportGuides() {
-        // adjustedContentInset.top includes 8pt gap from parent's calculation
-        // Add 16 more to get 24pt total (matching bottom's 24pt)
-        let topInset = tableView.adjustedContentInset.top
-        let extraTopPadding: CGFloat = 16 // 8 built-in + 16 = 24pt total
-        let topViewportY = topInset + extraTopPadding
-
-        // Update top blur to extend from top of screen to top viewport line
-        topBlurHeightConstraint?.constant = topViewportY
-
-        topGuideConstraint?.isActive = false
-        topGuideConstraint = topViewportLine.topAnchor.constraint(equalTo: view.topAnchor, constant: topViewportY)
-        topGuideConstraint?.isActive = true
-
-        // Z-order: table view (bottom) < blur views < chrome elements < debug lines (top)
-        view.bringSubviewToFront(topBlurView)
-        view.bringSubviewToFront(bottomBlurView)
-        view.bringSubviewToFront(inputContainer)
-        view.bringSubviewToFront(scrollToBottomButton)
-        view.bringSubviewToFront(topViewportLine)
-        view.bringSubviewToFront(bottomViewportLine)
     }
 
     override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        updateInputContainerExtraInsetIfNeeded()
-        // Update top guide after layout - ensures insets are set
         updateViewportGuides()
-        // Blur bands are always-on; no per-scroll toggling
+        updateBottomInsetForInputContainer()
     }
 
     override public func viewWillDisappear(_ animated: Bool) {
@@ -274,46 +193,23 @@ public final class BookChatViewController: UIViewController {
         stopTypewriterEffect()
     }
 
-    private func setupFontScaleObserver() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(fontScaleDidChange),
-            name: FontScaleManager.fontScaleDidChangeNotification,
-            object: nil
-        )
-    }
-
-    @objc private func fontScaleDidChange() {
-        // Update fonts
-        textView.font = fontManager.bodyFont
-        placeholderLabel.font = fontManager.bodyFont
-        modelButton.titleLabel?.font = fontManager.captionFont
-        updateTextViewHeight()
-
-        // Reload table to update message cells
-        tableView.reloadData()
-    }
-
     // MARK: - Setup
 
     private func setupUI() {
         view.backgroundColor = .systemBackground
 
-        // Table view for messages
+        // Table view
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.dataSource = self
         tableView.delegate = self
         tableView.separatorStyle = .none
         tableView.allowsSelection = false
         tableView.keyboardDismissMode = .interactive
-        tableView.register(ChatMessageCell.self, forCellReuseIdentifier: "MessageCell")
+        tableView.register(TurnCell.self, forCellReuseIdentifier: "TurnCell")
         tableView.accessibilityIdentifier = "chat-message-list"
-        tableView.backgroundColor = .clear // Transparent so blur only affects actual content
+        tableView.backgroundColor = .clear
         view.addSubview(tableView)
 
-        // Blur overlays for content scrolling behind chrome
-        // These sit between the table view and the chrome elements
-        // Opaque bands anchored to viewport lines
+        // Blur overlays
         topBlurView.translatesAutoresizingMaskIntoConstraints = false
         topBlurView.isUserInteractionEnabled = false
         topBlurView.effect = nil
@@ -328,14 +224,14 @@ public final class BookChatViewController: UIViewController {
         bottomBlurView.contentView.backgroundColor = .black
         view.addSubview(bottomBlurView)
 
-        // Input container - single rounded rectangle
+        // Input container
         inputContainer.translatesAutoresizingMaskIntoConstraints = false
         inputContainer.backgroundColor = .secondarySystemBackground
         inputContainer.layer.cornerRadius = 16
         inputContainer.clipsToBounds = true
         view.addSubview(inputContainer)
 
-        // Text view - transparent, sits inside the container
+        // Text view
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.backgroundColor = .clear
         textView.font = fontManager.bodyFont
@@ -345,19 +241,19 @@ public final class BookChatViewController: UIViewController {
         textView.accessibilityIdentifier = "chat-input-textview"
         inputContainer.addSubview(textView)
 
-        // Placeholder label
+        // Placeholder
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.text = "Ask about the book..."
         placeholderLabel.font = fontManager.bodyFont
         placeholderLabel.textColor = .placeholderText
         inputContainer.addSubview(placeholderLabel)
 
-        // Button row - at the bottom of the container
+        // Button row
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
         buttonRow.backgroundColor = .clear
         inputContainer.addSubview(buttonRow)
 
-        // Model selector button - left side of button row
+        // Model selector button
         modelButton.translatesAutoresizingMaskIntoConstraints = false
         var config = UIButton.Configuration.plain()
         config.title = OpenRouterConfig.modelDisplayName
@@ -370,7 +266,7 @@ public final class BookChatViewController: UIViewController {
         modelButton.addTarget(self, action: #selector(showModelPicker), for: .touchUpInside)
         buttonRow.addSubview(modelButton)
 
-        // Send button - in the button row, right-aligned
+        // Send button
         sendButton.translatesAutoresizingMaskIntoConstraints = false
         sendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
         sendButton.tintColor = .systemBlue
@@ -380,33 +276,99 @@ public final class BookChatViewController: UIViewController {
         sendButton.accessibilityIdentifier = "chat-send-button"
         buttonRow.addSubview(sendButton)
 
-        // Loading indicator - use large style for visibility
+        // Loading indicator
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.style = .large
         loadingIndicator.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
         buttonRow.addSubview(loadingIndicator)
 
-        // Scroll-to-bottom button - liquid glass style floating button
+        // Scroll-to-bottom button
         scrollToBottomButton.translatesAutoresizingMaskIntoConstraints = false
         scrollToBottomButton.isHidden = true
         scrollToBottomButton.alpha = 0
         scrollToBottomButton.accessibilityIdentifier = "scroll-to-bottom-button"
         scrollToBottomButton.addTarget(self, action: #selector(scrollToBottomTapped), for: .touchUpInside)
+        setupScrollToBottomButton()
+        view.addSubview(scrollToBottomButton)
 
-        // Liquid glass background using visual effect view
+        // Layout
+        let bottomConstraint = inputContainer.bottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor, constant: -14
+        )
+        inputContainerBottomConstraint = bottomConstraint
+
+        let textViewHeight = textView.heightAnchor.constraint(equalToConstant: minTextViewHeight)
+        textViewHeightConstraint = textViewHeight
+
+        let topBlurHeight = topBlurView.heightAnchor.constraint(equalToConstant: 100)
+        topBlurHeightConstraint = topBlurHeight
+
+        let bottomBlurTop = bottomBlurView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding)
+        bottomBlurTopConstraint = bottomBlurTop
+
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            topBlurView.topAnchor.constraint(equalTo: view.topAnchor),
+            topBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBlurHeight,
+
+            bottomBlurTop,
+            bottomBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomBlurView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            bottomConstraint,
+
+            textView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: 12),
+            textView.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 12),
+            textView.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -12),
+            textViewHeight,
+
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 6),
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 4),
+
+            buttonRow.topAnchor.constraint(equalTo: textView.bottomAnchor, constant: 4),
+            buttonRow.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor),
+            buttonRow.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor),
+            buttonRow.bottomAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: -8),
+            buttonRow.heightAnchor.constraint(equalToConstant: 44),
+
+            modelButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor, constant: 12),
+            modelButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+
+            sendButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor, constant: -8),
+            sendButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+            sendButton.widthAnchor.constraint(equalToConstant: 44),
+            sendButton.heightAnchor.constraint(equalToConstant: 44),
+
+            loadingIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
+
+            scrollToBottomButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            scrollToBottomButton.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
+            scrollToBottomButton.widthAnchor.constraint(equalToConstant: 44),
+            scrollToBottomButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
+    }
+
+    private func setupScrollToBottomButton() {
         let blurEffect = UIBlurEffect(style: .systemThinMaterial)
         let glassBackground = UIVisualEffectView(effect: blurEffect)
         glassBackground.translatesAutoresizingMaskIntoConstraints = false
         glassBackground.layer.cornerRadius = 22
         glassBackground.clipsToBounds = true
         glassBackground.isUserInteractionEnabled = false
-
-        // Subtle border for glass edge definition
         glassBackground.layer.borderWidth = 0.5
         glassBackground.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
 
-        // Icon with vibrancy effect
         let vibrancyEffect = UIVibrancyEffect(blurEffect: blurEffect, style: .label)
         let vibrancyView = UIVisualEffectView(effect: vibrancyEffect)
         vibrancyView.translatesAutoresizingMaskIntoConstraints = false
@@ -433,181 +395,173 @@ public final class BookChatViewController: UIViewController {
             iconView.centerXAnchor.constraint(equalTo: vibrancyView.contentView.centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: vibrancyView.contentView.centerYAnchor),
         ])
+    }
 
-        view.addSubview(scrollToBottomButton)
+    private func setupViewportGuides() {
+        topViewportLine.translatesAutoresizingMaskIntoConstraints = false
+        topViewportLine.backgroundColor = .systemRed
+        topViewportLine.isUserInteractionEnabled = false
+        view.addSubview(topViewportLine)
 
-        // Layout
-        let bottomConstraint = inputContainer.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -14
-        )
-        inputContainerBottomConstraint = bottomConstraint
-
-        // Start with minimum height
-        let textViewHeight = textView.heightAnchor.constraint(equalToConstant: minTextViewHeight)
-        textViewHeightConstraint = textViewHeight
-
-        // Top blur view height constraint - updated dynamically in viewDidLayoutSubviews
-        let topBlurHeight = topBlurView.heightAnchor.constraint(equalToConstant: 100)
-        topBlurHeightConstraint = topBlurHeight
-
-        // Bottom blur view top constraint - aligns with bottom viewport line
-        let bottomBlurTop = bottomBlurView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding)
-        bottomBlurTopConstraint = bottomBlurTop
+        bottomViewportLine.translatesAutoresizingMaskIntoConstraints = false
+        bottomViewportLine.backgroundColor = .systemRed
+        bottomViewportLine.isUserInteractionEnabled = false
+        view.addSubview(bottomViewportLine)
 
         NSLayoutConstraint.activate([
-            // Table view extends full height - content insets handle the overlaid UI
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            topViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topViewportLine.heightAnchor.constraint(equalToConstant: 2),
 
-            // Top blur overlay - from top of screen to top viewport line
-            topBlurView.topAnchor.constraint(equalTo: view.topAnchor),
-            topBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBlurHeight,
-
-            // Bottom blur overlay - from bottom viewport line to bottom of screen
-            bottomBlurTop,
-            bottomBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomBlurView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            // Input container with margins matching message bubbles
-            inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            bottomConstraint,
-
-            // Text view at top of container
-            textView.topAnchor.constraint(equalTo: inputContainer.topAnchor, constant: 12),
-            textView.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 12),
-            textView.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -12),
-            textViewHeight,
-
-            // Placeholder aligned with text cursor
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 6),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 4),
-
-            // Button row below text view
-            buttonRow.topAnchor.constraint(equalTo: textView.bottomAnchor, constant: 4),
-            buttonRow.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor),
-            buttonRow.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor),
-            buttonRow.bottomAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: -8),
-            buttonRow.heightAnchor.constraint(equalToConstant: 44),
-
-            // Model button in the button row, left side
-            modelButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor, constant: 12),
-            modelButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-
-            // Send button in the button row, right side - 44pt touch target per Apple HIG
-            sendButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor, constant: -8),
-            sendButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 44),
-            sendButton.heightAnchor.constraint(equalToConstant: 44),
-
-            loadingIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
-
-            // Scroll-to-bottom button - centered horizontally, above input container
-            scrollToBottomButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            scrollToBottomButton.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -8),
-            scrollToBottomButton.widthAnchor.constraint(equalToConstant: 44),
-            scrollToBottomButton.heightAnchor.constraint(equalToConstant: 44),
+            bottomViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomViewportLine.heightAnchor.constraint(equalToConstant: 2),
+            bottomViewportLine.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding),
         ])
     }
 
-    private func setupKeyboardObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillShow),
-            name: UIResponder.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillHide),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
+    private func updateViewportGuides() {
+        let topInset = tableView.adjustedContentInset.top
+        let extraTopPadding: CGFloat = 16
+        let topViewportY = topInset + extraTopPadding
+
+        topBlurHeightConstraint?.constant = topViewportY
+
+        topGuideConstraint?.isActive = false
+        topGuideConstraint = topViewportLine.topAnchor.constraint(equalTo: view.topAnchor, constant: topViewportY)
+        topGuideConstraint?.isActive = true
+
+        view.bringSubviewToFront(topBlurView)
+        view.bringSubviewToFront(bottomBlurView)
+        view.bringSubviewToFront(inputContainer)
+        view.bringSubviewToFront(scrollToBottomButton)
+        view.bringSubviewToFront(topViewportLine)
+        view.bringSubviewToFront(bottomViewportLine)
     }
 
-    @objc private func showModelPicker() {
-        let picker = ModelPickerViewController(
-            selectedModelId: OpenRouterConfig.model,
-            onSelect: { [weak self] model in
-                OpenRouterConfig.model = model.id
-                self?.modelButton.configuration?.title = model.name
-            }
-        )
-        picker.modalPresentationStyle = .popover
-        picker.preferredContentSize = CGSize(width: 350, height: 400)
+    private func updateTableViewInsets() {
+        tableView.contentInset.top = topContentInset
+        tableView.contentInset.bottom = baseBottomContentInset
+        tableView.verticalScrollIndicatorInsets.top = topContentInset
+        tableView.verticalScrollIndicatorInsets.bottom = baseBottomContentInset
+    }
 
-        if let popover = picker.popoverPresentationController {
-            popover.sourceView = modelButton
-            popover.sourceRect = modelButton.bounds
-            popover.permittedArrowDirections = [.down, .up]
-            popover.delegate = self
+    /// Keep bottom inset in sync with input container position so viewport geometry
+    /// correctly reflects the visible area above the input container.
+    private func updateBottomInsetForInputContainer() {
+        let inputOcclusion = view.bounds.height - inputContainer.frame.minY + viewportPadding
+        let newBottom = max(baseBottomContentInset, inputOcclusion)
+        if tableView.contentInset.bottom != newBottom {
+            tableView.contentInset.bottom = newBottom
+            tableView.verticalScrollIndicatorInsets.bottom = newBottom
         }
-
-        present(picker, animated: true)
     }
 
-    private func addWelcomeMessage() {
-        // Load existing conversation messages if this is an existing conversation
-        if conversationId != nil, !conversation.messages.isEmpty {
-            for storedMsg in conversation.messages {
-                let role: ChatMessage.Role = storedMsg.role == .user ? .user : .assistant
-                let hasTrace = storedMsg.executionTrace != nil
-                let message = ChatMessage(role: role, content: storedMsg.content, isCollapsed: hasTrace, hasTrace: hasTrace)
-                messages.append(message)
+    private func setupDataSource() {
+        dataSource = UITableViewDiffableDataSource<Section, Turn.ID>(tableView: tableView) { [weak self] tableView, indexPath, turnId in
+            guard let self,
+                  let cell = tableView.dequeueReusableCell(withIdentifier: "TurnCell", for: indexPath) as? TurnCell,
+                  let turn = self.turns.first(where: { $0.id == turnId })
+            else {
+                return UITableViewCell()
+            }
 
-                // Restore execution trace if available
-                if let trace = storedMsg.executionTrace {
-                    messageTraces[message.id] = trace
+            let isActive = turn.state == .pending || turn.state == .streaming
+            let viewportHeight = self.viewportHeight
+            cell.configure(with: turn, viewportHeight: viewportHeight, isActive: isActive)
+
+            // Set up context menu callbacks
+            cell.onCopyPrompt = { UIPasteboard.general.string = turn.prompt }
+            cell.onCopyAnswer = { UIPasteboard.general.string = turn.answer }
+
+            if let trace = self.turnTraces[turn.id] {
+                cell.onShowExecutionDetails = { [weak self] in
+                    self?.showExecutionDetails(for: turn.id)
                 }
+                cell.onCopyDebugTranscript = { [weak self] in
+                    UIPasteboard.general.string = self?.buildDebugTranscript() ?? ""
+                }
+            } else {
+                cell.onShowExecutionDetails = nil
+                cell.onCopyDebugTranscript = nil
+            }
 
-                // Add to conversation history for the agent
-                if storedMsg.role == .user {
-                    conversationHistory.append(AgentMessage(role: .user, content: storedMsg.content))
-                } else {
-                    conversationHistory.append(AgentMessage(
-                        role: .assistant,
-                        content: storedMsg.content,
-                        toolCalls: nil
-                    ))
+            return cell
+        }
+    }
+
+    private func setupFontScaleObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(fontScaleDidChange),
+            name: FontScaleManager.fontScaleDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func fontScaleDidChange() {
+        textView.font = fontManager.bodyFont
+        placeholderLabel.font = fontManager.bodyFont
+        modelButton.titleLabel?.font = fontManager.captionFont
+        updateTextViewHeight()
+        applySnapshot(animatingDifferences: false)
+    }
+
+    // MARK: - Conversation Loading
+
+    private func loadConversation() {
+        if conversationId != nil, !conversation.messages.isEmpty {
+            // Load existing conversation as turns
+            turns = turnsFromMessages(conversation.messages)
+
+            // Restore traces from turns (turnsFromMessages already pairs them correctly)
+            for turn in turns {
+                if let trace = turn.trace {
+                    turnTraces[turn.id] = trace
                 }
             }
+
+            // Rebuild conversation history for agent
+            for turn in turns {
+                conversationHistory.append(AgentMessage(role: .user, content: turn.prompt))
+                if !turn.answer.isEmpty {
+                    conversationHistory.append(AgentMessage(role: .assistant, content: turn.answer, toolCalls: nil))
+                }
+            }
+
+            applySnapshot(animatingDifferences: false)
         } else if let selection = initialSelection {
-            // Strip quotes from selection, wrap in quotes, and format with "selection: "
+            // Pre-fill input with selection
             let cleanedSelection = selection.selectedText.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "'", with: "")
             let formattedText = "selection: \"\(cleanedSelection)\"\n\n"
             textView.text = formattedText
             placeholderLabel.isHidden = true
 
-            // Delay height calculation until view is laid out, then focus and position cursor
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.view.layoutIfNeeded()
                 self.updateTextViewHeight()
                 self.textView.becomeFirstResponder()
-                // Position cursor at the end (after the two newlines)
                 let endPosition = self.textView.endOfDocument
                 self.textView.selectedTextRange = self.textView.textRange(from: endPosition, to: endPosition)
-                // Scroll to make cursor visible
-                self.textView.scrollRangeToVisible(NSRange(location: self.textView.text.count, length: 0))
             }
         }
+    }
 
-        tableView.reloadData()
+    // MARK: - Data Source Updates
+
+    private func applySnapshot(animatingDifferences: Bool = false) {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Turn.ID>()
+        snapshot.appendSections([.main])
+        snapshot.appendItems(turns.map(\.id))
+        dataSource.apply(snapshot, animatingDifferences: animatingDifferences)
     }
 
     // MARK: - Actions
 
-    /// Saves the conversation (called by container before dismissing)
     func saveConversation() {
         saveAndSummarizeConversation()
     }
 
-    /// Builds a debug transcript for copying (called by container)
     func buildDebugTranscript() -> String {
         var transcript = "=== DEBUG TRANSCRIPT ===\n"
         transcript += "Book: \(context.bookTitle)"
@@ -615,13 +569,12 @@ public final class BookChatViewController: UIViewController {
             transcript += " by \(author)"
         }
         transcript += "\nGenerated: \(Date())\n"
-        transcript += "Messages: \(messages.count), Traces: \(messageTraces.count)\n"
+        transcript += "Turns: \(turns.count), Traces: \(turnTraces.count)\n"
         transcript += "========================\n\n"
 
-        // Render unified timeline from all message traces
         var stepIndex = 0
-        for message in messages {
-            guard let trace = messageTraces[message.id] else { continue }
+        for turn in turns {
+            guard let trace = turnTraces[turn.id] else { continue }
 
             for step in trace.timeline {
                 transcript += formatTimelineStep(step, index: stepIndex)
@@ -635,7 +588,6 @@ public final class BookChatViewController: UIViewController {
 
     private func logTranscript() {
         let transcript = buildDebugTranscript()
-        // Split into chunks to avoid OSLog truncation (~800 char limit per message)
         let chunkSize = 800
         var offset = transcript.startIndex
         var chunkNum = 1
@@ -672,16 +624,12 @@ public final class BookChatViewController: UIViewController {
 
         case let .tool(exec):
             var line = "[\(index)] TOOL \(exec.functionName) - \(String(format: "%.3f", exec.executionTime))s\n"
-            // Compact args on one line
             let argsPreview = exec.arguments.replacingOccurrences(of: "\n", with: " ")
             line += "    args: \(argsPreview)\n"
-            // Result with word wrap preserved (indent continuation lines)
-            // 4000 chars to show all semantic search results (10 results × ~350 chars each)
             let maxResultLen = 4000
             let resultText = exec.result.count > maxResultLen
                 ? String(exec.result.prefix(maxResultLen)) + "..."
                 : exec.result
-            // Indent each line of the result for readability
             let indentedResult = resultText
                 .components(separatedBy: "\n")
                 .joined(separator: "\n            ")
@@ -694,59 +642,29 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
-    private func timelineStepLabel(_ step: TimelineStep) -> String {
-        switch step {
-        case .user:
-            return "User message"
-        case let .llm(exec):
-            if let tools = exec.requestedTools, !tools.isEmpty {
-                return "LLM → \(tools.joined(separator: ", "))"
-            }
-            return "LLM (final response)"
-        case let .tool(exec):
-            return exec.functionName
-        case .assistant:
-            return "Assistant response"
-        }
+    private func showExecutionDetails(for turnId: UUID) {
+        // TODO: Implement execution details panel
+        Self.logger.info("Show execution details for turn \(turnId)")
     }
 
     private func saveAndSummarizeConversation() {
-        // Convert UI messages to stored messages (exclude system messages)
-        let storedMessages = messages.compactMap { msg -> StoredMessage? in
-            switch msg.role {
-            case .user:
-                return StoredMessage(role: .user, content: msg.content)
-            case .assistant:
-                // Include execution trace if available
-                let trace = messageTraces[msg.id]
-                return StoredMessage(role: .assistant, content: msg.content, executionTrace: trace)
-            case .system:
-                return nil // Don't save system/context messages
-            }
-        }
+        let storedMessages = messagesFromTurns(turns)
 
-        // Only save if there's actual conversation (not just welcome message)
-        guard storedMessages.count > 1 else {
-            return
-        }
+        guard storedMessages.count > 1 else { return }
 
-        // Update conversation with messages
         conversation.messages = storedMessages
         conversation.updatedAt = Date()
 
-        // Auto-summarize if title is still "New Chat"
         if conversation.title == "New Chat" {
             summarizeConversation()
         } else {
-            // Just save without summarizing
             ConversationStorage.shared.saveConversation(conversation)
         }
     }
 
     private func summarizeConversation() {
-        // Build a prompt to summarize the conversation
-        let conversationText = conversation.messages.prefix(6).map { msg in
-            "\(msg.role == .user ? "User" : "Assistant"): \(msg.content)"
+        let conversationText = turns.prefix(3).map { turn in
+            "User: \(turn.prompt)\nAssistant: \(turn.answer)"
         }.joined(separator: "\n")
 
         let summaryPrompt = """
@@ -757,7 +675,6 @@ public final class BookChatViewController: UIViewController {
         Respond with ONLY the title, nothing else.
         """
 
-        // Use the agent service to generate a summary
         Task {
             do {
                 let result = try await agentService.chat(
@@ -770,24 +687,43 @@ public final class BookChatViewController: UIViewController {
                 )
 
                 await MainActor.run {
-                    // Use the response as the title
                     let title = result.response.content
                         .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .prefix(50) // Limit length
+                        .prefix(50)
                     self.conversation.title = String(title)
                     ConversationStorage.shared.saveConversation(self.conversation)
                 }
             } catch {
-                // Fallback: use first user message as title
                 await MainActor.run {
-                    if let firstUser = self.conversation.messages.first(where: { $0.role == .user }) {
-                        let title = firstUser.content.prefix(30)
+                    if let firstTurn = self.turns.first {
+                        let title = firstTurn.prompt.prefix(30)
                         self.conversation.title = String(title) + "..."
                     }
                     ConversationStorage.shared.saveConversation(self.conversation)
                 }
             }
         }
+    }
+
+    @objc private func showModelPicker() {
+        let picker = ModelPickerViewController(
+            selectedModelId: OpenRouterConfig.model,
+            onSelect: { [weak self] model in
+                OpenRouterConfig.model = model.id
+                self?.modelButton.configuration?.title = model.name
+            }
+        )
+        picker.modalPresentationStyle = .popover
+        picker.preferredContentSize = CGSize(width: 350, height: 400)
+
+        if let popover = picker.popoverPresentationController {
+            popover.sourceView = modelButton
+            popover.sourceRect = modelButton.bounds
+            popover.permittedArrowDirections = [.down, .up]
+            popover.delegate = self
+        }
+
+        present(picker, animated: true)
     }
 
     @objc private func sendMessage() {
@@ -798,35 +734,36 @@ public final class BookChatViewController: UIViewController {
             return
         }
 
-        // Stop any existing typewriter effect
         stopTypewriterEffect()
 
-        let userMessageIndex = messages.count
-        Self.logger.info("SCROLL[send]: user message will be row \(userMessageIndex)")
+        // Create new turn
+        let turn = Turn(prompt: text, state: .pending)
+        turns.append(turn)
 
-        // Add user message
-        messages.append(ChatMessage(role: .user, content: text))
+        let turnIndex = turns.count - 1
+        Self.logger.info("SCROLL[send]: created turn \(turn.id), index \(turnIndex)")
 
-        // Reload and position user message at top of visible area - ONE TIME, no enforcement
+        // Clear input, update layout, apply snapshot, and scroll - all atomically
         UIView.performWithoutAnimation {
-            tableView.reloadData()
+            // Clear input and update height synchronously
+            textView.text = ""
+            placeholderLabel.isHidden = false
+            let size = CGSize(width: textView.frame.width, height: .infinity)
+            let estimatedSize = textView.sizeThatFits(size)
+            let newHeight = min(estimatedSize.height, maxTextViewHeight)
+            textViewHeightConstraint?.constant = max(minTextViewHeight, newHeight)
+            textView.isScrollEnabled = estimatedSize.height > maxTextViewHeight
+
+            // Layout entire view hierarchy to finalize positions
+            view.layoutIfNeeded()
+
+            // Apply snapshot and scroll
+            applySnapshot(animatingDifferences: false)
             tableView.layoutIfNeeded()
-            scrollRowToViewportTop(userMessageIndex)
+            let indexPath = IndexPath(row: turnIndex, section: 0)
+            scrollRowToViewportTop(indexPath)
         }
 
-        // Calculate the available space for the response cell
-        // This "claims" the space upfront so no layout changes happen during streaming
-        let userMessageIndexPath = IndexPath(row: userMessageIndex, section: 0)
-        let userMessageRect = tableView.rectForRow(at: userMessageIndexPath)
-        let viewportHeight = bottomViewportLine.frame.minY - topViewportLine.frame.maxY
-        streamingCellMinimumHeight = max(0, viewportHeight - userMessageRect.height)
-        streamingContentExceedsMinimum = false
-        Self.logger.debug("SCROLL[claim]: viewport=\(viewportHeight), userMsg=\(userMessageRect.height), claimedHeight=\(self.streamingCellMinimumHeight)")
-
-        // Clear input and set loading state
-        textView.text = ""
-        placeholderLabel.isHidden = false
-        updateTextViewHeight()
         setLoading(true)
 
         // Send to agent
@@ -842,49 +779,28 @@ public final class BookChatViewController: UIViewController {
                 )
 
                 await MainActor.run {
-                    // Update history
                     self.conversationHistory = result.updatedHistory
 
-                    // Create message with trace if available (collapsed by default)
-                    // Start with empty content for typewriter effect
-                    let hasTrace = result.response.executionTrace != nil
-                    let message = ChatMessage(role: .assistant, content: "", isCollapsed: hasTrace, hasTrace: hasTrace)
-
-                    // Store trace if available
+                    // Store trace
                     if let trace = result.response.executionTrace {
-                        self.messageTraces[message.id] = trace
+                        self.turnTraces[turn.id] = trace
                     }
 
-                    messages.append(message)
-
-                    // Log debug transcript in chunks (OSLog truncates long messages)
+                    // Log transcript
                     self.logTranscript()
-
-                    // Reload table but preserve scroll position - user message stays at top
-                    let offsetBefore = tableView.contentOffset
-                    UIView.performWithoutAnimation {
-                        tableView.reloadData()
-                        tableView.layoutIfNeeded()
-                        tableView.setContentOffset(offsetBefore, animated: false)
-                    }
 
                     setLoading(false)
 
-                    // Start typewriter effect with the full response content
-                    let messageIndex = messages.count - 1
-                    startTypewriterEffect(messageIndex: messageIndex, fullContent: result.response.content)
+                    // Start typewriter
+                    startTypewriterEffect(turnId: turn.id, fullContent: result.response.content)
                 }
             } catch {
                 await MainActor.run {
-                    messages.append(ChatMessage(
-                        role: .assistant,
-                        content: "Error: \(error.localizedDescription)"
-                    ))
-                    // Reload and scroll atomically - no animation to prevent flash
-                    UIView.performWithoutAnimation {
-                        tableView.reloadData()
-                        tableView.layoutIfNeeded()
-                        scrollLastMessageToTop()
+                    // Update turn with error
+                    if let index = self.turns.firstIndex(where: { $0.id == turn.id }) {
+                        self.turns[index].answer = "Error: \(error.localizedDescription)"
+                        self.turns[index].state = .complete
+                        applySnapshot(animatingDifferences: false)
                     }
                     setLoading(false)
                 }
@@ -908,12 +824,8 @@ public final class BookChatViewController: UIViewController {
     private func updateTextViewHeight() {
         let size = CGSize(width: textView.frame.width, height: .infinity)
         let estimatedSize = textView.sizeThatFits(size)
-
-        // Use OS-provided height, clamped to max
         let newHeight = min(estimatedSize.height, maxTextViewHeight)
         textViewHeightConstraint?.constant = max(minTextViewHeight, newHeight)
-
-        // Enable scrolling only when content exceeds max height
         textView.isScrollEnabled = estimatedSize.height > maxTextViewHeight
 
         UIView.animate(withDuration: 0.1) {
@@ -921,41 +833,33 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
-    private func updateInputContainerExtraInsetIfNeeded() {
-        guard view.bounds.height > 0 else { return }
-        let bottomOverlayHeight = max(0, view.bounds.height - bottomViewportLine.frame.minY)
-        let desiredBottomInset = max(baseBottomContentInset, bottomOverlayHeight)
-        let extraInset = max(0, desiredBottomInset - baseBottomContentInset)
-        if abs(extraInset - inputContainerExtraInset) > 0.5 {
-            inputContainerExtraInset = extraInset
-            updateTableViewInsets()
-        }
-    }
-
     // MARK: - Viewport Geometry
 
-    /// Current viewport geometry for scroll calculations
-    private var viewportGeometry: ChatViewportGeometry {
-        let topLineY = topViewportLine.frame.maxY
-        let bottomLineY = bottomViewportLine.frame.minY
-        return ChatViewportGeometry(
-            scrollView: tableView,
-            topLineY: topLineY,
-            bottomLineY: bottomLineY
-        )
+    private var viewportHeight: CGFloat {
+        viewportGeometry.visibleHeight
     }
 
-    private func scrollToBottom() {
-        guard !messages.isEmpty else { return }
+    private var viewportGeometry: ChatViewportGeometry {
+        ChatViewportGeometry(scrollView: tableView)
+    }
+
+    private func scrollRowToViewportTop(_ indexPath: IndexPath) {
+        guard indexPath.row < turns.count else { return }
+
+        // Step 1: Force cell to load by scrolling to it first
+        tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+        tableView.layoutIfNeeded()
+
+        // Step 2: Now calculate precise offset to place row at viewport top
+        let cellRect = tableView.rectForRow(at: indexPath)
         let geometry = viewportGeometry
-        tableView.setContentOffset(geometry.offsetToShowBottom, animated: true)
+        tableView.contentOffset = geometry.offsetToShowAtTop(cellRect.origin.y)
     }
 
     @objc private func scrollToBottomTapped() {
         let geometry = viewportGeometry
         let targetOffset = geometry.offsetToShowBottom
 
-        // Use explicit animation with completion to ensure button hides after scroll settles
         UIView.animate(withDuration: 0.3) {
             self.tableView.setContentOffset(targetOffset, animated: false)
         } completion: { _ in
@@ -963,21 +867,10 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
-    /// Scrolls a specific row to align with the viewport top (one-time, no enforcement)
-    private func scrollRowToViewportTop(_ row: Int) {
-        guard row < messages.count else { return }
-        let indexPath = IndexPath(row: row, section: 0)
-        let cellRect = tableView.rectForRow(at: indexPath)
-        let geometry = viewportGeometry
-        let targetOffset = geometry.offsetToShowAtTop(cellRect.origin.y)
-        tableView.setContentOffset(targetOffset, animated: false)
-    }
-
     private func updateScrollToBottomButtonVisibility() {
         let geometry = viewportGeometry
-        let shouldShow = geometry.distanceToBottom > contentBelowTolerance
-
-        // Only animate if state is changing
+        let distance = max(0, geometry.distanceToBottom)
+        let shouldShow = distance > contentBelowTolerance
         let isCurrentlyVisible = scrollToBottomButton.alpha > 0
 
         if shouldShow != isCurrentlyVisible {
@@ -992,76 +885,62 @@ public final class BookChatViewController: UIViewController {
         }
     }
 
-    /// Scrolls to position the last message at the visible top anchor
-    private func scrollLastMessageToTop() {
-        guard !messages.isEmpty else { return }
-        let indexPath = IndexPath(row: messages.count - 1, section: 0)
-        tableView.layoutIfNeeded()
-        let cellRect = tableView.rectForRow(at: indexPath)
-        let geometry = viewportGeometry
-        tableView.setContentOffset(geometry.offsetToShowAtTop(cellRect.origin.y), animated: true)
-    }
-
     // MARK: - Typewriter Effect
 
-    /// Starts the typewriter effect for a message at the given index
-    private func startTypewriterEffect(messageIndex: Int, fullContent: String) {
+    private func startTypewriterEffect(turnId: UUID, fullContent: String) {
         stopTypewriterEffect()
 
-        isStreamingResponse = true
-        typewriterMessageIndex = messageIndex
+        guard let index = turns.firstIndex(where: { $0.id == turnId }) else { return }
+
+        turns[index].state = .streaming
+        turns[index].answer = ""
+        typewriterTurnId = turnId
         typewriterFullContent = fullContent
         typewriterCharIndex = 0
         typewriterStartTime = Date()
 
         Self.logger.info("TYPEWRITER: Starting, \(fullContent.count) chars total")
 
-        // Start with empty content - preserve scroll position through reload
-        messages[messageIndex].content = ""
-        let offsetBefore = tableView.contentOffset
+        // Preserve scroll position when updating snapshot - prevents visual shift
+        let scrollPositionBefore = tableView.contentOffset
         UIView.performWithoutAnimation {
-            tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
+            applySnapshot(animatingDifferences: false)
             tableView.layoutIfNeeded()
-            tableView.setContentOffset(offsetBefore, animated: false)
+            tableView.setContentOffset(scrollPositionBefore, animated: false)
         }
-
-        // Update button visibility now that response is starting
         updateScrollToBottomButtonVisibility()
 
-        // Schedule first tick
         scheduleNextTypewriterTick(delay: typewriterConfig.tickInterval)
     }
 
-    /// Schedules the next typewriter tick with variable delay
     private func scheduleNextTypewriterTick(delay: TimeInterval) {
         typewriterTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             self?.typewriterTick()
         }
     }
 
-    /// Called on each timer tick to reveal a batch of characters
     private func typewriterTick() {
-        guard let messageIndex = typewriterMessageIndex,
+        guard let turnId = typewriterTurnId,
               let fullContent = typewriterFullContent,
+              let index = turns.firstIndex(where: { $0.id == turnId }),
               typewriterCharIndex < fullContent.count
         else {
             finishTypewriterEffect()
             return
         }
 
-        // Calculate batch size with jitter for organic feel
+        // Calculate batch size with jitter
         let jitter = Int.random(in: -typewriterConfig.charsPerTickJitter ... typewriterConfig.charsPerTickJitter)
         let batchSize = max(1, typewriterConfig.charsPerTickBase + jitter)
         let remainingChars = fullContent.count - typewriterCharIndex
         let charsToAdd = min(batchSize, remainingChars)
 
-        // Advance and update content
         typewriterCharIndex += charsToAdd
         let endIndex = fullContent.index(fullContent.startIndex, offsetBy: typewriterCharIndex)
         let newContent = String(fullContent[..<endIndex])
-        messages[messageIndex].content = newContent
+        turns[index].answer = newContent
 
-        // Sample logging every 200 chars
+        // Sample logging
         if typewriterCharIndex - typewriterLastLoggedIndex >= 200 {
             let elapsed = Date().timeIntervalSince(typewriterStartTime)
             let rate = Double(typewriterCharIndex) / elapsed
@@ -1069,44 +948,34 @@ public final class BookChatViewController: UIViewController {
             typewriterLastLoggedIndex = typewriterCharIndex
         }
 
-        // Update cell text directly
-        let indexPath = IndexPath(row: messageIndex, section: 0)
-        if let cell = tableView.cellForRow(at: indexPath) as? ChatMessageCell {
-            cell.updateTypewriterText(newContent, role: .assistant)
+        // Update the cell through the data source. reconfigureItems updates content
+        // without triggering height recalculation (fast). Periodically use reloadItems
+        // to force height recalculation as the cell content grows beyond viewport.
+        let now = Date()
+        let needsHeightUpdate = now.timeIntervalSince(typewriterLastLayoutUpdate) >= typewriterConfig.layoutUpdateInterval
+
+        var snapshot = dataSource.snapshot()
+        if needsHeightUpdate {
+            snapshot.reloadItems([turnId])
+            typewriterLastLayoutUpdate = now
+        } else {
+            snapshot.reconfigureItems([turnId])
         }
 
-        // Periodically update layout - but use fixed height while content fits to prevent jumps
-        let now = Date()
-        if now.timeIntervalSince(typewriterLastLayoutUpdate) >= typewriterConfig.layoutUpdateInterval {
-            typewriterLastLayoutUpdate = now
-
-            // Check if content now exceeds minimum height
-            if !streamingContentExceedsMinimum, streamingCellMinimumHeight > 0 {
-                let intrinsicHeight = measureIntrinsicHeight(for: newContent)
-                if intrinsicHeight > streamingCellMinimumHeight {
-                    streamingContentExceedsMinimum = true
-                    Self.logger.info("SCROLL[overflow]: intrinsic=\(intrinsicHeight) > minimum=\(self.streamingCellMinimumHeight), switching to auto height")
-                }
+        let offsetBefore = tableView.contentOffset
+        UIView.performWithoutAnimation {
+            dataSource.apply(snapshot, animatingDifferences: false)
+            if needsHeightUpdate {
+                tableView.layoutIfNeeded()
+                tableView.setContentOffset(offsetBefore, animated: false)
             }
+        }
 
-            // Only do layout updates after content exceeds minimum (growth happens off-screen)
-            if streamingContentExceedsMinimum {
-                let scrollPositionBefore = tableView.contentOffset
-
-                UIView.performWithoutAnimation {
-                    tableView.beginUpdates()
-                    tableView.endUpdates()
-                    tableView.layoutIfNeeded()
-                    if !tableView.isDragging, !tableView.isDecelerating {
-                        tableView.setContentOffset(scrollPositionBefore, animated: false)
-                    }
-                }
-            }
-
+        if needsHeightUpdate {
             updateScrollToBottomButtonVisibility()
         }
 
-        // Calculate next delay - add pause at punctuation
+        // Calculate next delay
         var nextDelay = typewriterConfig.tickInterval
         let lastChar = fullContent[fullContent.index(before: endIndex)]
         if lastChar == "." || lastChar == "!" || lastChar == "?" {
@@ -1118,341 +987,68 @@ public final class BookChatViewController: UIViewController {
         scheduleNextTypewriterTick(delay: nextDelay)
     }
 
-    /// Completes the typewriter effect immediately
     private func finishTypewriterEffect() {
-        guard let messageIndex = typewriterMessageIndex,
-              let fullContent = typewriterFullContent
+        guard let turnId = typewriterTurnId,
+              let fullContent = typewriterFullContent,
+              let index = turns.firstIndex(where: { $0.id == turnId })
         else {
             stopTypewriterEffect()
             return
         }
 
-        // Log final stats
         let elapsed = Date().timeIntervalSince(typewriterStartTime)
         let rate = elapsed > 0 ? Double(fullContent.count) / elapsed : 0
         Self.logger.info("TYPEWRITER: Finished \(fullContent.count) chars in \(String(format: "%.2f", elapsed))s (\(Int(rate)) chars/sec)")
 
-        // Set final content and reload to ensure correct cell height
-        messages[messageIndex].content = fullContent
+        turns[index].answer = fullContent
+        turns[index].state = .complete
 
-        // Capture scroll position before reload
         let scrollPositionBefore = tableView.contentOffset
 
-        tableView.reloadRows(at: [IndexPath(row: messageIndex, section: 0)], with: .none)
-        tableView.layoutIfNeeded()
+        // Force height recalculation using reloadData (safe with diffable data source)
+        // The diffable data source will re-create the snapshot from current state
+        UIView.performWithoutAnimation {
+            // Re-apply snapshot to update cell
+            var snapshot = NSDiffableDataSourceSnapshot<Section, Turn.ID>()
+            snapshot.appendSections([.main])
+            snapshot.appendItems(turns.map(\.id))
+            dataSource.applySnapshotUsingReloadData(snapshot)
 
-        // Restore scroll position to prevent auto-scroll to bottom
-        tableView.setContentOffset(scrollPositionBefore, animated: false)
+            tableView.layoutIfNeeded()
+            tableView.setContentOffset(scrollPositionBefore, animated: false)
+        }
 
-        // Update scroll-to-bottom button visibility
         updateScrollToBottomButtonVisibility()
-
         stopTypewriterEffect()
     }
 
-    /// Stops and cleans up the typewriter effect
     private func stopTypewriterEffect() {
         typewriterTimer?.invalidate()
         typewriterTimer = nil
-        typewriterMessageIndex = nil
+        typewriterTurnId = nil
         typewriterFullContent = nil
         typewriterCharIndex = 0
         typewriterLastLayoutUpdate = .distantPast
         typewriterStartTime = .distantPast
         typewriterLastLoggedIndex = 0
-        isStreamingResponse = false
-
-        // Reset streaming cell height state
-        streamingCellMinimumHeight = 0
-        streamingContentExceedsMinimum = false
-    }
-
-    /// Measures the intrinsic height of rendered markdown content for a message
-    private func measureIntrinsicHeight(for content: String) -> CGFloat {
-        // Use the same width as the cell's text area
-        let cellWidth = tableView.bounds.width - 40 // account for margins (20 each side)
-        let textWidth = cellWidth - 28 // bubble padding (14 each side)
-
-        // Render markdown and measure
-        let attributed = renderMarkdown(content, font: fontManager.bodyFont, color: .label)
-        let boundingRect = attributed.boundingRect(
-            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            context: nil
-        )
-
-        // Add cell padding: top bubble (12) + bottom bubble (16) + cell top (8) + cell bottom (8) = 44
-        return ceil(boundingRect.height) + 44
-    }
-
-    /// Renders markdown to attributed string (duplicated helper for measurement)
-    private func renderMarkdown(_ text: String, font: UIFont, color: UIColor) -> NSAttributedString {
-        // Use the cell's renderMarkdown - for measurement we just need simple rendering
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraphStyle,
-        ]
-
-        return NSAttributedString(string: text, attributes: attributes)
-    }
-
-    // MARK: - Keyboard
-
-    @objc private func keyboardWillShow(_ notification: Notification) {
-        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-        else {
-            return
-        }
-
-        let keyboardHeight = keyboardFrame.height - view.safeAreaInsets.bottom
-        inputContainerBottomConstraint?.constant = -keyboardHeight
-
-        UIView.animate(withDuration: duration) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    @objc private func keyboardWillHide(_ notification: Notification) {
-        guard let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double else {
-            return
-        }
-
-        // Restore to original position (14pt above safe area bottom)
-        inputContainerBottomConstraint?.constant = -14
-
-        UIView.animate(withDuration: duration) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    // MARK: - Trace Helpers
-
-    /// Extract map data from show_map tool results in trace
-    private func extractMapsFromTrace(_ trace: AgentExecutionTrace?) -> [(lat: Double, lon: Double, name: String)] {
-        guard let trace else { return [] }
-
-        var maps: [(lat: Double, lon: Double, name: String)] = []
-
-        for execution in trace.toolExecutions {
-            if execution.functionName == "show_map", execution.success {
-                // Parse MAP_RESULT:lat,lon,name format
-                let result = execution.result
-                if result.hasPrefix("MAP_RESULT:") {
-                    let data = String(result.dropFirst("MAP_RESULT:".count))
-                    let parts = data.split(separator: ",", maxSplits: 2)
-                    if parts.count >= 3,
-                       let lat = Double(parts[0]),
-                       let lon = Double(parts[1])
-                    {
-                        let name = String(parts[2])
-                        maps.append((lat: lat, lon: lon, name: name))
-                    }
-                }
-            }
-        }
-
-        return maps
-    }
-
-    private func formatTraceForDisplay(_ trace: AgentExecutionTrace, collapsed: Bool) -> String {
-        let totalTime = trace.totalExecutionTime
-        let stepCount = trace.timeline.count
-
-        if collapsed {
-            return "Execution Details ▶  (\(stepCount) steps, \(String(format: "%.2f", totalTime))s total)"
-        }
-
-        var text = "Execution Details ▼\n\n"
-
-        // Book context section
-        text += "BOOK CONTEXT\n"
-        text += "• \(trace.bookContext.title)"
-        if let author = trace.bookContext.author {
-            text += " by \(author)"
-        }
-        text += "\n"
-        if let chapter = trace.bookContext.currentChapter {
-            text += "• Current: \(chapter)\n"
-        }
-        text += "• Position: \(trace.bookContext.position)\n"
-        if let excerpt = trace.bookContext.surroundingText {
-            let excerptPrefix = excerpt.prefix(100)
-            text += "• Context: \"\(excerptPrefix)...\"\n"
-        }
-
-        // Tools section (detailed)
-        if !trace.toolExecutions.isEmpty {
-            text += "\nTOOLS CALLED\n"
-            for (index, tool) in trace.toolExecutions.enumerated() {
-                text += "\n\(index + 1). \(tool.functionName)\n"
-                let prettyArgs = tool.arguments.prettyJSON()
-                text += "   Input: \(prettyArgs.prefix(150))\n"
-                text += "   Result: \(tool.result.prefix(200))\n"
-                text += "   Time: \(String(format: "%.2f", tool.executionTime))s\n"
-                if !tool.success, let error = tool.error {
-                    text += "   ⚠️ Error: \(error)\n"
-                }
-            }
-        }
-
-        // Timeline section
-        if !trace.timeline.isEmpty {
-            text += "\nTIMELINE\n"
-            for (index, step) in trace.timeline.enumerated() {
-                let timeStr = String(format: "%5.2fs", step.executionTime)
-                text += "\(index + 1). [\(timeStr)] \(timelineStepLabel(step))\n"
-            }
-            text += "─────────────────────\n"
-            text += "   Total: \(String(format: "%.2f", totalTime))s\n"
-        }
-
-        return text
-    }
-}
-
-// MARK: - UITableViewDataSource
-
-extension BookChatViewController: UITableViewDataSource {
-    public func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
-        messages.count
-    }
-
-    public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "MessageCell", for: indexPath) as! ChatMessageCell
-        let message = messages[indexPath.row]
-        cell.configure(with: message)
-
-        // Display trace only if showsExecutionDetails is true
-        if message.hasTrace, message.showsExecutionDetails, let trace = messageTraces[message.id] {
-            let traceText = formatTraceForDisplay(trace, collapsed: message.isCollapsed)
-            cell.setTraceText(traceText)
-
-            // Extract and display maps from trace
-            let maps = extractMapsFromTrace(trace)
-            cell.setMaps(maps)
-
-            // Set up tap handler to toggle trace collapsed/expanded state
-            cell.onTap = { [weak self] in
-                guard let self else { return }
-                let wasCollapsed = messages[indexPath.row].isCollapsed
-                messages[indexPath.row].isCollapsed.toggle()
-                self.tableView.reloadRows(at: [indexPath], with: .none)
-
-                // If expanding, scroll to ensure the "Execution Details" header is visible
-                if wasCollapsed {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        guard let cell = self.tableView.cellForRow(at: indexPath) as? ChatMessageCell,
-                              let traceLabelFrame = cell.traceLabelFrameInTableView(self.tableView)
-                        else {
-                            return
-                        }
-
-                        let visibleRect = CGRect(
-                            x: 0,
-                            y: self.tableView.contentOffset.y,
-                            width: self.tableView.bounds.width,
-                            height: self.tableView.bounds.height
-                        )
-
-                        // Check if the trace label header (top of trace label) is visible
-                        let headerY = traceLabelFrame.minY
-                        let headerVisible = headerY >= visibleRect.minY && headerY <= visibleRect.maxY - 50
-
-                        if !headerVisible {
-                            // Scroll so the header is near the top of the visible area (with padding)
-                            let targetOffset = headerY - 20 // 20pt padding from top
-                            let maxOffset = self.tableView.contentSize.height - self.tableView.bounds.height
-                            let newOffset = max(0, min(targetOffset, maxOffset))
-
-                            self.tableView.setContentOffset(
-                                CGPoint(x: 0, y: newOffset),
-                                animated: true
-                            )
-                        }
-                        // If header is already visible, don't scroll - preserve user's position
-                    }
-                }
-            }
-        } else if message.role == .system {
-            // Set up tap handler for system messages to toggle collapsed state
-            cell.onTap = { [weak self] in
-                guard let self else { return }
-                let wasCollapsed = messages[indexPath.row].isCollapsed
-                messages[indexPath.row].isCollapsed.toggle()
-                self.tableView.reloadRows(at: [indexPath], with: .none)
-
-                // If expanding, scroll to ensure the content header is visible
-                if wasCollapsed {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        // For system messages, just ensure the cell is in view
-                        self.tableView.scrollToRow(at: indexPath, at: .none, animated: true)
-                    }
-                }
-            }
-        } else {
-            cell.setTraceText(nil)
-            cell.onTap = nil
-        }
-
-        // Set up context menu for all messages
-        cell.onCopyMessage = { [weak self] in
-            guard let self else { return }
-            UIPasteboard.general.string = messages[indexPath.row].content
-        }
-
-        // Set up context menu callbacks for assistant messages with traces
-        if message.role == .assistant, message.hasTrace {
-            cell.onShowExecutionDetails = { [weak self] in
-                guard let self else { return }
-                messages[indexPath.row].showsExecutionDetails = true
-                messages[indexPath.row].isCollapsed = false // Start expanded
-                self.tableView.reloadRows(at: [indexPath], with: .none)
-            }
-            cell.onCopyDebugTranscript = { [weak self] in
-                guard let self else { return }
-                let transcript = self.buildDebugTranscript()
-                UIPasteboard.general.string = transcript
-            }
-        } else {
-            cell.onShowExecutionDetails = nil
-            cell.onCopyDebugTranscript = nil
-        }
-
-        return cell
     }
 }
 
 // MARK: - UITableViewDelegate
 
 extension BookChatViewController: UITableViewDelegate {
-    public func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        // If this is the active streaming cell, use explicit height to prevent layout jumps
-        if let streamingIndex = typewriterMessageIndex,
-           indexPath.row == streamingIndex,
-           streamingCellMinimumHeight > 0
-        {
-            if streamingContentExceedsMinimum {
-                // Content exceeded minimum, use automatic sizing
-                return UITableView.automaticDimension
-            } else {
-                // Content fits in minimum, use fixed height
-                return streamingCellMinimumHeight
-            }
-        }
-        return UITableView.automaticDimension
+    public func tableView(_: UITableView, heightForRowAt _: IndexPath) -> CGFloat {
+        // Use automatic dimension - the TurnCell's spacer constraint handles minimum height
+        // For active turns: spacerHeight = max(0, viewportHeight - contentHeight)
+        // This ensures the cell fills viewport initially and grows when content exceeds it
+        UITableView.automaticDimension
     }
 
     public func tableView(_: UITableView, estimatedHeightForRowAt _: IndexPath) -> CGFloat {
-        60
+        100
     }
 
     public func scrollViewDidScroll(_: UIScrollView) {
-        // Only update button visibility - no scroll enforcement
         updateScrollToBottomButtonVisibility()
     }
 }
@@ -1466,7 +1062,6 @@ extension BookChatViewController: UITextViewDelegate {
     }
 
     public func textView(_: UITextView, shouldChangeTextIn _: NSRange, replacementText text: String) -> Bool {
-        // Send message on return key if shift is not held
         if text == "\n" {
             sendMessage()
             return false
@@ -1479,56 +1074,35 @@ extension BookChatViewController: UITextViewDelegate {
 
 extension BookChatViewController: UIPopoverPresentationControllerDelegate {
     public func adaptivePresentationStyle(for _: UIPresentationController) -> UIModalPresentationStyle {
-        .none // Force popover on all devices
+        .none
     }
 }
 
-// MARK: - Chat Message Model
+// MARK: - TurnCell
 
-private struct ChatMessage {
-    enum Role {
-        case user
-        case assistant
-        case system
-    }
-
-    let id: UUID
-    let role: Role
-    var content: String // Mutable for typewriter effect
-    let title: String? // For collapsed system messages
-    var isCollapsed: Bool // For system messages
-    let hasTrace: Bool // Whether this message has an execution trace
-    var showsExecutionDetails: Bool // Whether to show execution details (hidden by default)
-
-    init(role: Role, content: String, title: String? = nil, isCollapsed: Bool = false, hasTrace: Bool = false, showsExecutionDetails: Bool = false) {
-        id = UUID()
-        self.role = role
-        self.content = content
-        self.title = title
-        self.isCollapsed = isCollapsed
-        self.hasTrace = hasTrace
-        self.showsExecutionDetails = showsExecutionDetails
-    }
-}
-
-// MARK: - Chat Message Cell
-
-private final class ChatMessageCell: UITableViewCell {
-    private let bubbleView = UIView()
-    private let contentStack = UIStackView() // Main vertical stack for all content
-    private let messageTextView = UITextView() // UITextView for selectable text
-    private let imageContainerView = UIStackView()
-    private let traceTextView = UITextView() // UITextView for selectable text
+private final class TurnCell: UITableViewCell {
     private let fontManager = FontScaleManager.shared
-    var onTap: (() -> Void)?
 
-    // Context menu callbacks
-    var onCopyMessage: (() -> Void)?
+    // Content views
+    private let contentStack = UIStackView()
+    private let promptBubble = UIView()
+    private let promptTextView = UITextView()
+    private let answerBubble = UIView()
+    private let answerTextView = UITextView()
+
+    // Constraints - minimum height for active cells (fills viewport)
+    private var minHeightConstraint: NSLayoutConstraint?
+
+    // State
+    private var currentViewportHeight: CGFloat = 0
+    private var isActiveCell = false
+    private var currentPromptText: String?
+
+    // Callbacks
+    var onCopyPrompt: (() -> Void)?
+    var onCopyAnswer: (() -> Void)?
     var onShowExecutionDetails: (() -> Void)?
     var onCopyDebugTranscript: (() -> Void)?
-
-    // Track active image loading tasks
-    private var imageLoadTasks: [URLSessionDataTask] = []
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -1542,468 +1116,177 @@ private final class ChatMessageCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        // Cancel any pending image loads
-        imageLoadTasks.forEach { $0.cancel() }
-        imageLoadTasks.removeAll()
-        // Clear images
-        imageContainerView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        imageContainerView.isHidden = true
-        // Reset callbacks
-        onTap = nil
-        onCopyMessage = nil
+        onCopyPrompt = nil
+        onCopyAnswer = nil
         onShowExecutionDetails = nil
         onCopyDebugTranscript = nil
+        promptTextView.attributedText = nil
+        answerTextView.attributedText = nil
+        currentPromptText = nil
+        isActiveCell = false
+        minHeightConstraint?.isActive = false
     }
 
     private func setupUI() {
         backgroundColor = .clear
         selectionStyle = .none
 
-        // Bubble container
-        bubbleView.translatesAutoresizingMaskIntoConstraints = false
-        bubbleView.layer.cornerRadius = 12
-        bubbleView.clipsToBounds = true
-        contentView.addSubview(bubbleView)
-
-        // Main content stack - handles all vertical layout automatically
-        // Hidden views are removed from layout by UIStackView
+        // Content stack (vertical)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
-        contentStack.spacing = UIStackView.spacingUseSystem
+        contentStack.spacing = 12
         contentStack.alignment = .fill
-        bubbleView.addSubview(contentStack)
+        contentView.addSubview(contentStack)
 
-        // Message text view (selectable, non-editable)
-        messageTextView.isEditable = false
-        messageTextView.isScrollEnabled = false
-        messageTextView.textContainerInset = .zero
-        messageTextView.textContainer.lineFragmentPadding = 0
-        messageTextView.backgroundColor = .clear
-        messageTextView.font = fontManager.bodyFont
-        contentStack.addArrangedSubview(messageTextView)
+        // Prompt bubble (user message - right aligned)
+        promptBubble.translatesAutoresizingMaskIntoConstraints = false
+        promptBubble.backgroundColor = .systemBlue
+        promptBubble.layer.cornerRadius = 12
+        promptBubble.clipsToBounds = true
 
-        // Image container for displaying images/maps
-        imageContainerView.axis = .vertical
-        imageContainerView.spacing = 8
-        imageContainerView.isHidden = true
-        contentStack.addArrangedSubview(imageContainerView)
+        promptTextView.isEditable = false
+        promptTextView.isScrollEnabled = false
+        promptTextView.textContainerInset = UIEdgeInsets(top: 12, left: 14, bottom: 16, right: 14)
+        promptTextView.textContainer.lineFragmentPadding = 0
+        promptTextView.backgroundColor = .clear
+        promptBubble.addSubview(promptTextView)
+        promptTextView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Trace text view for execution details (selectable, non-editable)
-        traceTextView.isEditable = false
-        traceTextView.isScrollEnabled = false
-        traceTextView.textContainerInset = .zero
-        traceTextView.textContainer.lineFragmentPadding = 0
-        traceTextView.backgroundColor = .clear
-        traceTextView.font = fontManager.monospacedFont(size: 12)
-        traceTextView.textColor = .secondaryLabel
-        traceTextView.isHidden = true
-        contentStack.addArrangedSubview(traceTextView)
+        // Wrapper for right alignment
+        let promptWrapper = UIView()
+        promptWrapper.translatesAutoresizingMaskIntoConstraints = false
+        promptWrapper.addSubview(promptBubble)
+        contentStack.addArrangedSubview(promptWrapper)
 
-        // Simple constraints: bubble in cell, stack in bubble with padding
-        NSLayoutConstraint.activate([
-            bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+        // Answer bubble (assistant message - left aligned)
+        answerBubble.translatesAutoresizingMaskIntoConstraints = false
+        answerBubble.backgroundColor = .clear
+        answerBubble.layer.cornerRadius = 12
+        answerBubble.clipsToBounds = true
 
-            contentStack.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
-            contentStack.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 14),
-            contentStack.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -14),
-            contentStack.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -16),
-        ])
+        answerTextView.isEditable = false
+        answerTextView.isScrollEnabled = false
+        answerTextView.textContainerInset = UIEdgeInsets(top: 12, left: 14, bottom: 16, right: 14)
+        answerTextView.textContainer.lineFragmentPadding = 0
+        answerTextView.backgroundColor = .clear
+        answerTextView.accessibilityIdentifier = "turn-answer"
+        answerBubble.addSubview(answerTextView)
+        answerTextView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Add tap gesture for collapsible messages
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
-        bubbleView.addGestureRecognizer(tap)
-        bubbleView.isUserInteractionEnabled = true
+        // Wrapper for left alignment
+        let answerWrapper = UIView()
+        answerWrapper.translatesAutoresizingMaskIntoConstraints = false
+        answerWrapper.addSubview(answerBubble)
+        contentStack.addArrangedSubview(answerWrapper)
 
-        // Add context menu interaction for long-press
-        let contextMenuInteraction = UIContextMenuInteraction(delegate: self)
-        bubbleView.addInteraction(contextMenuInteraction)
-    }
-
-    @objc private func handleTap() {
-        onTap?()
-    }
-
-    private var leadingConstraint: NSLayoutConstraint?
-    private var trailingConstraint: NSLayoutConstraint?
-
-    func configure(with message: ChatMessage) {
-        // Remove old constraints
-        leadingConstraint?.isActive = false
-        trailingConstraint?.isActive = false
-
-        // Update trace text view font
-        traceTextView.font = fontManager.monospacedFont(size: 12)
-
-        // Parse content for images
-        let (cleanedContent, images) = parseImagesFromContent(message.content)
-
-        switch message.role {
-        case .user:
-            bubbleView.backgroundColor = .systemBlue
-            messageTextView.attributedText = renderMarkdown(cleanedContent, font: fontManager.bodyFont, color: .white)
-            leadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 60)
-            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
-
-        case .assistant:
-            bubbleView.backgroundColor = .secondarySystemBackground
-            messageTextView.attributedText = renderMarkdown(cleanedContent, font: fontManager.bodyFont, color: .label)
-            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
-            trailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -60)
-
-        case .system:
-            bubbleView.backgroundColor = .tertiarySystemBackground
-
-            // Show title with disclosure indicator when collapsed, full content when expanded
-            let systemContent = if message.isCollapsed {
-                "\(message.title ?? "Context") ▶"
-            } else {
-                "\(message.title ?? "Context") ▼\n\n\(cleanedContent)"
-            }
-            messageTextView.attributedText = renderMarkdown(systemContent, font: fontManager.scaledFont(size: 14), color: .secondaryLabel)
-
-            // System messages span full width
-            leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20)
-            trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20)
-        }
-
-        leadingConstraint?.isActive = true
-        trailingConstraint?.isActive = true
-
-        // Display images (maps are set separately via setMaps)
-        displayMedia(images: images, maps: [])
-    }
-
-    /// Lightweight text update for typewriter effect - avoids full reconfigure
-    func updateTypewriterText(_ text: String, role: ChatMessage.Role) {
-        let color: UIColor = role == .user ? .white : .label
-        messageTextView.attributedText = renderMarkdown(text, font: fontManager.bodyFont, color: color)
-    }
-
-    func setMaps(_ maps: [(lat: Double, lon: Double, name: String)]) {
-        // Add maps to the container
-        for map in maps {
-            let mapWrapper = createMapView(lat: map.lat, lon: map.lon, name: map.name)
-            imageContainerView.addArrangedSubview(mapWrapper)
-        }
-        if !maps.isEmpty {
-            imageContainerView.isHidden = false
-        }
-    }
-
-    /// Parse markdown-style image syntax from content
-    private func parseImagesFromContent(_ content: String) -> (cleanedContent: String, images: [(url: String, caption: String)]) {
-        var images: [(url: String, caption: String)] = []
-        var cleanedContent = content
-
-        // Pattern: ![caption](url) - standard markdown image syntax
-        // Also handles ![[caption]](url) variant
-        let pattern = #"!\[+([^\]]*)\]+\(([^)]+)\)"#
-
-        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-            let range = NSRange(cleanedContent.startIndex..., in: cleanedContent)
-            let matches = regex.matches(in: cleanedContent, options: [], range: range)
-
-            // Process matches in reverse order to preserve string indices
-            for match in matches.reversed() {
-                if let captionRange = Range(match.range(at: 1), in: cleanedContent),
-                   let urlRange = Range(match.range(at: 2), in: cleanedContent),
-                   let fullRange = Range(match.range, in: cleanedContent)
-                {
-                    let caption = String(cleanedContent[captionRange])
-                    let url = String(cleanedContent[urlRange])
-                    images.insert((url: url, caption: caption), at: 0)
-                    cleanedContent.removeSubrange(fullRange)
-                }
-            }
-        }
-
-        return (cleanedContent.trimmingCharacters(in: .whitespacesAndNewlines), images)
-    }
-
-    private func displayMedia(images: [(url: String, caption: String)], maps: [(lat: Double, lon: Double, name: String)]) {
-        // Clear existing content
-        imageContainerView.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        guard !images.isEmpty || !maps.isEmpty else {
-            imageContainerView.isHidden = true
-            return
-        }
-
-        imageContainerView.isHidden = false
-
-        // Display maps first
-        for map in maps {
-            let mapWrapper = createMapView(lat: map.lat, lon: map.lon, name: map.name)
-            imageContainerView.addArrangedSubview(mapWrapper)
-        }
-
-        // Then display images
-        for image in images {
-            let imageWrapper = createImageView(url: image.url, caption: image.caption)
-            imageContainerView.addArrangedSubview(imageWrapper)
-        }
-    }
-
-    private func createImageView(url: String, caption: String) -> UIView {
-        let wrapper = UIView()
-        wrapper.translatesAutoresizingMaskIntoConstraints = false
-
-        let imageView = UIImageView()
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFit
-        imageView.layer.cornerRadius = 12
-        imageView.clipsToBounds = true
-        wrapper.addSubview(imageView)
-
-        let captionLabel = UILabel()
-        captionLabel.translatesAutoresizingMaskIntoConstraints = false
-        captionLabel.text = caption
-        captionLabel.font = fontManager.captionFont
-        captionLabel.textColor = .secondaryLabel
-        captionLabel.textAlignment = .center
-        captionLabel.numberOfLines = 2
-        wrapper.addSubview(captionLabel)
-
-        // Loading indicator
-        let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.startAnimating()
-        imageView.addSubview(spinner)
+        // Minimum height constraint for active cells (fills viewport)
+        // This is inactive by default and activated when the cell is for an active turn
+        let minHeight = contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
+        minHeight.isActive = false
+        minHeightConstraint = minHeight
 
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 8),
-            imageView.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
-            imageView.heightAnchor.constraint(lessThanOrEqualToConstant: 280),
+            // Use 16pt top padding to ensure prompt isn't clipped at viewport edge
+            contentStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            contentStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            // Use lessThanOrEqualTo so content stays at top, doesn't stretch to fill cell
+            contentStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
 
-            captionLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 12),
-            captionLabel.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
-            captionLabel.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
-            captionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -8),
+            // Prompt bubble - right aligned with min width
+            promptBubble.topAnchor.constraint(equalTo: promptWrapper.topAnchor),
+            promptBubble.bottomAnchor.constraint(equalTo: promptWrapper.bottomAnchor),
+            promptBubble.trailingAnchor.constraint(equalTo: promptWrapper.trailingAnchor),
+            promptBubble.leadingAnchor.constraint(greaterThanOrEqualTo: promptWrapper.leadingAnchor, constant: 40),
 
-            spinner.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
+            promptTextView.topAnchor.constraint(equalTo: promptBubble.topAnchor),
+            promptTextView.leadingAnchor.constraint(equalTo: promptBubble.leadingAnchor),
+            promptTextView.trailingAnchor.constraint(equalTo: promptBubble.trailingAnchor),
+            promptTextView.bottomAnchor.constraint(equalTo: promptBubble.bottomAnchor),
+
+            // Answer bubble - left aligned with min width
+            answerBubble.topAnchor.constraint(equalTo: answerWrapper.topAnchor),
+            answerBubble.bottomAnchor.constraint(equalTo: answerWrapper.bottomAnchor),
+            answerBubble.leadingAnchor.constraint(equalTo: answerWrapper.leadingAnchor),
+            answerBubble.trailingAnchor.constraint(lessThanOrEqualTo: answerWrapper.trailingAnchor, constant: -40),
+
+            answerTextView.topAnchor.constraint(equalTo: answerBubble.topAnchor),
+            answerTextView.leadingAnchor.constraint(equalTo: answerBubble.leadingAnchor),
+            answerTextView.trailingAnchor.constraint(equalTo: answerBubble.trailingAnchor),
+            answerTextView.bottomAnchor.constraint(equalTo: answerBubble.bottomAnchor),
         ])
 
-        // Set a minimum height while loading
-        let heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 150)
-        heightConstraint.priority = .defaultLow
-        heightConstraint.isActive = true
+        // Context menu for bubbles
+        let promptContextMenu = UIContextMenuInteraction(delegate: self)
+        promptBubble.addInteraction(promptContextMenu)
 
-        // Load image async
-        if let imageUrl = URL(string: url) {
-            let task = URLSession.shared.dataTask(with: imageUrl) { [weak imageView, weak spinner, weak self] data, _, _ in
-                DispatchQueue.main.async {
-                    spinner?.stopAnimating()
-                    spinner?.removeFromSuperview()
-
-                    if let data, let loadedImage = UIImage(data: data) {
-                        imageView?.image = loadedImage
-
-                        // Update height constraint based on aspect ratio
-                        let aspectRatio = loadedImage.size.height / loadedImage.size.width
-                        let maxWidth = (self?.contentView.bounds.width ?? 300) - 108 // Account for larger margins
-                        let calculatedHeight = min(maxWidth * aspectRatio, 280)
-                        heightConstraint.constant = calculatedHeight
-
-                        // Trigger table view layout update and scroll to show image
-                        if let tableView = self?.superview as? UITableView {
-                            UIView.performWithoutAnimation {
-                                tableView.beginUpdates()
-                                tableView.endUpdates()
-                            }
-                            // Scroll to show the newly loaded image
-                            if let indexPath = tableView.indexPath(for: self!) {
-                                tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
-                            }
-                        }
-                    }
-                }
-            }
-            imageLoadTasks.append(task)
-            task.resume()
-        }
-
-        return wrapper
+        let answerContextMenu = UIContextMenuInteraction(delegate: self)
+        answerBubble.addInteraction(answerContextMenu)
     }
 
-    private func createMapView(lat: Double, lon: Double, name: String) -> UIView {
-        let wrapper = UIView()
-        wrapper.translatesAutoresizingMaskIntoConstraints = false
+    func configure(with turn: Turn, viewportHeight: CGFloat, isActive: Bool) {
+        currentViewportHeight = viewportHeight
+        isActiveCell = isActive
 
-        let mapImageView = UIImageView()
-        mapImageView.translatesAutoresizingMaskIntoConstraints = false
-        mapImageView.contentMode = .scaleAspectFit
-        mapImageView.layer.cornerRadius = 12
-        mapImageView.clipsToBounds = true
-        mapImageView.backgroundColor = .tertiarySystemBackground
-        mapImageView.isUserInteractionEnabled = true
-        wrapper.addSubview(mapImageView)
-
-        // Add tap to open in Maps app
-        let tapGesture = MapTapGestureRecognizer(target: self, action: #selector(mapTapped(_:)))
-        tapGesture.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        tapGesture.locationName = name
-        mapImageView.addGestureRecognizer(tapGesture)
-
-        let captionLabel = UILabel()
-        captionLabel.translatesAutoresizingMaskIntoConstraints = false
-        captionLabel.text = name
-        captionLabel.font = fontManager.captionFont
-        captionLabel.textColor = .secondaryLabel
-        captionLabel.textAlignment = .center
-        captionLabel.numberOfLines = 2
-        wrapper.addSubview(captionLabel)
-
-        // Loading indicator
-        let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.startAnimating()
-        mapImageView.addSubview(spinner)
-
-        let mapHeight: CGFloat = 200
-
-        NSLayoutConstraint.activate([
-            mapImageView.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 8),
-            mapImageView.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
-            mapImageView.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
-            mapImageView.heightAnchor.constraint(equalToConstant: mapHeight),
-
-            captionLabel.topAnchor.constraint(equalTo: mapImageView.bottomAnchor, constant: 12),
-            captionLabel.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
-            captionLabel.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
-            captionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor, constant: -8),
-
-            spinner.centerXAnchor.constraint(equalTo: mapImageView.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: mapImageView.centerYAnchor),
-        ])
-
-        // Use MKMapSnapshotter to generate map image
-        let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        let region = MKCoordinateRegion(
-            center: coordinate,
-            latitudinalMeters: 5000,
-            longitudinalMeters: 5000
-        )
-
-        let options = MKMapSnapshotter.Options()
-        options.region = region
-        options.size = CGSize(width: 350, height: mapHeight)
-        options.mapType = .standard
-
-        let snapshotter = MKMapSnapshotter(options: options)
-        snapshotter.start { [weak self] snapshot, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-
-                // Remove spinner
-                for subview in mapImageView.subviews {
-                    if let spinner = subview as? UIActivityIndicatorView {
-                        spinner.stopAnimating()
-                        spinner.removeFromSuperview()
-                    }
-                }
-
-                guard let snapshot, error == nil else {
-                    mapImageView.backgroundColor = .systemRed.withAlphaComponent(0.2)
-                    return
-                }
-
-                // Draw the snapshot with a pin annotation
-                UIGraphicsBeginImageContextWithOptions(snapshot.image.size, true, snapshot.image.scale)
-                snapshot.image.draw(at: .zero)
-
-                // Draw a pin at the coordinate
-                let pinPoint = snapshot.point(for: coordinate)
-                if let pinImage = UIImage(systemName: "mappin.circle.fill")?.withTintColor(.systemRed, renderingMode: .alwaysOriginal) {
-                    let pinSize = CGSize(width: 30, height: 30)
-                    pinImage.draw(in: CGRect(origin: CGPoint(x: pinPoint.x - pinSize.width / 2, y: pinPoint.y - pinSize.height), size: pinSize))
-                }
-
-                let finalImage = UIGraphicsGetImageFromCurrentImageContext()
-                UIGraphicsEndImageContext()
-
-                mapImageView.image = finalImage
-
-                // Trigger table view layout update
-                if let tableView = self.superview as? UITableView {
-                    UIView.performWithoutAnimation {
-                        tableView.beginUpdates()
-                        tableView.endUpdates()
-                    }
-                    if let indexPath = tableView.indexPath(for: self) {
-                        tableView.scrollToRow(at: indexPath, at: .bottom, animated: true)
-                    }
-                }
-            }
+        // Prompt - skip re-render if unchanged (avoids wasteful markdown parsing during typewriter)
+        if turn.prompt != currentPromptText {
+            currentPromptText = turn.prompt
+            promptTextView.attributedText = renderMarkdown(turn.prompt, font: fontManager.bodyFont, color: .white)
         }
 
-        return wrapper
-    }
-
-    func setTraceText(_ text: String?) {
-        if let text {
-            traceTextView.text = text
-            traceTextView.isHidden = false
-            // Accessibility identifier includes collapsed/expanded state for testing
-            if text.contains("▶") {
-                traceTextView.accessibilityIdentifier = "execution-details-collapsed"
-            } else {
-                traceTextView.accessibilityIdentifier = "execution-details-expanded"
-            }
+        // Answer (may be empty during pending/streaming)
+        if turn.answer.isEmpty {
+            answerBubble.isHidden = true
         } else {
-            traceTextView.text = nil
-            traceTextView.isHidden = true
-            traceTextView.accessibilityIdentifier = nil
+            answerBubble.isHidden = false
+            answerTextView.attributedText = renderMarkdown(turn.answer, font: fontManager.bodyFont, color: .label)
+        }
+
+        // Active cells fill the viewport using a minimum height constraint
+        // No dynamic calculation needed - Auto Layout handles it
+        if isActive {
+            minHeightConstraint?.constant = viewportHeight
+            minHeightConstraint?.isActive = true
+        } else {
+            minHeightConstraint?.isActive = false
         }
     }
 
-    /// Returns the frame of the trace text view in the table view's coordinate system
-    /// Used for smart scrolling to keep the "Execution Details" header visible
-    func traceLabelFrameInTableView(_ tableView: UITableView) -> CGRect? {
-        guard !traceTextView.isHidden else { return nil }
-        return traceTextView.convert(traceTextView.bounds, to: tableView)
+    func updateTypewriterAnswer(_ text: String) {
+        answerBubble.isHidden = text.isEmpty
+        answerTextView.attributedText = renderMarkdown(text, font: fontManager.bodyFont, color: .label)
+        // No spacer recalculation needed - minHeightConstraint handles viewport fill
+        // Content grows naturally and cell expands when it exceeds viewport
     }
 
-    /// Render markdown text to NSAttributedString with proper styling
     private func renderMarkdown(_ text: String, font: UIFont, color: UIColor) -> NSAttributedString {
-        // Pre-process headers before markdown parsing (convert to bold since AttributedString doesn't handle block elements well)
         let processedText = preprocessHeaders(text)
 
-        // Try to parse as markdown using iOS 15+ AttributedString
         if let attributed = try? AttributedString(markdown: processedText, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             let mutable = NSMutableAttributedString(attributed)
-
-            // Apply base font and color to entire range
             let fullRange = NSRange(location: 0, length: mutable.length)
             mutable.addAttribute(.font, value: font, range: fullRange)
             mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
 
-            // Find and style bold text (markdown parser applies .bold trait)
             mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
                 guard let existingFont = value as? UIFont else { return }
                 let traits = existingFont.fontDescriptor.symbolicTraits
 
                 if traits.contains(.traitBold), traits.contains(.traitItalic) {
-                    // Bold + Italic
                     if let boldItalicDescriptor = font.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
                         mutable.addAttribute(.font, value: UIFont(descriptor: boldItalicDescriptor, size: font.pointSize), range: range)
                     }
                 } else if traits.contains(.traitBold) {
-                    // Bold only
                     if let boldDescriptor = font.fontDescriptor.withSymbolicTraits(.traitBold) {
                         mutable.addAttribute(.font, value: UIFont(descriptor: boldDescriptor, size: font.pointSize), range: range)
                     }
                 } else if traits.contains(.traitItalic) {
-                    // Italic only
                     if let italicDescriptor = font.fontDescriptor.withSymbolicTraits(.traitItalic) {
                         mutable.addAttribute(.font, value: UIFont(descriptor: italicDescriptor, size: font.pointSize), range: range)
                     }
                 }
             }
 
-            // Style inline code with monospace font and background
             mutable.enumerateAttribute(.inlinePresentationIntent, in: fullRange, options: []) { value, range, _ in
                 guard let intent = value as? InlinePresentationIntent, intent.contains(.code) else { return }
                 let monoFont = UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular)
@@ -2014,81 +1297,73 @@ private final class ChatMessageCell: UITableViewCell {
             return mutable
         }
 
-        // Fallback to plain text
         return NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: color,
         ])
     }
 
-    /// Convert markdown headers to bold text (since AttributedString doesn't handle block elements)
     private func preprocessHeaders(_ text: String) -> String {
         var result = text
-
-        // Match headers at start of line: # Header, ## Header, ### Header, etc.
-        // Convert to bold: **Header**
         let headerPattern = #"(?m)^(#{1,6})\s+(.+)$"#
         if let regex = try? NSRegularExpression(pattern: headerPattern, options: []) {
             let range = NSRange(result.startIndex..., in: result)
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "**$2**")
         }
-
         return result
-    }
-
-    @objc private func mapTapped(_ gesture: MapTapGestureRecognizer) {
-        let coordinate = gesture.coordinate
-        let placemark = MKPlacemark(coordinate: coordinate)
-        let mapItem = MKMapItem(placemark: placemark)
-        mapItem.name = gesture.locationName
-        mapItem.openInMaps(launchOptions: [
-            MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: coordinate),
-            MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)),
-        ])
     }
 }
 
-// MARK: - ChatMessageCell Context Menu
+// MARK: - TurnCell Context Menu
 
-extension ChatMessageCell: UIContextMenuInteractionDelegate {
+extension TurnCell: UIContextMenuInteractionDelegate {
     func contextMenuInteraction(
-        _: UIContextMenuInteraction,
+        _ interaction: UIContextMenuInteraction,
         configurationForMenuAtLocation _: CGPoint
     ) -> UIContextMenuConfiguration? {
-        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+        let isPromptBubble = interaction.view === promptBubble
+
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self else { return nil }
 
             var actions: [UIAction] = []
 
-            // Copy action - always available
-            let copyAction = UIAction(
-                title: "Copy",
-                image: UIImage(systemName: "doc.on.doc")
-            ) { [weak self] _ in
-                self?.onCopyMessage?()
-            }
-            actions.append(copyAction)
-
-            // Execution Details - only for assistant messages with traces
-            if let showDetails = onShowExecutionDetails {
-                let detailsAction = UIAction(
-                    title: "Execution Details",
-                    image: UIImage(systemName: "text.alignleft")
-                ) { _ in
-                    showDetails()
+            if isPromptBubble {
+                let copyAction = UIAction(
+                    title: "Copy",
+                    image: UIImage(systemName: "doc.on.doc")
+                ) { [weak self] _ in
+                    self?.onCopyPrompt?()
                 }
-                actions.append(detailsAction)
-            }
-
-            // Copy Debug Transcript - only for assistant messages with traces
-            if let copyTranscript = onCopyDebugTranscript {
-                let transcriptAction = UIAction(
-                    title: "Copy Debug Transcript",
-                    image: UIImage(systemName: "doc.on.clipboard")
-                ) { _ in
-                    copyTranscript()
+                actions.append(copyAction)
+            } else {
+                let copyAction = UIAction(
+                    title: "Copy",
+                    image: UIImage(systemName: "doc.on.doc")
+                ) { [weak self] _ in
+                    self?.onCopyAnswer?()
                 }
-                actions.append(transcriptAction)
+                actions.append(copyAction)
+
+                if let showDetails = onShowExecutionDetails {
+                    let detailsAction = UIAction(
+                        title: "Execution Details",
+                        image: UIImage(systemName: "text.alignleft")
+                    ) { _ in
+                        showDetails()
+                    }
+                    actions.append(detailsAction)
+                }
+
+                if let copyTranscript = onCopyDebugTranscript {
+                    let transcriptAction = UIAction(
+                        title: "Copy Debug Transcript",
+                        image: UIImage(systemName: "doc.on.clipboard")
+                    ) { _ in
+                        copyTranscript()
+                    }
+                    actions.append(transcriptAction)
+                }
             }
 
             return UIMenu(title: "", children: actions)
@@ -2096,46 +1371,26 @@ extension ChatMessageCell: UIContextMenuInteractionDelegate {
     }
 }
 
-// MARK: - String Extension for JSON Formatting
-
-private extension String {
-    func prettyJSON() -> String {
-        guard let data = data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data),
-              let prettyData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]),
-              let prettyString = String(data: prettyData, encoding: .utf8)
-        else {
-            return self
-        }
-        return prettyString
-    }
-}
-
-// MARK: - Map Tap Gesture Recognizer
-
-private class MapTapGestureRecognizer: UITapGestureRecognizer {
-    var coordinate: CLLocationCoordinate2D = .init()
-    var locationName: String = ""
-}
-
 // MARK: - Chat Viewport Geometry
 
-/// Encapsulates all viewport math for the chat scroll view.
-/// The "viewport" is the visible region between the menu bar (top) and input field (bottom).
-/// Content can scroll behind both chrome elements, but this struct tracks what's actually visible.
 private struct ChatViewportGeometry {
     let scrollView: UIScrollView
-    let topLineY: CGFloat
-    let bottomLineY: CGFloat
 
-    /// The Y coordinate in content space where visible content starts (below menu bar)
-    var visibleTopAnchor: CGFloat {
-        scrollView.contentOffset.y + topLineY
+    private var inset: UIEdgeInsets { scrollView.adjustedContentInset }
+
+    /// Visible height between adjusted insets (keyboard included)
+    var visibleHeight: CGFloat {
+        scrollView.bounds.height - inset.top - inset.bottom
     }
 
-    /// The Y coordinate in content space where visible content ends (above input field)
+    /// The Y coordinate in content space where visible content starts
+    var visibleTopAnchor: CGFloat {
+        scrollView.contentOffset.y + inset.top
+    }
+
+    /// The Y coordinate in content space where visible content ends
     var visibleBottomAnchor: CGFloat {
-        scrollView.contentOffset.y + bottomLineY
+        scrollView.contentOffset.y + scrollView.bounds.height - inset.bottom
     }
 
     /// The Y coordinate of the last content in content space
@@ -2143,25 +1398,20 @@ private struct ChatViewportGeometry {
         scrollView.contentSize.height
     }
 
-    /// How far content extends below the visible viewport
+    /// How far content extends below visible bottom anchor
     var distanceToBottom: CGFloat {
         contentBottom - visibleBottomAnchor
     }
 
-    /// Is content extending below the visible viewport?
-    var isContentBelowViewport: Bool {
-        distanceToBottom > 0
-    }
-
     /// Scroll offset to align content bottom with visible bottom anchor
     var offsetToShowBottom: CGPoint {
-        let targetOffset = contentBottom - bottomLineY
-        return CGPoint(x: 0, y: max(0, targetOffset))
+        let targetOffset = contentBottom - scrollView.bounds.height + inset.bottom
+        return CGPoint(x: 0, y: max(-inset.top, targetOffset))
     }
 
     /// Scroll offset to position a content Y coordinate at the visible top anchor
     func offsetToShowAtTop(_ contentY: CGFloat) -> CGPoint {
-        CGPoint(x: 0, y: contentY - topLineY)
+        CGPoint(x: 0, y: contentY - inset.top)
     }
 }
 
@@ -2205,8 +1455,6 @@ private final class ModelPickerViewController: UIViewController, UITableViewData
         ])
     }
 
-    // MARK: - UITableViewDataSource
-
     func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
         models.count
     }
@@ -2217,8 +1465,6 @@ private final class ModelPickerViewController: UIViewController, UITableViewData
         cell.configure(with: model, isSelected: model.id == selectedModelId)
         return cell
     }
-
-    // MARK: - UITableViewDelegate
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)

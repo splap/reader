@@ -20,7 +20,7 @@ if [ -f "$ROOT_DIR/simulator-uuid" ]; then
   UDID=$(cat "$ROOT_DIR/simulator-uuid")
   DESTINATION="platform=iOS Simulator,id=$UDID"
 else
-  DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M5),OS=26.0.1,arch=arm64"
+  DESTINATION="platform=iOS Simulator,name=iPad Pro 11-inch (M5),arch=arm64"
 fi
 EXTRA_BUILD_SETTINGS=""
 
@@ -145,6 +145,13 @@ run_tests() {
     "  \"page\": \"${PAGE:-1}\"," \
     "  \"chapterCount\": \"${CHAPTER_COUNT:-5}\"" \
     '}' > /tmp/reader-tests/test-config.json
+
+  # Optional pause for UI test debugging
+  if [ -n "${UITEST_PAUSE_AT_END:-}" ]; then
+    echo "$UITEST_PAUSE_AT_END" > /tmp/reader-tests/pause
+  else
+    rm -f /tmp/reader-tests/pause
+  fi
 
   xcodebuild_args+=(test)
 

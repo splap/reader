@@ -54,7 +54,10 @@ public actor StubAgentService: AgentServiceProtocol {
     private static let longResponse = """
     This is the first paragraph of a long test response. It contains enough text to ensure \
     the response will overflow the visible chat area on any device size. The content is \
-    designed to test scroll behavior in the chat interface.
+    designed to test scroll behavior in the chat interface. To make the scenario more \
+    realistic and force the viewport math to work harder, we include a few extra sentences \
+    about anchors, keyboard insets, and streaming offsets so the first test has plenty of \
+    material to scroll through without depending on images or traces.
 
     The second paragraph continues with more content. We need multiple paragraphs to properly \
     test the scroll behavior where the response should appear at the top, not scrolled to \
