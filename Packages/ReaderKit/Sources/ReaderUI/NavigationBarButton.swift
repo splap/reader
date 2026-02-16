@@ -17,12 +17,12 @@ final class NavigationBarButton: UIButton {
     }
 
     /// Create a text-based button
-    init(title: String, weight: UIFont.Weight = .semibold) {
+    init(title: String) {
         super.init(frame: .zero)
 
         var config = UIButton.Configuration.plain()
         config.attributedTitle = AttributedString(title, attributes: AttributeContainer([
-            .font: UIFont.systemFont(ofSize: 17, weight: weight),
+            .font: UIFont.preferredFont(forTextStyle: .headline),
         ]))
         config.baseForegroundColor = .systemBlue
         config.contentInsets = .zero
@@ -51,7 +51,7 @@ final class NavigationBarButton: UIButton {
     func updateTitle(_ title: String) {
         guard var config = configuration else { return }
         config.attributedTitle = AttributedString(title, attributes: AttributeContainer([
-            .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
+            .font: UIFont.preferredFont(forTextStyle: .headline),
         ]))
         configuration = config
     }

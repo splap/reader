@@ -220,9 +220,6 @@ public final class ReaderContainerViewController: UIViewController {
             .button(systemImage: "sidebar.left", accessibilityLabel: "Conversations") { [weak self] in
                 self?.chatContainerViewController?.toggleDrawer()
             },
-            .button(systemImage: "book", accessibilityLabel: "Reader") { [weak self] in
-                self?.showReader()
-            },
         ]
 
         let trailingItems: [NavigationBarItem] = [
