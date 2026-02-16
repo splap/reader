@@ -22,6 +22,7 @@ final class DebugTranscriptViewController: UIViewController {
         view.backgroundColor = .systemBackground
 
         setupDismissButton()
+        setupCopyButton()
         setupTextView()
     }
 
@@ -47,6 +48,28 @@ final class DebugTranscriptViewController: UIViewController {
         ])
     }
 
+    private func setupCopyButton() {
+        let copyButton = UIButton(type: .system)
+        copyButton.translatesAutoresizingMaskIntoConstraints = false
+
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "doc.on.doc")
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        config.baseForegroundColor = .secondaryLabel
+        copyButton.configuration = config
+        copyButton.addTarget(self, action: #selector(copyTapped), for: .touchUpInside)
+        copyButton.accessibilityLabel = "Copy transcript"
+
+        view.addSubview(copyButton)
+
+        NSLayoutConstraint.activate([
+            copyButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            copyButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            copyButton.widthAnchor.constraint(equalToConstant: 44),
+            copyButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
+    }
+
     private func setupTextView() {
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.isEditable = false
@@ -68,5 +91,9 @@ final class DebugTranscriptViewController: UIViewController {
 
     @objc private func dismissTapped() {
         dismiss(animated: true)
+    }
+
+    @objc private func copyTapped() {
+        UIPasteboard.general.string = transcript
     }
 }

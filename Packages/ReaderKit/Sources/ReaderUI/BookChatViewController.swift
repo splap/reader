@@ -75,10 +75,6 @@ public final class BookChatViewController: UIViewController {
     private let topBlurView = UIVisualEffectView(effect: nil)
     private let bottomBlurView = UIVisualEffectView(effect: nil)
 
-    // DEBUG: Visual guides
-    private let topViewportLine = UIView()
-    private let bottomViewportLine = UIView()
-
     var topContentInset: CGFloat = 0 {
         didSet { updateTableViewInsets() }
     }
@@ -108,7 +104,6 @@ public final class BookChatViewController: UIViewController {
     private var baseBottomContentInset: CGFloat = 0
     private let viewportPadding: CGFloat = 24
 
-    private var topGuideConstraint: NSLayoutConstraint?
     private var topBlurHeightConstraint: NSLayoutConstraint?
     private var bottomBlurTopConstraint: NSLayoutConstraint?
 
@@ -169,7 +164,6 @@ public final class BookChatViewController: UIViewController {
         super.viewDidLoad()
         Self.logger.debug("Chat UI opened for book: \(context.bookTitle)")
         setupUI()
-        setupViewportGuides()
         setupDataSource()
         setupFontScaleObserver()
         loadConversation()
@@ -183,7 +177,7 @@ public final class BookChatViewController: UIViewController {
 
     override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        updateViewportGuides()
+        updateOcclusionLayout()
         updateBottomInsetForInputContainer()
     }
 
@@ -397,46 +391,17 @@ public final class BookChatViewController: UIViewController {
         ])
     }
 
-    private func setupViewportGuides() {
-        topViewportLine.translatesAutoresizingMaskIntoConstraints = false
-        topViewportLine.backgroundColor = .systemRed
-        topViewportLine.isUserInteractionEnabled = false
-        view.addSubview(topViewportLine)
-
-        bottomViewportLine.translatesAutoresizingMaskIntoConstraints = false
-        bottomViewportLine.backgroundColor = .systemRed
-        bottomViewportLine.isUserInteractionEnabled = false
-        view.addSubview(bottomViewportLine)
-
-        NSLayoutConstraint.activate([
-            topViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topViewportLine.heightAnchor.constraint(equalToConstant: 2),
-
-            bottomViewportLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomViewportLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomViewportLine.heightAnchor.constraint(equalToConstant: 2),
-            bottomViewportLine.bottomAnchor.constraint(equalTo: inputContainer.topAnchor, constant: -viewportPadding),
-        ])
-    }
-
-    private func updateViewportGuides() {
+    private func updateOcclusionLayout() {
         let topInset = tableView.adjustedContentInset.top
         let extraTopPadding: CGFloat = 16
         let topViewportY = topInset + extraTopPadding
 
         topBlurHeightConstraint?.constant = topViewportY
 
-        topGuideConstraint?.isActive = false
-        topGuideConstraint = topViewportLine.topAnchor.constraint(equalTo: view.topAnchor, constant: topViewportY)
-        topGuideConstraint?.isActive = true
-
         view.bringSubviewToFront(topBlurView)
         view.bringSubviewToFront(bottomBlurView)
         view.bringSubviewToFront(inputContainer)
         view.bringSubviewToFront(scrollToBottomButton)
-        view.bringSubviewToFront(topViewportLine)
-        view.bringSubviewToFront(bottomViewportLine)
     }
 
     private func updateTableViewInsets() {
