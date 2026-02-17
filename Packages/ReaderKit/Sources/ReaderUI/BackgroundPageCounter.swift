@@ -135,8 +135,10 @@ public final class BackgroundPageCounter {
             }
 
             do {
-                // Load section on-demand (this caches it in LazyChapter for later use)
-                let section = try lazyChapter.section(at: index)
+                // Load section off main thread (ZIP I/O + HTML parsing can block for seconds)
+                let section = try await Task.detached(priority: .utility) {
+                    try lazyChapter.section(at: index)
+                }.value
 
                 let pageCount = try await countPages(
                     for: section,

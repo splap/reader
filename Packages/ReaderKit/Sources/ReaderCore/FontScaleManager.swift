@@ -13,14 +13,14 @@ public final class FontScaleManager {
     /// The notification object is the new CGFloat scale value
     public static let fontScaleDidChangeNotification = Notification.Name("FontScaleDidChange")
 
-    /// The current font scale (1.0 to 1.8)
+    /// The current font scale (1.0 to 2.2)
     public var fontScale: CGFloat {
         get {
             let stored = UserDefaults.standard.double(forKey: Self.fontScaleKey)
             return stored > 0 ? CGFloat(stored) : Self.defaultFontScale
         }
         set {
-            let clamped = max(1.0, min(1.8, newValue))
+            let clamped = max(1.0, min(2.2, newValue))
             UserDefaults.standard.set(Double(clamped), forKey: Self.fontScaleKey)
             NotificationCenter.default.post(
                 name: Self.fontScaleDidChangeNotification,
