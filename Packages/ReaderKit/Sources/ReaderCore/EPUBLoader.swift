@@ -21,6 +21,7 @@ public struct SpineItem {
 public struct SpineMetadata {
     public let epubURL: URL
     public let title: String?
+    public let author: String?
     public let spineItems: [SpineItem]
     public let ncxLabels: [String: String]
     public let hrefToSpineItemId: [String: String]
@@ -31,6 +32,7 @@ public struct SpineMetadata {
     public init(
         epubURL: URL,
         title: String?,
+        author: String? = nil,
         spineItems: [SpineItem],
         ncxLabels: [String: String],
         hrefToSpineItemId: [String: String],
@@ -40,6 +42,7 @@ public struct SpineMetadata {
     ) {
         self.epubURL = epubURL
         self.title = title
+        self.author = author
         self.spineItems = spineItems
         self.ncxLabels = ncxLabels
         self.hrefToSpineItemId = hrefToSpineItemId
@@ -284,6 +287,7 @@ public final class EPUBLoader {
         return SpineMetadata(
             epubURL: url,
             title: package.title,
+            author: package.author,
             spineItems: spineItems,
             ncxLabels: ncxLabels,
             hrefToSpineItemId: hrefToSpineItemId,
@@ -461,12 +465,15 @@ private final class EPUBContainerParser: NSObject, XMLParserDelegate {
 
 private final class EPUBPackageParser: NSObject, XMLParserDelegate {
     private(set) var title: String?
+    private(set) var author: String?
     private(set) var manifest: [String: EPUBManifestItem] = [:]
     private(set) var spine: [String] = []
 
     private let packagePath: String
     private var readingTitle = false
     private var titleBuffer = ""
+    private var readingCreator = false
+    private var creatorBuffer = ""
 
     init(packagePath: String) {
         self.packagePath = packagePath
@@ -480,6 +487,11 @@ private final class EPUBPackageParser: NSObject, XMLParserDelegate {
         let trimmedTitle = titleBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
             title = trimmedTitle
+        }
+
+        let trimmedCreator = creatorBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedCreator.isEmpty {
+            author = trimmedCreator
         }
     }
 
@@ -515,12 +527,19 @@ private final class EPUBPackageParser: NSObject, XMLParserDelegate {
                 readingTitle = true
                 titleBuffer = ""
             }
+            if elementName.hasSuffix("creator") || qName?.hasSuffix("creator") == true {
+                readingCreator = true
+                creatorBuffer = ""
+            }
         }
     }
 
     func parser(_: XMLParser, foundCharacters string: String) {
         if readingTitle {
             titleBuffer.append(string)
+        }
+        if readingCreator {
+            creatorBuffer.append(string)
         }
     }
 
@@ -532,6 +551,9 @@ private final class EPUBPackageParser: NSObject, XMLParserDelegate {
     ) {
         if elementName.hasSuffix("title") || qName?.hasSuffix("title") == true {
             readingTitle = false
+        }
+        if elementName.hasSuffix("creator") || qName?.hasSuffix("creator") == true {
+            readingCreator = false
         }
     }
 }

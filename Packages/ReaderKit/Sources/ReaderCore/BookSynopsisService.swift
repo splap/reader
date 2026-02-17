@@ -225,11 +225,11 @@ public actor BookSynopsisService {
                 conceptMap: conceptMap
             )
         } else {
-            // Fallback: basic prompt
+            // Fallback: use chapter titles from table of contents
             buildBasicSynopsisPrompt(
                 bookTitle: bookTitle,
                 bookAuthor: bookAuthor,
-                chapterCount: chapters.count
+                chapters: chapters
             )
         }
 
@@ -365,7 +365,7 @@ public actor BookSynopsisService {
     private func buildBasicSynopsisPrompt(
         bookTitle: String,
         bookAuthor: String?,
-        chapterCount: Int
+        chapters: [SectionInfo]
     ) -> String {
         var prompt = """
         Provide a synopsis for "\(bookTitle)"
@@ -375,15 +375,28 @@ public actor BookSynopsisService {
             prompt += " by \(author)"
         }
 
+        prompt += ".\n\n"
+
+        // Include table of contents so the LLM has actual book structure
+        let chapterTitles = chapters.enumerated().compactMap { index, chapter -> String? in
+            let label = chapter.ncxLabel ?? chapter.title
+            guard let label else { return nil }
+            return "\(index + 1). \(label)"
+        }
+
+        if !chapterTitles.isEmpty {
+            prompt += "Table of contents:\n\(chapterTitles.joined(separator: "\n"))\n\n"
+        } else {
+            prompt += "The book has \(chapters.count) chapters.\n\n"
+        }
+
         prompt += """
-        .
-
-        The book has \(chapterCount) chapters.
-
-        Provide:
+        Based on the table of contents above, provide:
         1. A synopsis of the book (2-3 paragraphs)
-        2. Main characters with brief descriptions (if known)
-        3. Main themes (if known)
+        2. Main characters with brief descriptions
+        3. Main themes
+
+        IMPORTANT: Base your synopsis on the chapter titles provided. Do not confuse this book with other books of a similar title.
 
         Format your response as:
         SYNOPSIS:
@@ -396,8 +409,6 @@ public actor BookSynopsisService {
         THEMES:
         - [theme 1]
         ...
-
-        If you're not familiar with this book, say so and provide what you can.
         """
 
         return prompt

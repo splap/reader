@@ -94,10 +94,11 @@ public final class ReaderBookContext: BookContext {
         self.epubURL = epubURL
         self._bookId = bookId
         self._bookTitle = bookTitle
-        self._bookAuthor = bookAuthor
-
         // Load spine metadata (fast - no content parsing)
         self.spineMetadata = try loader.loadSpineMetadata(from: epubURL)
+
+        // Use provided author, or fall back to EPUB metadata for older imports
+        self._bookAuthor = bookAuthor ?? spineMetadata.author
 
         // Set current spine item ID from index
         if currentSpineIndex < spineMetadata.spineItems.count {

@@ -137,11 +137,12 @@ public final class BookLibraryService {
 
         // Extract metadata
         let fileURL = booksDirectory.appendingPathComponent(filePath)
-        let (title, _) = extractMetadata(from: fileURL)
+        let (title, author) = extractMetadata(from: fileURL)
 
         // Create book record
         let book = Book(
             title: title,
+            author: author,
             filePath: filePath,
             importDate: Date(),
             lastOpenedDate: nil
@@ -366,8 +367,11 @@ public final class BookLibraryService {
     private func extractMetadata(from epubURL: URL) -> (title: String, author: String?) {
         do {
             let loader = EPUBLoader()
-            let chapter = try loader.loadChapter(from: epubURL, maxSections: 1)
-            return (title: chapter.title ?? epubURL.deletingPathExtension().lastPathComponent, author: nil)
+            let metadata = try loader.loadSpineMetadata(from: epubURL)
+            return (
+                title: metadata.title ?? epubURL.deletingPathExtension().lastPathComponent,
+                author: metadata.author
+            )
         } catch {
             Self.logger.error("Failed to extract metadata: \(error.localizedDescription)")
             return (title: epubURL.deletingPathExtension().lastPathComponent, author: nil)
